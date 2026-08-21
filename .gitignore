@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+.wrangler/
+dist/
+coverage/
+.dev.vars
+.env*
+!.env.example
+AGENTS.md
+sources/
