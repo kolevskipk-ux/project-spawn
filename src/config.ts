@@ -5,6 +5,11 @@ Watch list:
 - Pokemon TCG 30th Anniversary / 30th Celebration products
 - Pokemon TCG Ascended Heroes products
 
+Operator-approved retailers:
+- Monsters & Spells (monstersandspells.com)
+
+Treat operator-approved retailers as trusted for merchant-status labeling. Do not add an unverified-merchant disclaimer solely because independent review coverage is limited. Continue to verify each product page's current availability, price, preorder status, and delivery timing independently.
+
 Return only evidence you can support with the pages you inspected. Keep evidence concise. A listing is available only when the page has a current purchase action and is not marked sold out.`;
 
 export const RESPONSE_SCHEMA = {
@@ -35,4 +40,3 @@ export const RESPONSE_SCHEMA = {
     }
   }
 } as const;
-
