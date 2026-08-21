@@ -19,7 +19,7 @@
     {
       "binding": "SPAWN_DB",
       "database_name": "project-spawn",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "8fd44e8d-9ffc-4f9b-8c2c-f6ba1a9827aa",
       "migrations_dir": "migrations"
     }
   ],
