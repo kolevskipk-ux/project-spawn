@@ -18,6 +18,10 @@ Operator-approved retailers:
 
 Treat operator-approved retailers as trusted for merchant-status labeling. Do not add an unverified-merchant disclaimer solely because independent review coverage is limited. Continue to verify each product page's current availability, price, preorder status, and delivery timing independently.
 
+For every listing, identify the product language only from explicit product-page text or legible packaging imagery. Use unknown when the language cannot be confirmed; never infer it from the retailer's country or page language.
+
+For MSRP, use only a clearly stated manufacturer/distributor recommended retail price or an equivalent primary source. Return the MXN amount and direct source URL. If no reliable MSRP is available, return null rather than estimating or treating the current asking price as MSRP.
+
 Return only evidence you can support with the pages you inspected. Keep evidence concise. A listing is available only when the page has a current purchase action and is not marked sold out.`;
 
 export const RESPONSE_SCHEMA = {
@@ -34,15 +38,22 @@ export const RESPONSE_SCHEMA = {
     changes: { type: "array", items: { type: "string" }, maxItems: 10 },
     listings: {
       type: "array",
-      maxItems: 25,
+      maxItems: 30,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "retailer", "url", "status", "price_mxn", "evidence"],
+        required: ["title", "watch_category", "retailer", "retailer_sku", "url", "status", "price_mxn", "language", "language_evidence", "msrp_mxn", "msrp_source_url", "evidence"],
         properties: {
-          title: { type: "string" }, retailer: { type: "string" }, url: { type: "string" },
+          title: { type: "string" },
+          watch_category: { type: "string", enum: ["30th_celebration", "ascended_heroes"] },
+          retailer: { type: "string" }, retailer_sku: { type: ["string", "null"] }, url: { type: "string" },
           status: { type: "string", enum: ["available", "sold_out", "unknown"] },
-          price_mxn: { type: ["number", "null"] }, evidence: { type: "string" }
+          price_mxn: { type: ["number", "null"] },
+          language: { type: "string", enum: ["english", "spanish", "bilingual", "japanese", "unknown"] },
+          language_evidence: { type: "string" },
+          msrp_mxn: { type: ["number", "null"] },
+          msrp_source_url: { type: ["string", "null"] },
+          evidence: { type: "string" }
         }
       }
     }

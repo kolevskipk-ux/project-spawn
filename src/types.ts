@@ -6,16 +6,32 @@ export interface Env {
   OPENAI_MODEL: string;
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
+  PUBLIC_BASE_URL: string;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 
 export interface Listing {
   title: string;
+  watch_category: "30th_celebration" | "ascended_heroes";
   retailer: string;
+  retailer_sku: string | null;
   url: string;
   status: "available" | "sold_out" | "unknown";
   price_mxn: number | null;
+  language: "english" | "spanish" | "bilingual" | "japanese" | "unknown";
+  language_evidence: string;
+  msrp_mxn: number | null;
+  msrp_source_url: string | null;
   evidence: string;
+}
+
+export type ChangeType = "baseline" | "new" | "restock" | "price_drop" | "unchanged";
+
+export interface InventoryChange {
+  listingKey: string;
+  type: ChangeType;
+  previousPrice: number | null;
+  listing: Listing;
 }
 
 export interface ScanResult {
@@ -28,4 +44,3 @@ export interface ScanResult {
   changes: string[];
   listings: Listing[];
 }
-
