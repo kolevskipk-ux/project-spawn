@@ -12,7 +12,7 @@ GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits 
 
 1. Create an empty private GitHub repository named `project-spawn`.
 2. Commit and push this project to its `main` branch.
-3. Install dependencies with `pnpm install`, then run `pnpm check`.
+3. Install dependencies with `pnpm install`, then run `pnpm run check`.
 4. Log in to Cloudflare from this folder with `npx wrangler login`.
 5. Create D1: `npx wrangler d1 create project-spawn`.
 6. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.jsonc` with the returned database ID and commit that change.
@@ -20,9 +20,9 @@ GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits 
    - `npx wrangler secret put OPENAI_API_KEY`
    - `npx wrangler secret put DISCORD_WEBHOOK_URL`
    - `npx wrangler secret put RUN_TOKEN`
-8. Apply the schema once: `pnpm db:migrate:remote`.
+8. Apply the schema once: `pnpm run db:migrate:remote`.
 9. In Cloudflare: **Workers & Pages → Create application → Import a repository**. Select the GitHub repository and production branch `main`.
-10. Confirm the Worker name is `project-spawn`. Use deploy command `pnpm deploy`. Save and deploy.
+10. Confirm the Worker name is `project-spawn`. Use deploy command `pnpm run deploy`. Save and deploy.
 11. Open `https://project-spawn.<your-subdomain>.workers.dev/healthz` and `/readyz`.
 12. Trigger the first scan with `POST /run` and header `Authorization: Bearer <RUN_TOKEN>`.
 
@@ -30,7 +30,7 @@ The cron is `5 * * * *` (five minutes after every UTC hour). Display timestamps 
 
 ## Safe release and rollback
 
-- Work on a branch and open a pull request. Merge only after `pnpm check` passes.
+- Work on a branch and open a pull request. Merge only after `pnpm run check` passes.
 - Database migrations are committed, numbered, and forward-only. Prefer additive schema changes so an older Worker remains compatible.
 - Roll back code in **Cloudflare → Worker → Deployments → Version history → Deploy version**, or revert the GitHub commit. Then fix `main` so repository truth matches production.
 - Never put API keys or webhook URLs in GitHub. They are Cloudflare Worker secrets.
