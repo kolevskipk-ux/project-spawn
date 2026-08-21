@@ -23,6 +23,26 @@ describe("discordText", () => {
 
     expect(message).toContain("SPAWN — Hourly Scan");
     expect(message).toContain("Ascended Heroes ETB");
+    expect(message).not.toContain("Sources scanned");
+    expect(message).not.toContain("One listing became available");
+    expect(message).not.toContain("No material changes.");
     expect(message.length).toBeLessThanOrEqual(1950);
+  });
+
+  it("does not disclose internal scan diagnostics when nothing is available", () => {
+    const message = discordText({
+      summary: "A retailer was blocked during inspection.",
+      sources_scanned: 4,
+      listings_evaluated: 7,
+      available: 0,
+      sold_out: 3,
+      unknown: 4,
+      changes: ["Blocked retailer details"],
+      listings: []
+    }, new Date("2026-08-20T12:00:00Z"), "America/Mexico_City");
+
+    expect(message).toContain("No verified availability to report this hour.");
+    expect(message).not.toContain("blocked");
+    expect(message).not.toContain("Sources scanned");
   });
 });

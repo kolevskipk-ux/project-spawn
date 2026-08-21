@@ -5,6 +5,14 @@ Watch list:
 - Pokemon TCG 30th Anniversary / 30th Celebration products
 - Pokemon TCG Ascended Heroes products
 
+Mandatory baseline retailers to check every scan:
+- Juguetibici (juguetibici.com)
+- Liverpool Mexico (liverpool.com.mx)
+- Walmart Mexico (walmart.com.mx)
+- Sanborns (sanborns.com.mx)
+
+Search beyond these baseline retailers when useful, but never omit them from the hourly review.
+
 Operator-approved retailers:
 - Monsters & Spells (monstersandspells.com)
 

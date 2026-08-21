@@ -11,7 +11,7 @@
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "SPAWN_TIMEZONE": "America/Mexico_City",
-    "SPAWN_CONFIG_VERSION": "2"
+    "SPAWN_CONFIG_VERSION": "3"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"

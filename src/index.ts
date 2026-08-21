@@ -35,17 +35,15 @@ async function callOpenAI(env: Env): Promise<ScanResult> {
 
 function discordText(result: ScanResult, timestamp: Date, timezone: string): string {
   const when = new Intl.DateTimeFormat("en-MX", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }).format(timestamp);
-  const changes = result.changes.length ? result.changes.map((x) => `• ${x}`).join("\n") : "• No material changes";
   const available = result.listings.filter((x) => x.status === "available").slice(0, 5)
     .map((x) => `• **${x.title}** — ${x.retailer}${x.price_mxn == null ? "" : ` — $${x.price_mxn.toLocaleString("en-US")} MXN`}\n  ${x.url}`)
     .join("\n");
   return [
     "🐣 **SPAWN — Hourly Scan**", `🕐 ${when}`, "",
-    `Sources scanned: **${result.sources_scanned}** · Listings evaluated: **${result.listings_evaluated}**`,
-    `🟢 Available: **${result.available}** · 🔴 Sold out: **${result.sold_out}** · 🟡 Unknown: **${result.unknown}**`,
-    "", "✨ **Changes**", changes,
-    ...(available ? ["", "🎯 **Available now**", available] : []),
-    "", result.summary
+    "✅ Scheduled check completed.",
+    ...(available
+      ? ["", "🎯 **Verified availability**", available]
+      : ["", "No verified availability to report this hour."])
   ].join("\n").slice(0, 1950);
 }
 
@@ -113,4 +111,3 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export { discordText };
-
