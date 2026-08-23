@@ -17,6 +17,7 @@ export function canonicalizeUrl(value: string): string {
       if (key.startsWith("utm_") || ["fbclid", "gclid"].includes(key)) url.searchParams.delete(key);
     }
     url.hostname = url.hostname.toLowerCase();
+    if (/\/en\/products\//i.test(url.pathname)) url.pathname = url.pathname.replace(/^\/en\/products\//i, "/products/");
     url.pathname = url.pathname.replace(/\/$/, "") || "/";
     return url.toString();
   } catch {
@@ -46,10 +47,17 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 export async function updateInventory(env: Env, scanId: string, listings: Listing[], observedAt: string): Promise<{ baseline: boolean; changes: InventoryChange[] }> {
-  const prepared = await Promise.all(listings.map(async (listing) => {
+  const rawPrepared = await Promise.all(listings.map(async (listing) => {
     const canonicalUrl = canonicalizeUrl(listing.url);
     return { listing, canonicalUrl, listingKey: await hash(canonicalUrl) };
   }));
+  const uniquePrepared = new Map<string, (typeof rawPrepared)[number]>();
+  for (const item of rawPrepared) {
+    const existing = uniquePrepared.get(item.listingKey);
+    if (!existing || (existing.listing.status !== "available" && item.listing.status === "available") ||
+      (existing.listing.price_mxn == null && item.listing.price_mxn != null)) uniquePrepared.set(item.listingKey, item);
+  }
+  const prepared = [...uniquePrepared.values()];
   const state = await env.SPAWN_DB.prepare("SELECT value FROM worker_state WHERE key = 'inventory_initialized'").first<{ value: string }>();
   const baseline = !state;
   const keys = prepared.map((item) => item.listingKey);

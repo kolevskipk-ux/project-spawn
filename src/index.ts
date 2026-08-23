@@ -1,4 +1,5 @@
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
+import { boardHeaders, boardRows, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
 import type { Env, InventoryChange, ScanResult } from "./types";
 
@@ -24,7 +25,7 @@ async function callOpenAI(env: Env): Promise<ScanResult> {
 }
 
 const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")} MXN`;
-const languageLabel = (language: InventoryChange["listing"]["language"]) => ({ english: "English", spanish: "Spanish", bilingual: "Bilingual", japanese: "Japanese", unknown: "Language unconfirmed" })[language];
+const languageLabel = (language: InventoryChange["listing"]["language"]) => ({ english: "English", spanish: "Spanish", bilingual: "Bilingual", japanese: "Japanese", chinese: "Chinese", unknown: "Language unconfirmed" })[language];
 
 function valueLine(change: InventoryChange): string {
   const { price_mxn: price, msrp_mxn: msrp } = change.listing;
@@ -101,13 +102,13 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
 }
 
 const authorized = (request: Request, env: Env) => request.headers.get("authorization") === `Bearer ${env.RUN_TOKEN}`;
+const boardAuthorized = (url: URL, env: Env) => Boolean(env.BOARD_ACCESS_TOKEN) && url.searchParams.get("access") === env.BOARD_ACCESS_TOKEN;
 const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 async function inventoryCsv(env: Env): Promise<Response> {
-  const rows = await env.SPAWN_DB.prepare(`SELECT title, watch_category, retailer, retailer_sku, language, price_mxn, msrp_mxn, status, last_change_type,
-    first_seen_at, last_seen_at, canonical_url FROM inventory ORDER BY status='available' DESC, last_seen_at DESC`).all<Record<string, unknown>>();
-  const columns = ["title", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "msrp_mxn", "status", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
-  const body = [columns.join(","), ...rows.results.map((row) => columns.map((column) => csvCell(row[column])).join(","))].join("\r\n");
+  const rows = await boardRows(env);
+  const columns = ["title", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "amazon_launch_mxn", "collectr_usd", "status", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
+  const body = [columns.join(","), ...rows.map((row) => columns.map((column) => csvCell(row[column as keyof typeof row])).join(","))].join("\r\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=spawn-inventory.csv", "cache-control": "no-store" } });
 }
 
@@ -131,7 +132,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     catch { return json({ ok: false, database: "unreachable" }, 503); }
   }
   if (request.method === "GET" && url.pathname === "/version") return json({ version: env.CF_VERSION_METADATA ?? { id: "local" }, config_version: env.SPAWN_CONFIG_VERSION, model: env.OPENAI_MODEL });
-  if (request.method === "GET" && url.pathname === "/inventory.csv") { if (!authorized(request, env)) return json({ error: "unauthorized" }, 401); return inventoryCsv(env); }
+  if (request.method === "GET" && url.pathname === "/inventory") {
+    if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+    return new Response(renderBoard(await boardRows(env), env.BOARD_ACCESS_TOKEN), { headers: boardHeaders() });
+  }
+  if (request.method === "GET" && url.pathname === "/inventory.csv") {
+    if (!authorized(request, env) && !boardAuthorized(url, env)) return json({ error: "unauthorized" }, 401);
+    return inventoryCsv(env);
+  }
   if (request.method === "POST" && url.pathname === "/run") {
     if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
     try { const scan = await runScan(env, "manual"); return json({ ok: true, scan_id: scan.id, result: scan.result }); }

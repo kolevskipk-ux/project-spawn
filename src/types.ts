@@ -7,6 +7,7 @@ export interface Env {
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
   PUBLIC_BASE_URL: string;
+  BOARD_ACCESS_TOKEN: string;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 
@@ -18,7 +19,7 @@ export interface Listing {
   url: string;
   status: "available" | "sold_out" | "unknown";
   price_mxn: number | null;
-  language: "english" | "spanish" | "bilingual" | "japanese" | "unknown";
+  language: "english" | "spanish" | "bilingual" | "japanese" | "chinese" | "unknown";
   language_evidence: string;
   msrp_mxn: number | null;
   msrp_source_url: string | null;
