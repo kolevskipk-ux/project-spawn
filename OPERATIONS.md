@@ -33,6 +33,8 @@ Before material maintenance, retrieve and record a D1 Time Travel bookmark. Foll
 
 Availability scans never overwrite curated Amazon launch or Collectr references. Follow `PRICING_CATALOG.md`, preserve source URLs and capture dates, and label comparable launch values as proxies.
 
+Catch Em All observations enter `benchmark_candidates` as pending evidence and cannot overwrite `products`. Follow `CATCH_INTEGRATION.md`. Review candidate identity and seller evidence before approval.
+
 ## Tester review
 
 Use `TESTER_REVIEW.md` for the seven-day protocol. Preserve historical observations when correcting current inventory; do not delete evidence merely to improve review metrics.

@@ -11,6 +11,7 @@
 | Inventory Board | Revocable shared token during private review; replace before member launch |
 | Production hostname | `spawn.aztlan-eng.com`; `workers.dev` is disabled after migration verification |
 | Feedback links | 30-day expiry, edge rate limit, per-alert ceiling, anonymous device receipt deduplication |
+| Catch benchmark intake | Dedicated HMAC secret, five-minute replay window, strict Amazon-only schema, edge rate limit, idempotent event IDs |
 | D1 state | No destructive or reset endpoint; additive migrations; Cloudflare Time Travel recovery |
 | Deployments | GitHub `main` is source of truth; Cloudflare secrets are not stored in Git |
 
@@ -52,6 +53,7 @@ Free-plan recovery history is shorter than paid-plan history. For retention beyo
 - `DISCORD_WEBHOOK_URL`
 - `RUN_TOKEN`
 - `BOARD_ACCESS_TOKEN`
+- `CATCH_INGEST_SECRET`
 - Future Discord OAuth client secret
 - Future session-signing key
 

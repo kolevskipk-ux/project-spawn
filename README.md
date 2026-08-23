@@ -25,6 +25,7 @@ Discord receives a deliberately minimal subscriber-facing report: check completi
    - `npx wrangler secret put DISCORD_WEBHOOK_URL`
    - `npx wrangler secret put RUN_TOKEN`
    - `npx wrangler secret put BOARD_ACCESS_TOKEN`
+   - `npx wrangler secret put CATCH_INGEST_SECRET`
 8. Apply the schema once: `pnpm run db:migrate:remote`.
 9. In Cloudflare: **Workers & Pages → Create application → Import a repository**. Select the GitHub repository and production branch `main`.
 10. Confirm the Worker name is `project-spawn`. Use deploy command `pnpm run deploy`. Save and deploy.
@@ -50,6 +51,11 @@ The cron is `5 * * * *` (five minutes after every UTC hour). Display timestamps 
 - `GET /inventory?access=...`: protected read-only Inventory Board.
 - `GET /inventory.csv?access=...`: protected Excel/CSV export.
 - `POST /run`: authenticated manual scan for smoke tests and recovery.
+- `POST /internal/benchmark-candidates`: signed Catch Em All price-observation intake; candidates remain pending until reviewed.
+
+## Catch Em All integration
+
+Catch Em All can submit signed Amazon México price observations to Spawn's durable benchmark-candidate inbox. The integration is one-way and review-gated; automated observations cannot overwrite curated benchmark prices. See `CATCH_INTEGRATION.md`.
 
 ## Updating the watch list
 

@@ -2,6 +2,7 @@ import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
 import { boardHeaders, boardRows, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
 import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
+import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature } from "./benchmarks";
 import type { Env, InventoryChange, ScanResult } from "./types";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -148,8 +149,28 @@ async function handleFeedback(request: Request, url: URL, env: Env): Promise<Res
   return new Response(`<!doctype html><meta name="viewport" content="width=device-width"><title>Spawn feedback</title><body style="font:18px system-ui;max-width:36rem;margin:15vh auto;padding:1rem;background:#101114;color:#fff"><h1>${duplicate ? "Already recorded" : "Thanks!"}</h1><p>${duplicate ? "This feedback was already recorded from this device." : "Your anonymous feedback was recorded."} You can close this page and return to Discord.</p></body>`, { headers });
 }
 
+async function handleCatchIngest(request: Request, env: Env): Promise<Response> {
+  if (!await allowedBy(env.INGEST_RATE_LIMIT, "catch_em_all")) return json({ error: "rate_limited" }, 429);
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > 16_384) return json({ error: "payload_too_large" }, 413);
+  const body = await request.text();
+  const timestamp = request.headers.get("x-spawn-timestamp");
+  const signature = request.headers.get("x-spawn-signature");
+  if (!await verifyCatchSignature(env.CATCH_INGEST_SECRET, timestamp, signature, body)) return json({ error: "unauthorized" }, 401);
+  let parsed: unknown;
+  try { parsed = JSON.parse(body); } catch { return json({ error: "invalid_payload" }, 400); }
+  const candidate = parseBenchmarkCandidate(parsed);
+  if (!candidate) return json({ error: "invalid_payload" }, 400);
+  const receivedAt = new Date().toISOString();
+  const created = await storeBenchmarkCandidate(env, candidate, receivedAt);
+  await auditSecurityEvent(env, created ? "benchmark_candidate_received" : "benchmark_candidate_duplicate", candidate.event_id,
+    { source_product_id: candidate.source_product_id, asin: candidate.asin }).catch(console.error);
+  return json({ ok: true, accepted: created }, 202);
+}
+
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (request.method === "POST" && url.pathname === "/internal/benchmark-candidates") return handleCatchIngest(request, env);
   const feedback = request.method === "GET" ? await handleFeedback(request, url, env) : null;
   if (feedback) return feedback;
   if (request.method === "GET" && !await allowedBy(env.PUBLIC_RATE_LIMIT, requestRateKey(request))) return json({ error: "rate_limited" }, 429);
@@ -161,14 +182,16 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/version") return json({ version: env.SPAWN_CONFIG_VERSION });
   if (request.method === "GET" && url.pathname === "/admin/status") {
     if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
-    const [lastSuccess, lock, cooldown, recent] = await Promise.all([
+    const [lastSuccess, lock, cooldown, recent, benchmarkCandidates] = await Promise.all([
       env.SPAWN_DB.prepare("SELECT value, updated_at FROM worker_state WHERE key='last_success'").first(),
       env.SPAWN_DB.prepare("SELECT owner, acquired_at, expires_at FROM scan_locks WHERE name='global_scan'").first(),
       env.SPAWN_DB.prepare("SELECT next_allowed_at, updated_at FROM run_cooldowns WHERE name='manual_scan'").first(),
-      env.SPAWN_DB.prepare("SELECT id, started_at, finished_at, trigger_source, status, config_version, error FROM scan_runs ORDER BY started_at DESC LIMIT 10").all()
+      env.SPAWN_DB.prepare("SELECT id, started_at, finished_at, trigger_source, status, config_version, error FROM scan_runs ORDER BY started_at DESC LIMIT 10").all(),
+      env.SPAWN_DB.prepare("SELECT review_status, COUNT(*) AS count FROM benchmark_candidates GROUP BY review_status").all()
     ]);
     return json({ ok: true, version: env.CF_VERSION_METADATA ?? { id: "local" }, config_version: env.SPAWN_CONFIG_VERSION, model: env.OPENAI_MODEL,
-      last_success: lastSuccess, scan_lock: lock, manual_cooldown: cooldown, recent_scans: recent.results });
+      last_success: lastSuccess, scan_lock: lock, manual_cooldown: cooldown, recent_scans: recent.results,
+      benchmark_candidates: benchmarkCandidates.results });
   }
   if (request.method === "GET" && url.pathname === "/inventory") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
