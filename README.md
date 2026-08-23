@@ -1,6 +1,6 @@
 # Project Spawn
 
-GitHub-backed Cloudflare Worker that performs an hourly OpenAI web scan, stores every run in D1, and posts a status report to Discord.
+GitHub-backed Cloudflare Worker that performs an hourly OpenAI web scan, maintains durable inventory in D1, posts meaningful changes to Discord, and serves a protected read-only inventory board.
 
 ## Architecture
 
@@ -22,6 +22,7 @@ Discord receives a deliberately minimal subscriber-facing report: check completi
    - `npx wrangler secret put OPENAI_API_KEY`
    - `npx wrangler secret put DISCORD_WEBHOOK_URL`
    - `npx wrangler secret put RUN_TOKEN`
+   - `npx wrangler secret put BOARD_ACCESS_TOKEN`
 8. Apply the schema once: `pnpm run db:migrate:remote`.
 9. In Cloudflare: **Workers & Pages → Create application → Import a repository**. Select the GitHub repository and production branch `main`.
 10. Confirm the Worker name is `project-spawn`. Use deploy command `pnpm run deploy`. Save and deploy.
@@ -43,6 +44,8 @@ The cron is `5 * * * *` (five minutes after every UTC hour). Display timestamps 
 - `GET /healthz`: process is serving traffic; no dependency checks.
 - `GET /readyz`: confirms D1 is reachable and returns the last successful scan record.
 - `GET /version`: deployed Cloudflare version metadata, config version, and model.
+- `GET /inventory?access=...`: protected read-only Inventory Board.
+- `GET /inventory.csv?access=...`: protected Excel/CSV export.
 - `POST /run`: authenticated manual scan for smoke tests and recovery.
 
 ## Updating the watch list
