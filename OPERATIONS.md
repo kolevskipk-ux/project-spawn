@@ -8,13 +8,19 @@
 4. Run an authenticated `POST /run`. A 502 response distinguishes OpenAI or Discord failures.
 5. If a recent release caused the failure, deploy the previous version in Cloudflare and revert the corresponding GitHub commit.
 
+Use the bearer-protected `/admin/status` endpoint for detailed readiness and recent scan diagnostics. Public `/readyz` intentionally returns only healthy or unhealthy.
+
 ## Secret rotation
 
 Set the replacement with `wrangler secret put`, run a manual scan, and only then revoke the old credential at its provider.
 
+Manual scans are globally serialized and limited to one accepted start every 15 minutes. A rejected manual run does not call OpenAI or post to Discord.
+
 ## Database changes
 
 Create a numbered migration, test it locally, back up/export production D1, and keep the migration backward-compatible with the currently deployed Worker. Do not edit a migration after it has reached production.
+
+Before material maintenance, retrieve and record a D1 Time Travel bookmark. Follow `SECURITY.md`; never add a public reset or general-purpose database endpoint.
 
 ## Inventory Board access
 

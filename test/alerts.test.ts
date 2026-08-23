@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { alertText, heartbeatText } from "../src/index";
+import { alertText, handleFetch, heartbeatText } from "../src/index";
 import { canonicalizeUrl, classifyListing } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
-import type { InventoryChange, Listing } from "../src/types";
+import { feedbackClientNonce, requestRateKey } from "../src/security";
+import type { Env, InventoryChange, Listing } from "../src/types";
 
 const listing = (overrides: Partial<Listing> = {}): Listing => ({
   title: "Pokemon TCG: 30th Celebration Elite Trainer Box",
@@ -84,5 +85,41 @@ describe("Inventory Board", () => {
     expect(html).toContain("+45%");
     expect(html).toContain("inventory.csv?access=private-token");
     expect(html).not.toContain("Night & Day <UPC>");
+  });
+});
+
+describe("security helpers", () => {
+  it("reuses a valid anonymous feedback receipt without storing identity", () => {
+    const id = "123e4567-e89b-12d3-a456-426614174000";
+    expect(feedbackClientNonce(new Request("https://example.com", { headers: { cookie: `other=x; spawn_feedback_id=${id}` } })))
+      .toEqual({ nonce: id, isNew: false });
+  });
+
+  it("uses Cloudflare's request key only for transient edge limiting", () => {
+    expect(requestRateKey(new Request("https://example.com", { headers: { "cf-connecting-ip": "192.0.2.10" } }))).toBe("192.0.2.10");
+    expect(requestRateKey(new Request("https://example.com"))).toBe("unknown");
+  });
+
+  const minimalEnv = {
+    RUN_TOKEN: "operator-secret", SPAWN_CONFIG_VERSION: "5.1", OPENAI_MODEL: "test", SPAWN_TIMEZONE: "America/Mexico_City",
+    OPENAI_API_KEY: "unused", DISCORD_WEBHOOK_URL: "unused", PUBLIC_BASE_URL: "https://example.com", BOARD_ACCESS_TOKEN: "board",
+    SPAWN_DB: {} as D1Database
+  } satisfies Env;
+
+  it("keeps public health and version responses minimal", async () => {
+    expect(await (await handleFetch(new Request("https://example.com/healthz"), minimalEnv)).json()).toEqual({ ok: true });
+    expect(await (await handleFetch(new Request("https://example.com/version"), minimalEnv)).json()).toEqual({ version: "5.1" });
+  });
+
+  it("does not disclose operator endpoint details without authorization", async () => {
+    const response = await handleFetch(new Request("https://example.com/admin/status"), minimalEnv);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("does not advertise endpoints from unknown routes", async () => {
+    const response = await handleFetch(new Request("https://example.com/"), minimalEnv);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
   });
 });

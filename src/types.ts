@@ -8,6 +8,9 @@ export interface Env {
   SPAWN_CONFIG_VERSION: string;
   PUBLIC_BASE_URL: string;
   BOARD_ACCESS_TOKEN: string;
+  PUBLIC_RATE_LIMIT?: RateLimit;
+  FEEDBACK_RATE_LIMIT?: RateLimit;
+  MANUAL_RATE_LIMIT?: RateLimit;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 

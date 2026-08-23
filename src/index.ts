@@ -1,6 +1,7 @@
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
 import { boardHeaders, boardRows, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
+import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
 import type { Env, InventoryChange, ScanResult } from "./types";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -62,7 +63,7 @@ async function postChange(env: Env, scanId: string, change: InventoryChange): Pr
   const token = crypto.randomUUID();
   const created = new Date();
   await env.SPAWN_DB.prepare("INSERT INTO feedback_tokens (token, scan_id, listing_key, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(token, scanId, change.listingKey, created.toISOString(), new Date(created.getTime() + 90 * 86400000).toISOString()).run();
+    .bind(token, scanId, change.listingKey, created.toISOString(), new Date(created.getTime() + 30 * 86400000).toISOString()).run();
   const feedback = (kind: string) => `${env.PUBLIC_BASE_URL}/feedback/${token}/${kind}`;
   return postDiscord(env, { content: alertText(change), components: [{ type: 1, components: [
     { type: 2, style: 5, label: "✅ Got one", url: feedback("got_one") },
@@ -73,31 +74,48 @@ async function postChange(env: Env, scanId: string, change: InventoryChange): Pr
 async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id: string; result: ScanResult }> {
   const id = crypto.randomUUID();
   const started = new Date();
-  await env.SPAWN_DB.prepare("INSERT INTO scan_runs (id, started_at, trigger_source, status, config_version, model) VALUES (?, ?, ?, 'running', ?, ?)")
-    .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
+  if (!await acquireScanLock(env, id, started)) {
+    await auditSecurityEvent(env, "scan_blocked_lock", id, { trigger_source: triggerSource }).catch(console.error);
+    throw new OperationalGuardError("scan_in_progress", 409);
+  }
   try {
-    const result = await callOpenAI(env);
-    const inventory = await updateInventory(env, id, result.listings, started.toISOString());
-    const actionable = inventory.changes.filter((change) => ["new", "restock", "price_drop"].includes(change.type)).slice(0, 5);
-    const messageIds: string[] = [];
-    if (actionable.length) {
-      for (const change of actionable) { const messageId = await postChange(env, id, change); if (messageId) messageIds.push(messageId); }
-    } else {
-      const messageId = await postDiscord(env, { content: heartbeatText(started, env.SPAWN_TIMEZONE, inventory.baseline) }); if (messageId) messageIds.push(messageId);
+    if (triggerSource === "manual") {
+      if (!await acquireManualCooldown(env, started)) {
+        await auditSecurityEvent(env, "manual_scan_blocked_cooldown", id).catch(console.error);
+        throw new OperationalGuardError("manual_cooldown", 429);
+      }
+      await auditSecurityEvent(env, "manual_scan_accepted", id).catch(console.error);
     }
-    const resultJson = JSON.stringify(result);
-    const resultHash = await sha256(resultJson);
-    const finished = new Date().toISOString();
-    await env.SPAWN_DB.batch([
-      env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=? WHERE id=?").bind(finished, resultJson, resultHash, messageIds.join(","), id),
-      env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
-        .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished)
-    ]);
-    return { id, result };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='failed', error=? WHERE id=?").bind(new Date().toISOString(), message.slice(0, 1000), id).run();
-    throw error;
+    await env.SPAWN_DB.prepare("INSERT INTO scan_runs (id, started_at, trigger_source, status, config_version, model) VALUES (?, ?, ?, 'running', ?, ?)")
+      .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
+    try {
+      const result = await callOpenAI(env);
+      const inventory = await updateInventory(env, id, result.listings, started.toISOString());
+      const actionable = inventory.changes.filter((change) => ["new", "restock", "price_drop"].includes(change.type)).slice(0, 5);
+      const messageIds: string[] = [];
+      if (actionable.length) {
+        for (const change of actionable) { const messageId = await postChange(env, id, change); if (messageId) messageIds.push(messageId); }
+      } else {
+        const messageId = await postDiscord(env, { content: heartbeatText(started, env.SPAWN_TIMEZONE, inventory.baseline) }); if (messageId) messageIds.push(messageId);
+      }
+      const resultJson = JSON.stringify(result);
+      const resultHash = await sha256(resultJson);
+      const finished = new Date().toISOString();
+      await env.SPAWN_DB.batch([
+        env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=? WHERE id=?").bind(finished, resultJson, resultHash, messageIds.join(","), id),
+        env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+          .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished)
+      ]);
+      if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
+      return { id, result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='failed', error=? WHERE id=?").bind(new Date().toISOString(), message.slice(0, 1000), id).run();
+      if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_failed", id, { error_class: error instanceof Error ? error.name : "unknown" }).catch(console.error);
+      throw error;
+    }
+  } finally {
+    await releaseScanLock(env, id).catch(console.error);
   }
 }
 
@@ -112,26 +130,46 @@ async function inventoryCsv(env: Env): Promise<Response> {
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=spawn-inventory.csv", "cache-control": "no-store" } });
 }
 
-async function handleFeedback(pathname: string, env: Env): Promise<Response | null> {
-  const match = pathname.match(/^\/feedback\/([^/]+)\/(got_one|too_expensive)$/);
+async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
+  const match = url.pathname.match(/^\/feedback\/([^/]+)\/(got_one|too_expensive)$/);
   if (!match) return null;
+  if (!await allowedBy(env.FEEDBACK_RATE_LIMIT, requestRateKey(request))) return new Response("Too many requests.", { status: 429, headers: { "retry-after": "60" } });
   const [, token, kind] = match;
   const record = await env.SPAWN_DB.prepare("SELECT listing_key, expires_at FROM feedback_tokens WHERE token=?").bind(token).first<{ listing_key: string; expires_at: string }>();
   if (!record || Date.parse(record.expires_at) < Date.now()) return new Response("This feedback link has expired.", { status: 410 });
-  await env.SPAWN_DB.prepare("INSERT INTO listing_feedback (token, listing_key, kind, created_at) VALUES (?, ?, ?, ?)").bind(token, record.listing_key, kind, new Date().toISOString()).run();
-  return new Response(`<!doctype html><meta name="viewport" content="width=device-width"><title>Spawn feedback</title><body style="font:18px system-ui;max-width:36rem;margin:15vh auto;padding:1rem;background:#101114;color:#fff"><h1>Thanks!</h1><p>Your anonymous feedback was recorded. You can close this page and return to Discord.</p></body>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  const count = await env.SPAWN_DB.prepare("SELECT COUNT(*) AS count FROM listing_feedback WHERE token=?").bind(token).first<{ count: number }>();
+  if ((count?.count ?? 0) >= 100) return new Response("Feedback is closed for this alert.", { status: 429 });
+  const client = feedbackClientNonce(request);
+  const result = await env.SPAWN_DB.prepare("INSERT OR IGNORE INTO listing_feedback (token, listing_key, kind, created_at, client_nonce) VALUES (?, ?, ?, ?, ?)")
+    .bind(token, record.listing_key, kind, new Date().toISOString(), client.nonce).run();
+  const duplicate = (result.meta.changes ?? 0) === 0;
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex" });
+  if (client.isNew) headers.append("set-cookie", `spawn_feedback_id=${client.nonce}; Max-Age=31536000; Path=/feedback/; Secure; HttpOnly; SameSite=Lax`);
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width"><title>Spawn feedback</title><body style="font:18px system-ui;max-width:36rem;margin:15vh auto;padding:1rem;background:#101114;color:#fff"><h1>${duplicate ? "Already recorded" : "Thanks!"}</h1><p>${duplicate ? "This feedback was already recorded from this device." : "Your anonymous feedback was recorded."} You can close this page and return to Discord.</p></body>`, { headers });
 }
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const feedback = request.method === "GET" ? await handleFeedback(url.pathname, env) : null;
+  const feedback = request.method === "GET" ? await handleFeedback(request, url, env) : null;
   if (feedback) return feedback;
-  if (request.method === "GET" && url.pathname === "/healthz") return json({ ok: true, service: "project-spawn", version: env.CF_VERSION_METADATA?.id ?? "local" });
+  if (request.method === "GET" && !await allowedBy(env.PUBLIC_RATE_LIMIT, requestRateKey(request))) return json({ error: "rate_limited" }, 429);
+  if (request.method === "GET" && url.pathname === "/healthz") return json({ ok: true });
   if (request.method === "GET" && url.pathname === "/readyz") {
-    try { return json({ ok: true, database: "reachable", last_success: await env.SPAWN_DB.prepare("SELECT value, updated_at FROM worker_state WHERE key='last_success'").first() }); }
-    catch { return json({ ok: false, database: "unreachable" }, 503); }
+    try { await env.SPAWN_DB.prepare("SELECT 1").first(); return json({ ok: true }); }
+    catch { return json({ ok: false }, 503); }
   }
-  if (request.method === "GET" && url.pathname === "/version") return json({ version: env.CF_VERSION_METADATA ?? { id: "local" }, config_version: env.SPAWN_CONFIG_VERSION, model: env.OPENAI_MODEL });
+  if (request.method === "GET" && url.pathname === "/version") return json({ version: env.SPAWN_CONFIG_VERSION });
+  if (request.method === "GET" && url.pathname === "/admin/status") {
+    if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const [lastSuccess, lock, cooldown, recent] = await Promise.all([
+      env.SPAWN_DB.prepare("SELECT value, updated_at FROM worker_state WHERE key='last_success'").first(),
+      env.SPAWN_DB.prepare("SELECT owner, acquired_at, expires_at FROM scan_locks WHERE name='global_scan'").first(),
+      env.SPAWN_DB.prepare("SELECT next_allowed_at, updated_at FROM run_cooldowns WHERE name='manual_scan'").first(),
+      env.SPAWN_DB.prepare("SELECT id, started_at, finished_at, trigger_source, status, config_version, error FROM scan_runs ORDER BY started_at DESC LIMIT 10").all()
+    ]);
+    return json({ ok: true, version: env.CF_VERSION_METADATA ?? { id: "local" }, config_version: env.SPAWN_CONFIG_VERSION, model: env.OPENAI_MODEL,
+      last_success: lastSuccess, scan_lock: lock, manual_cooldown: cooldown, recent_scans: recent.results });
+  }
   if (request.method === "GET" && url.pathname === "/inventory") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
     return new Response(renderBoard(await boardRows(env), env.BOARD_ACCESS_TOKEN), { headers: boardHeaders() });
@@ -142,14 +180,18 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   }
   if (request.method === "POST" && url.pathname === "/run") {
     if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    if (!await allowedBy(env.MANUAL_RATE_LIMIT, "global_manual_scan")) return json({ error: "rate_limited" }, 429);
     try { const scan = await runScan(env, "manual"); return json({ ok: true, scan_id: scan.id, result: scan.result }); }
-    catch (error) { return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 502); }
+    catch (error) {
+      if (error instanceof OperationalGuardError) return json({ ok: false, error: error.code }, error.status);
+      return json({ ok: false, error: "scan_failed" }, 502);
+    }
   }
-  return json({ service: "project-spawn", endpoints: ["/healthz", "/readyz", "/version"] }, 404);
+  return json({ error: "not_found" }, 404);
 }
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 
-export { alertText, heartbeatText };
+export { alertText, handleFetch, heartbeatText };

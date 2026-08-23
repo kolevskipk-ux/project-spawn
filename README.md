@@ -42,8 +42,9 @@ The cron is `5 * * * *` (five minutes after every UTC hour). Display timestamps 
 ## Health contract
 
 - `GET /healthz`: process is serving traffic; no dependency checks.
-- `GET /readyz`: confirms D1 is reachable and returns the last successful scan record.
-- `GET /version`: deployed Cloudflare version metadata, config version, and model.
+- `GET /readyz`: minimal public D1 reachability check.
+- `GET /version`: minimal public configuration version.
+- `GET /admin/status`: bearer-protected version, readiness, lock, cooldown, and recent-scan diagnostics.
 - `GET /inventory?access=...`: protected read-only Inventory Board.
 - `GET /inventory.csv?access=...`: protected Excel/CSV export.
 - `POST /run`: authenticated manual scan for smoke tests and recovery.

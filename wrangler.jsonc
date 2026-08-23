@@ -11,12 +11,29 @@
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "SPAWN_TIMEZONE": "America/Mexico_City",
-    "SPAWN_CONFIG_VERSION": "5",
+    "SPAWN_CONFIG_VERSION": "5.1",
     "PUBLIC_BASE_URL": "https://project-spawn.phil-kolevski.workers.dev"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"
   },
+  "ratelimits": [
+    {
+      "name": "PUBLIC_RATE_LIMIT",
+      "namespace_id": "7251001",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "FEEDBACK_RATE_LIMIT",
+      "namespace_id": "7251002",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "MANUAL_RATE_LIMIT",
+      "namespace_id": "7251003",
+      "simple": { "limit": 3, "period": 60 }
+    }
+  ],
   "d1_databases": [
     {
       "binding": "SPAWN_DB",
