@@ -8,6 +8,8 @@ GitHub-backed Cloudflare Worker that performs an hourly OpenAI web scan, maintai
 
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
 
+Production hostname: `https://spawn.aztlan-eng.com`. The custom domain is declared in `wrangler.jsonc`; do not create conflicting DNS records manually.
+
 Discord receives a deliberately minimal subscriber-facing report: check completion and verified purchasable listings only. Full scan diagnostics, rejected candidates, blocked sources, and model output remain private in D1 and Worker logs.
 
 ## One-time setup
