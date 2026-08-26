@@ -4,6 +4,9 @@ import { updateInventory } from "./inventory";
 import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
 import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature } from "./benchmarks";
 import type { Env, InventoryChange, ScanResult } from "./types";
+import { isQuietWindow, normalizeVendor } from "./garfield";
+import { dashboardData, renderDashboard } from "./dashboard";
+import { distributeWeeklyFeedback, handleWeeklyFeedback } from "./weekly-feedback";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -13,10 +16,12 @@ async function sha256(value: string): Promise<string> {
 }
 
 async function callOpenAI(env: Env): Promise<ScanResult> {
+  const suppressed = await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE status='SUPPRESSED'").all<{vendor_name:string}>();
+  const suppressionInstruction = suppressed.results.length ? ` Do not search, evaluate, or return listings from these suppressed vendors: ${suppressed.results.map(row=>row.vendor_name).join(", ")}.` : "";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", headers: { authorization: `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({ model: env.OPENAI_MODEL, instructions: SCAN_INSTRUCTIONS,
-      input: "Run the current hourly Spawn scan. Use web search and return the structured result.", tools: [{ type: "web_search" }],
+      input: `Run the current hourly Spawn scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search" }],
       text: { format: { type: "json_schema", name: "spawn_scan", strict: true, schema: RESPONSE_SCHEMA } }, store: false })
   });
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 500)}`);
@@ -40,7 +45,7 @@ function valueLine(change: InventoryChange): string {
 }
 
 function alertText(change: InventoryChange): string {
-  const badge = change.type === "new" ? "🆕 NEW LISTING" : change.type === "restock" ? "🔄 RESTOCK" : "📉 PRICE DROP";
+  const badge = change.type === "new" ? "🆕 NEW LISTING" : change.type === "restock" ? "🔄 RESTOCK" : change.type === "preorder_open" ? "🚀 PREORDER OPEN" : "📉 PRICE DROP";
   return [`**${badge}**`, `**${change.listing.title}**`, `${change.listing.retailer}${change.listing.price_mxn == null ? "" : ` — **${money(change.listing.price_mxn)}**`}`,
     `Language: **${languageLabel(change.listing.language)}**`, valueLine(change), change.listing.url].join("\n").slice(0, 1900);
 }
@@ -69,6 +74,7 @@ async function postChange(env: Env, scanId: string, change: InventoryChange): Pr
   return postDiscord(env, { content: alertText(change), components: [{ type: 1, components: [
     { type: 2, style: 5, label: "✅ Got one", url: feedback("got_one") },
     { type: 2, style: 5, label: "💸 Too expensive", url: feedback("too_expensive") }
+    ,{ type: 2, style: 5, label: "⚠️ Vendor Issue", url: `${env.PUBLIC_BASE_URL}/vendor-issue/${token}` }
   ] }] }, true);
 }
 
@@ -92,7 +98,7 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
     try {
       const result = await callOpenAI(env);
       const inventory = await updateInventory(env, id, result.listings, started.toISOString());
-      const actionable = inventory.changes.filter((change) => ["new", "restock", "price_drop"].includes(change.type)).slice(0, 5);
+      const actionable = inventory.changes.filter((change) => ["new", "restock", "preorder_open", "price_drop"].includes(change.type)).slice(0, 5);
       const messageIds: string[] = [];
       if (actionable.length) {
         for (const change of actionable) { const messageId = await postChange(env, id, change); if (messageId) messageIds.push(messageId); }
@@ -126,9 +132,56 @@ const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""'
 
 async function inventoryCsv(env: Env): Promise<Response> {
   const rows = await boardRows(env);
-  const columns = ["title", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "amazon_launch_mxn", "collectr_usd", "status", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
+  const columns = ["title", "print_series", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "amazon_launch_mxn", "collectr_usd", "value_classification", "status", "availability_state", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
   const body = [columns.join(","), ...rows.map((row) => columns.map((column) => csvCell(row[column as keyof typeof row])).join(","))].join("\r\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=spawn-inventory.csv", "cache-control": "no-store" } });
+}
+
+const html = (body: string, status = 200) => new Response(body, { status, headers:{ "content-type":"text/html; charset=utf-8", "cache-control":"no-store", "x-robots-tag":"noindex" } });
+
+async function handleVendorIssue(request: Request, url: URL, env: Env): Promise<Response | null> {
+  const match = url.pathname.match(/^\/vendor-issue\/([^/]+)$/); if (!match) return null;
+  const record = await env.SPAWN_DB.prepare(`SELECT i.retailer, f.expires_at FROM feedback_tokens f JOIN inventory i ON i.listing_key=f.listing_key WHERE f.token=?`).bind(match[1]).first<{retailer:string;expires_at:string}>();
+  if (!record || Date.parse(record.expires_at) < Date.now()) return html("<h1>Link expired</h1>", 410);
+  if (request.method === "GET") return html(`<!doctype html><meta name="viewport" content="width=device-width"><title>Vendor issue</title><body style="font:18px system-ui;max-width:36rem;margin:12vh auto;padding:1rem"><h1>Report ${record.retailer.replace(/[&<>]/g,"")}</h1><p>This queues the vendor for operator review. A confirmed report suppresses it across Spawn and Catch Em All until reinstated.</p><form method="post"><label>Reason<br><textarea name="reason" maxlength="500" required></textarea></label><br><button>Submit vendor issue</button></form></body>`);
+  if (request.method !== "POST") return null;
+  const form = await request.formData(), reason = String(form.get("reason") ?? "").trim().slice(0,500); if (!reason) return html("<h1>Reason required</h1>",400);
+  const key = normalizeVendor(record.retailer), now = new Date().toISOString(), reporter = request.headers.get("cf-access-authenticated-user-email") || null;
+  await env.SPAWN_DB.prepare(`INSERT INTO vendor_issue_reports(vendor_key,vendor_name,reported_at,reporter,reason) VALUES(?,?,?,?,?)`).bind(key,record.retailer,now,reporter,reason).run();
+  return html("<h1>Report queued</h1><p>An operator will review this vendor before any global suppression is applied.</p>");
+}
+
+async function sharedState(request: Request, url: URL, env: Env): Promise<Response | null> {
+  if (!url.pathname.startsWith("/internal/garfield/")) return null;
+  if (!env.CATCH_INGEST_SECRET || request.headers.get("authorization") !== `Bearer ${env.CATCH_INGEST_SECRET}`) return json({error:"unauthorized"},401);
+  if (request.method === "GET" && url.pathname === "/internal/garfield/vendors") {
+    const rows=await env.SPAWN_DB.prepare("SELECT vendor_key,vendor_name,status,updated_at FROM vendors").all(); return json({vendors:rows.results});
+  }
+  if (request.method === "GET" && url.pathname === "/internal/garfield/monitoring-candidates") {
+    const rows=await env.SPAWN_DB.prepare("SELECT * FROM monitoring_candidates WHERE status IN ('PENDING','ACCEPTED') ORDER BY discovered_at DESC LIMIT 200").all(); return json({candidates:rows.results});
+  }
+  if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
+    const rows=await env.SPAWN_DB.prepare("SELECT asin,product_name,product_url,watch_category,language,priority,lane,source,last_discovered_at FROM amazon_watchlist WHERE status='ACTIVE' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all();
+    return json({watchlist:rows.results});
+  }
+  return json({error:"not_found"},404);
+}
+
+async function adminVendor(request: Request, url: URL, env: Env): Promise<Response | null> {
+  const issue=url.pathname.match(/^\/admin\/vendor-issues\/(\d+)$/);
+  if(issue) {
+    if(!authorized(request,env)) return json({error:"unauthorized"},401); if(request.method!=="PUT") return json({error:"method_not_allowed"},405);
+    const body=await request.json().catch(()=>({})) as {decision?:string;reason?:string}; if(!["APPROVED","REJECTED"].includes(body.decision||"")) return json({error:"invalid_decision"},400);
+    const report=await env.SPAWN_DB.prepare("SELECT * FROM vendor_issue_reports WHERE id=? AND status='PENDING'").bind(Number(issue[1])).first<{vendor_key:string;vendor_name:string;reason:string}>(); if(!report) return json({error:"not_found"},404);
+    const now=new Date().toISOString(), statements=[env.SPAWN_DB.prepare("UPDATE vendor_issue_reports SET status=?,reviewed_at=?,review_reason=? WHERE id=?").bind(body.decision,now,body.reason??null,Number(issue[1]))];
+    if(body.decision==="APPROVED") statements.push(env.SPAWN_DB.prepare(`INSERT INTO vendors(vendor_key,vendor_name,status,updated_at,updated_by,reason) VALUES(?,?,'SUPPRESSED',?,'operator',?) ON CONFLICT(vendor_key) DO UPDATE SET status='SUPPRESSED',updated_at=excluded.updated_at,updated_by='operator',reason=excluded.reason`).bind(report.vendor_key,report.vendor_name,now,report.reason),env.SPAWN_DB.prepare(`INSERT INTO vendor_status_audit(vendor_key,vendor_name,status,reported_at,reporter,reason) VALUES(?,?,'SUPPRESSED',?,'operator',?)`).bind(report.vendor_key,report.vendor_name,now,report.reason));
+    await env.SPAWN_DB.batch(statements); return json({ok:true,status:body.decision});
+  }
+  const match=url.pathname.match(/^\/admin\/vendors\/([^/]+)$/); if(!match) return null;
+  if(!authorized(request,env)) return json({error:"unauthorized"},401); if(request.method!=="PUT") return json({error:"method_not_allowed"},405);
+  const body=await request.json().catch(()=>({})) as {status?:string;reason?:string}; if(!["ACTIVE","SUPPRESSED"].includes(body.status||"")) return json({error:"invalid_status"},400);
+  const current=await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE vendor_key=?").bind(match[1]).first<{vendor_name:string}>(); if(!current) return json({error:"not_found"},404);
+  const now=new Date().toISOString(); await env.SPAWN_DB.batch([env.SPAWN_DB.prepare("UPDATE vendors SET status=?,updated_at=?,updated_by='operator',reason=? WHERE vendor_key=?").bind(body.status,now,body.reason??null,match[1]),env.SPAWN_DB.prepare("INSERT INTO vendor_status_audit(vendor_key,vendor_name,status,reported_at,reporter,reason) VALUES(?,?,?,?,?,?)").bind(match[1],current.vendor_name,body.status,now,"operator",body.reason??null)]); return json({ok:true,status:body.status});
 }
 
 async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
@@ -170,6 +223,10 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const shared=await sharedState(request,url,env); if(shared) return shared;
+  const vendorAdmin=await adminVendor(request,url,env); if(vendorAdmin) return vendorAdmin;
+  const vendorIssue=await handleVendorIssue(request,url,env); if(vendorIssue) return vendorIssue;
+  const weeklyFeedback=await handleWeeklyFeedback(request,url,env); if(weeklyFeedback) return weeklyFeedback;
   if (request.method === "POST" && url.pathname === "/internal/benchmark-candidates") return handleCatchIngest(request, env);
   const feedback = request.method === "GET" ? await handleFeedback(request, url, env) : null;
   if (feedback) return feedback;
@@ -197,6 +254,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
     return new Response(renderBoard(await boardRows(env), env.BOARD_ACCESS_TOKEN), { headers: boardHeaders() });
   }
+  if (request.method === "GET" && url.pathname === "/dashboard") {
+    if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
+    return new Response(renderDashboard(await dashboardData(env), env.BOARD_ACCESS_TOKEN), { headers:boardHeaders() });
+  }
   if (request.method === "GET" && url.pathname === "/inventory.csv") {
     if (!authorized(request, env) && !boardAuthorized(url, env)) return json({ error: "unauthorized" }, 401);
     return inventoryCsv(env);
@@ -214,7 +275,9 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 }
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  ctx.waitUntil(distributeWeeklyFeedback(env).catch((error) => console.error("weekly feedback distribution failed", error)));
+  if (isQuietWindow(new Date(), env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 
-export { alertText, handleFetch, heartbeatText };
+export { alertText, handleFetch, heartbeatText, runScan };
