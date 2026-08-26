@@ -29,6 +29,13 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 - Delivery: short timeout, bounded retry, and fail open. Spawn failure must never interrupt monitoring, product state, or Discord alerts.
 - Data classification: observations are evidence. They enter Spawn as `pending` and cannot overwrite curated product or price-reference records automatically.
 
+### Shared vendor and discovery state
+
+- Spawn D1 is authoritative for reversible `ACTIVE` / `SUPPRESSED` vendor status and its audit history.
+- Catch reads the authenticated vendor snapshot and reusable monitoring-candidate feed with `CATCH_INGEST_SECRET`, caching the last successful result for five minutes.
+- A suppressed vendor is skipped before retrieval, state mutation, or alert delivery. Shared-state fetch failures use the last cached snapshot and never overwrite product state.
+- Spawn candidates are English-only, deduplicated by canonical listing identity, retain source URL/family/series/price, and currently route Delta Reign and Ascended Heroes through the same ingestion contract.
+
 ### Product identity
 
 - Catch product IDs are source identifiers, not Spawn's canonical product identity.
@@ -39,7 +46,7 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 
 - Catch owns alert destinations.
 - Existing products use `DISCORD_WEBHOOK_URL`.
-- Products explicitly classified with `series: "delta-reign"` use only `DELTA_REIGN_DISCORD_WEBHOOK_URL`; a missing dedicated webhook is an error and must not fall back to the existing channel.
+- Products explicitly classified with `series: "delta-reign"` use only `DELTA_REIGN_DIRECT`; a missing dedicated webhook is an error and must not fall back to the existing channel.
 - Spawn does not proxy or reroute Catch's immediate retailer alerts.
 
 ## Change discipline

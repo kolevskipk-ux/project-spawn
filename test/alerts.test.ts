@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { alertText, handleFetch, heartbeatText } from "../src/index";
-import { canonicalizeUrl, classifyListing } from "../src/inventory";
+import { amazonAsin, canonicalizeUrl, classifyListing } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
 import type { Env, InventoryChange, Listing } from "../src/types";
+import { benchmarkContext, isQuietWindow, normalizeVendor, printSeries, productType } from "../src/garfield";
+import { weekKey } from "../src/weekly-feedback";
 
 const listing = (overrides: Partial<Listing> = {}): Listing => ({
   title: "Pokemon TCG: 30th Celebration Elite Trainer Box",
@@ -121,5 +123,37 @@ describe("security helpers", () => {
     const response = await handleFetch(new Request("https://example.com/"), minimalEnv);
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "not_found" });
+  });
+});
+
+describe("shared Garfield policy", () => {
+  it("uses the configured Mexico City quiet window with an exclusive end", () => {
+    expect(isQuietWindow(new Date("2026-08-26T08:05:00Z"), "America/Mexico_City")).toBe(true);
+    expect(isQuietWindow(new Date("2026-08-26T12:05:00Z"), "America/Mexico_City")).toBe(false);
+  });
+  it("normalizes vendors and print series consistently", () => {
+    expect(normalizeVendor("Amazon México")).toBe("amazon-mexico");
+    expect(printSeries("delta_reign")).toBe("Delta Reign");
+    expect(productType("Delta Reign Build & Battle Display")).toBe("build_battle_display");
+  });
+  it("uses a stable local-week key for trend analysis", () => {
+    expect(weekKey(new Date("2026-08-26T12:00:00Z"), "America/Mexico_City")).toBe("2026-W35");
+  });
+  it("alerts when a preorder placeholder materially opens", () => {
+    expect(classifyListing({ listing_key:"x", canonical_url:"x", status:"unknown", availability_state:"preorder_placeholder", price_mxn:null }, listing({availability_state:"available"}), false)).toBe("preorder_open");
+  });
+  it("classifies against whichever benchmarks are available without rejecting above-market offers", () => {
+    expect(benchmarkContext(800, 1000, null).classification).toBe("Strong Value");
+    expect(benchmarkContext(1200, null, 1000).classification).toBe("Above Market");
+    expect(benchmarkContext(1200, null, null).classification).toBe("Benchmark Unavailable");
+    expect(benchmarkContext(1, 1000, null, "preorder_placeholder").classification).toBe("Placeholder Price");
+    expect(benchmarkContext(100, 1000, null).classification).toBe("Suspicious Price");
+  });
+
+  it("extracts Amazon México ASINs without accepting lookalike hosts", () => {
+    expect(amazonAsin("https://www.amazon.com.mx/dp/B0H78BB9TY?tag=example")).toBe("B0H78BB9TY");
+    expect(amazonAsin("https://amazon.com.mx/gp/product/B0H783FY5Z/")).toBe("B0H783FY5Z");
+    expect(amazonAsin("https://amazon.com.evil.test/dp/B0H78BB9TY")).toBeNull();
+    expect(amazonAsin("https://www.amazon.com.mx/s?k=ascended+heroes")).toBeNull();
   });
 });

@@ -1,14 +1,17 @@
 import type { Env } from "./types";
+import { benchmarkContext } from "./garfield";
 
 export interface BoardRow {
   listing_key: string;
   title: string;
   watch_category: string;
+  print_series?: string;
   retailer: string;
   retailer_sku: string | null;
   language: string;
   price_mxn: number | null;
   status: string;
+  availability_state?: string;
   last_change_type: string;
   first_seen_at: string;
   last_seen_at: string;
@@ -17,6 +20,7 @@ export interface BoardRow {
   amazon_confidence: string | null;
   collectr_usd: number | null;
   usd_mxn_rate: number | null;
+  value_classification?: string;
 }
 
 const BOARD_QUERY = `WITH ranked AS (
@@ -31,13 +35,13 @@ const BOARD_QUERY = `WITH ranked AS (
     AND i.canonical_url NOT LIKE '%/content/%'
     AND i.canonical_url NOT LIKE '%/undefined%'
 )
-SELECT listing_key, title, watch_category, retailer, retailer_sku, language, price_mxn, status, last_change_type,
+SELECT listing_key, title, print_series, watch_category, retailer, retailer_sku, language, price_mxn, status, availability_state, last_change_type,
   first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate
 FROM ranked WHERE offer_rank = 1
 ORDER BY CASE status WHEN 'available' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, last_seen_at DESC`;
 
 export async function boardRows(env: Env): Promise<BoardRow[]> {
-  return (await env.SPAWN_DB.prepare(BOARD_QUERY).all<BoardRow>()).results;
+  return (await env.SPAWN_DB.prepare(BOARD_QUERY).all<BoardRow>()).results.map(row => ({...row, value_classification: benchmarkContext(row.price_mxn,row.amazon_launch_mxn,row.collectr_usd != null && row.usd_mxn_rate != null ? row.collectr_usd*row.usd_mxn_rate:null,row.availability_state).classification}));
 }
 
 export function percentDifference(price: number | null, reference: number | null): number | null {
@@ -76,15 +80,17 @@ function card(row: BoardRow, now: Date): string {
   const collectrMxn = row.collectr_usd != null && row.usd_mxn_rate != null ? row.collectr_usd * row.usd_mxn_rate : null;
   const amazonDifference = percentDifference(row.price_mxn, row.amazon_launch_mxn);
   const collectrDifference = percentDifference(row.price_mxn, collectrMxn);
+  const valueClassification = row.value_classification ?? benchmarkContext(row.price_mxn, row.amazon_launch_mxn, collectrMxn, row.availability_state).classification;
   const fresh = freshness(row.last_seen_at, now);
-  const searchable = [row.title, row.retailer, row.retailer_sku, label(row.watch_category), label(row.language)].join(" ").toLowerCase();
+  const searchable = [row.title, row.retailer, row.retailer_sku, row.print_series, label(row.language), valueClassification].join(" ").toLowerCase();
   return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(row.status)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}">
     <div class="offer-top"><span class="status ${escapeHtml(row.status)}">${escapeHtml(label(row.status))}</span>${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
-    <p class="set">${escapeHtml(label(row.watch_category))}</p>
+    <p class="set">${escapeHtml(row.print_series || label(row.watch_category))}</p>
     <h2>${escapeHtml(row.title)}</h2>
     <p class="retailer">${escapeHtml(row.retailer)}${row.retailer_sku ? ` <span>• SKU ${escapeHtml(row.retailer_sku)}</span>` : ""}</p>
     <div class="price">${escapeHtml(money(row.price_mxn))}</div>
     <dl class="comparisons">
+      <div><dt>Value</dt><dd><span class="comparison neutral">${escapeHtml(valueClassification)}</span></dd></div>
       <div><dt>vs Amazon launch${row.amazon_confidence && row.amazon_confidence !== "exact" ? " proxy" : ""}</dt><dd>${comparison(amazonDifference)}</dd></div>
       <div><dt>vs Collectr</dt><dd>${comparison(collectrDifference, collectrDifference != null)}</dd></div>
     </dl>
@@ -114,7 +120,7 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <div class="summary"><div><strong>${available}</strong><span>Available</span></div><div><strong>${rows.length}</strong><span>Tracked offers</span></div><div><strong>${retailers}</strong><span>Retailers</span></div></div></section>
 <section class="controls" aria-label="Inventory filters"><input id="search" type="search" placeholder="Search product, store or SKU…" aria-label="Search inventory">
 <select id="status" aria-label="Filter by status"><option value="">All statuses</option><option value="available">Available</option><option value="sold_out">Sold out</option><option value="unknown">Unknown</option></select>
-<select id="set" aria-label="Filter by set"><option value="">All sets</option><option value="30th_celebration">30th Celebration</option><option value="ascended_heroes">Ascended Heroes</option></select>
+<select id="set" aria-label="Filter by set"><option value="">All sets</option><option value="30th_celebration">30th Celebration</option><option value="ascended_heroes">Ascended Heroes</option><option value="delta_reign">Delta Reign</option></select>
 <select id="language" aria-label="Filter by language"><option value="">All languages</option><option value="english">English</option><option value="spanish">Spanish</option><option value="bilingual">Bilingual</option><option value="japanese">Japanese</option><option value="chinese">Chinese</option><option value="unknown">Unconfirmed</option></select>
 <a class="download" href="/inventory.csv?access=${encodeURIComponent(accessToken)}">Excel / CSV</a></section>
 <section id="grid" class="grid">${rows.map((row) => card(row, now)).join("")}</section><div id="empty" class="empty">No offers match these filters.</div>

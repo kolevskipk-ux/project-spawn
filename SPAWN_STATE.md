@@ -1,14 +1,15 @@
 # Project Spawn state
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Canonical state
 
 - Production branch: `main`
 - Audited Git commit: `6a30a9d52453e44d3b52d4e52b063d89144c4988`
-- Configuration version: `5.2`
+- Configuration version: `7.0`
 - Production hostname: `https://spawn.aztlan-eng.com`
-- Live evidence at review: `/healthz` and `/readyz` returned healthy; `/version` returned `5.2`
+- Live evidence at review: `/healthz` returned healthy and the protected inventory board returned HTTP 200.
+- Cloudflare deployment ID: `2afbfe4f-fa5b-42dc-aee7-bd107fd26afb`
 - Exact Cloudflare deployment ID / Git commit mapping: not publicly exposed and not confirmed
 - Repository visibility at review: public
 - Branch protection at review: `main` unprotected, with no required status checks
@@ -33,11 +34,18 @@ Spawn owns discovery policy, retailer coverage, canonical product identity, cura
 - Candidates are idempotent by `event_id` and enter `pending` review state.
 - Candidate intake cannot overwrite curated `products` rows.
 - Catch delivery is designed to fail open so Spawn outages do not interrupt monitoring or alerts.
+- The encrypted `CATCH_INGEST_SECRET` is synchronized between the production Spawn and Catch Em All Workers.
+- Fourteen reviewed product identities are seeded for major English sealed formats; deterministic matching currently links 13 live offers without crossing language variants.
+- Spawn owns the canonical Amazon watchlist through `amazon_watchlist` and the authenticated `/internal/garfield/amazon-watchlist` endpoint.
+- Amazon URLs discovered by Spawn are normalized to ASIN identities and added to the active normal monitoring lane; Catch consumes this list dynamically.
 
 ## Pricing-reference state
 
 - The current `products` table stores Amazon launch values, confidence, Collectr USD values, and an exchange rate.
-- The board displays retailer price differences against Amazon launch and converted Collectr references.
+- The board displays retailer price differences against Amazon launch and converted Collectr references, including strong-value, fair-market, above-market, suspicious-price, and placeholder classifications. Above-market availability remains eligible for restock monitoring.
+- KantoCards Delta Reign preorder placeholders are modeled separately from sold-out inventory and their nominal `$1.00` price is not benchmark input. KantoCards remains evaluation-only pending a reliability decision.
+- The private Garfield operations dashboard is `/dashboard?access=<BOARD_ACCESS_TOKEN>` and fetches Catch health only when the page is requested.
+- Weekly Discord feedback is distributed idempotently on Friday morning in `America/Mexico_City` and stored by ISO week without requesting names or email addresses.
 - `PRICING_CATALOG.md` defines the normalized target model and review/promotion rules.
 - A future additive migration is required for canonical variants, immutable reference history, explicit condition/region fields, exchange-rate provenance, and review audit records. No migration is included in the contract-design change.
 

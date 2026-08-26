@@ -1,9 +1,12 @@
 import type { ChangeType, Env, InventoryChange, Listing } from "./types";
+import { normalizeVendor, normalizedCandidate, printSeries, suppressedVendorKeys } from "./garfield";
+import { catalogProductId } from "./catalog";
 
 interface InventoryRow {
   listing_key: string;
   canonical_url: string;
   status: Listing["status"];
+  availability_state?: Listing["availability_state"];
   price_mxn: number | null;
 }
 
@@ -25,6 +28,14 @@ export function canonicalizeUrl(value: string): string {
   }
 }
 
+export function amazonAsin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (!/(^|\.)amazon\.com\.mx$/i.test(url.hostname)) return null;
+    return url.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:\/|$)/i)?.[1]?.toUpperCase() ?? null;
+  } catch { return null; }
+}
+
 async function hash(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -32,6 +43,7 @@ async function hash(value: string): Promise<string> {
 
 export function classifyListing(previous: InventoryRow | undefined, listing: Listing, baseline: boolean): ChangeType {
   if (baseline) return "baseline";
+  if (previous?.availability_state === "preorder_placeholder" && listing.availability_state !== "preorder_placeholder") return "preorder_open";
   if (listing.status !== "available") return "unchanged";
   if (!previous || previous.status === "unknown") return "new";
   if (previous.status === "sold_out") return "restock";
@@ -47,7 +59,8 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 export async function updateInventory(env: Env, scanId: string, listings: Listing[], observedAt: string): Promise<{ baseline: boolean; changes: InventoryChange[] }> {
-  const rawPrepared = await Promise.all(listings.map(async (listing) => {
+  const suppressed = await suppressedVendorKeys(env);
+  const rawPrepared = await Promise.all(listings.filter(listing => !suppressed.has(normalizeVendor(listing.retailer))).map(async (listing) => {
     const canonicalUrl = canonicalizeUrl(listing.url);
     return { listing, canonicalUrl, listingKey: await hash(canonicalUrl) };
   }));
@@ -64,7 +77,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
   const previous = new Map<string, InventoryRow>();
   for (const group of chunks(keys, 25)) {
     if (!group.length) continue;
-    const rows = await env.SPAWN_DB.prepare(`SELECT listing_key, canonical_url, status, price_mxn FROM inventory WHERE listing_key IN (${group.map(() => "?").join(",")})`)
+    const rows = await env.SPAWN_DB.prepare(`SELECT listing_key, canonical_url, status, availability_state, price_mxn FROM inventory WHERE listing_key IN (${group.map(() => "?").join(",")})`)
       .bind(...group).all<InventoryRow>();
     for (const row of rows.results) previous.set(row.listing_key, row);
   }
@@ -78,22 +91,24 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
 
   const statements: D1PreparedStatement[] = [];
   for (const group of chunks(prepared, 6)) {
-    const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
+    const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
     const bindings = group.flatMap((item) => {
       const change = changes.find((candidate) => candidate.listingKey === item.listingKey)!;
       const old = previous.get(item.listingKey);
       const trustedStatus = item.listing.status === "unknown" && old ? old.status : item.listing.status;
       return [item.listingKey, item.canonicalUrl, item.listing.retailer, item.listing.title, item.listing.watch_category, item.listing.retailer_sku, observedAt, observedAt, trustedStatus,
-        item.listing.price_mxn, item.listing.language, item.listing.language_evidence, item.listing.msrp_mxn, item.listing.msrp_source_url, change.type];
+        item.listing.availability_state ?? item.listing.status, item.listing.availability_state === "preorder_placeholder" ? null : item.listing.price_mxn, item.listing.language, item.listing.language_evidence, item.listing.msrp_mxn, item.listing.msrp_source_url, change.type, printSeries(item.listing.watch_category), catalogProductId(item.listing)];
     });
     statements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory
-      (listing_key, canonical_url, retailer, title, watch_category, retailer_sku, first_seen_at, last_seen_at, status, price_mxn, language, language_evidence, msrp_mxn, msrp_source_url, last_change_type)
+      (listing_key, canonical_url, retailer, title, watch_category, retailer_sku, first_seen_at, last_seen_at, status, availability_state, price_mxn, language, language_evidence, msrp_mxn, msrp_source_url, last_change_type, print_series, product_id)
       VALUES ${values}
       ON CONFLICT(listing_key) DO UPDATE SET canonical_url=excluded.canonical_url, retailer=excluded.retailer, title=excluded.title,
       watch_category=excluded.watch_category, retailer_sku=COALESCE(excluded.retailer_sku, inventory.retailer_sku),
-      last_seen_at=excluded.last_seen_at, status=excluded.status, price_mxn=COALESCE(excluded.price_mxn, inventory.price_mxn),
+      last_seen_at=excluded.last_seen_at, status=excluded.status, availability_state=excluded.availability_state,
+      price_mxn=CASE WHEN excluded.availability_state='preorder_placeholder' THEN inventory.price_mxn ELSE COALESCE(excluded.price_mxn, inventory.price_mxn) END,
       language=excluded.language, language_evidence=excluded.language_evidence, msrp_mxn=excluded.msrp_mxn,
-      msrp_source_url=excluded.msrp_source_url, last_change_type=excluded.last_change_type`).bind(...bindings));
+      msrp_source_url=excluded.msrp_source_url, last_change_type=excluded.last_change_type, print_series=excluded.print_series,
+      product_id=COALESCE(excluded.product_id, inventory.product_id)`).bind(...bindings));
   }
   for (const group of chunks(changes, 8)) {
     const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
@@ -104,6 +119,23 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
   }
   statements.push(env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('inventory_initialized', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
     .bind(JSON.stringify({ scan_id: scanId, listings: prepared.length }), observedAt));
+  statements.push(env.SPAWN_DB.prepare(`UPDATE inventory SET product_id=(SELECT p.id FROM products p WHERE lower(trim(p.canonical_name))=lower(trim(inventory.title)) AND p.watch_category=inventory.watch_category LIMIT 1) WHERE product_id IS NULL`));
+  for (const item of prepared) {
+    const asin = amazonAsin(item.canonicalUrl);
+    if (!asin) continue;
+    statements.push(env.SPAWN_DB.prepare(`INSERT INTO amazon_watchlist
+      (asin,product_name,product_url,watch_category,language,priority,lane,status,source,first_discovered_at,last_discovered_at)
+      VALUES(?,?,?,?,?,'HIGH','normal','ACTIVE','spawn_discovery',?,?)
+      ON CONFLICT(asin) DO UPDATE SET product_name=excluded.product_name,product_url=excluded.product_url,
+      watch_category=excluded.watch_category,language=excluded.language,last_discovered_at=excluded.last_discovered_at`)
+      .bind(asin,item.listing.title,item.canonicalUrl,item.listing.watch_category,item.listing.language,observedAt,observedAt));
+  }
   if (statements.length) await env.SPAWN_DB.batch(statements);
+  for (const item of prepared) {
+    const candidate = normalizedCandidate({ ...item.listing, url:item.canonicalUrl }, item.listingKey);
+    if (candidate) await env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO monitoring_candidates
+      (candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,discovered_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(candidate.candidate_id,candidate.source,candidate.source_url,candidate.source_listing_key,candidate.vendor,candidate.vendor_key,candidate.product_name,candidate.product_family,candidate.print_series,candidate.product_type,candidate.language,candidate.retailer_sku,candidate.observed_price_mxn,candidate.availability_state,observedAt).run();
+  }
   return { baseline, changes };
 }

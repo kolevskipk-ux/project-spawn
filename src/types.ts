@@ -6,9 +6,12 @@ export interface Env {
   OPENAI_MODEL: string;
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
+  SPAWN_QUIET_START?: string;
+  SPAWN_QUIET_END?: string;
   PUBLIC_BASE_URL: string;
   BOARD_ACCESS_TOKEN: string;
   CATCH_INGEST_SECRET?: string;
+  CATCH_MONITOR_ENDPOINT?: string;
   PUBLIC_RATE_LIMIT?: RateLimit;
   FEEDBACK_RATE_LIMIT?: RateLimit;
   MANUAL_RATE_LIMIT?: RateLimit;
@@ -18,11 +21,12 @@ export interface Env {
 
 export interface Listing {
   title: string;
-  watch_category: "30th_celebration" | "ascended_heroes";
+  watch_category: "30th_celebration" | "ascended_heroes" | "delta_reign";
   retailer: string;
   retailer_sku: string | null;
   url: string;
   status: "available" | "sold_out" | "unknown";
+  availability_state?: "available" | "sold_out" | "unknown" | "preorder_placeholder";
   price_mxn: number | null;
   language: "english" | "spanish" | "bilingual" | "japanese" | "chinese" | "unknown";
   language_evidence: string;
@@ -31,7 +35,7 @@ export interface Listing {
   evidence: string;
 }
 
-export type ChangeType = "baseline" | "new" | "restock" | "price_drop" | "unchanged";
+export type ChangeType = "baseline" | "new" | "restock" | "preorder_open" | "price_drop" | "unchanged";
 
 export interface InventoryChange {
   listingKey: string;

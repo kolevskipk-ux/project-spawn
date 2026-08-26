@@ -32,7 +32,17 @@ Discord receives a deliberately minimal subscriber-facing report: check completi
 11. Open `https://project-spawn.<your-subdomain>.workers.dev/healthz` and `/readyz`.
 12. Trigger the first scan with `POST /run` and header `Authorization: Bearer <RUN_TOKEN>`.
 
-The cron is `5 * * * *` (five minutes after every UTC hour). Display timestamps use `America/Mexico_City`.
+The cron is `5 * * * *` (five minutes after every UTC hour). Routine scans are skipped during the configurable `SPAWN_QUIET_START`–`SPAWN_QUIET_END` window (defaults `02:05`–`06:05`) in `SPAWN_TIMEZONE`; manual scans remain available and the 6:05 local run resumes automatically. Display timestamps use `America/Mexico_City`, so the schedule is not tied to a fixed UTC offset.
+
+Migration `0006_garfield_shared_state.sql` adds the shared reversible vendor registry/audit trail, normalized monitoring-candidate inbox, and `inventory.print_series`. Apply it before deploying either updated worker. Vendor Issue links are scoped to the existing 30-day alert token; when Cloudflare Access supplies `Cf-Access-Authenticated-User-Email`, it is stored as the reporter. Protect the public hostname/route with Access if reporter identity must be mandatory.
+
+Catch Em All reads `/internal/garfield/vendors` and `/internal/garfield/monitoring-candidates` using the existing `CATCH_INGEST_SECRET`, caches the last successful snapshot for five minutes, and fails open to that cache if Spawn is unavailable. Vendor Issue buttons create review records instead of immediately applying a global block. Approve or reject with `PUT /admin/vendor-issues/<id>`, bearer `RUN_TOKEN`, and JSON `{ "decision":"APPROVED"|"REJECTED", "reason":"..." }`. Reinstate a vendor with `PUT /admin/vendors/<normalized-vendor-key>` and JSON `{ "status":"ACTIVE", "reason":"..." }`.
+
+The private `/dashboard?access=...` page combines Spawn health, scan freshness, inventory/error counts, vendor state, discovery-ingestion counts, weekly feedback trends, and Catch Em All `/status.json` on demand. It performs no background polling. `/inventory.csv` includes backward-compatible `print_series` and `availability_state` columns.
+
+Every Friday around 10:05 `America/Mexico_City`, the existing hourly trigger idempotently posts one low-friction weekly Discord survey. Responses are anonymous per browser receipt and stored by ISO week for trend analysis. Migration `0009_release_feedback_and_availability.sql` adds the survey, placeholder, normalized product-type, and review-queue storage.
+
+KantoCards is evaluation-only, not Always Scan. Its Delta Reign `$1.00` + `PREVENTA PRÓXIMAMENTE` + `Agotado` combination is recorded as `preorder_placeholder`; that nominal price is excluded from benchmarking and does not create historical sold-out state. Promote the retailer to Always Scan only after an operator reviews reliability over multiple observations.
 
 ## Safe release and rollback
 

@@ -17,8 +17,11 @@
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "SPAWN_TIMEZONE": "America/Mexico_City",
-    "SPAWN_CONFIG_VERSION": "5.2",
-    "PUBLIC_BASE_URL": "https://spawn.aztlan-eng.com"
+    "SPAWN_CONFIG_VERSION": "7.1",
+    "SPAWN_QUIET_START": "02:05",
+    "SPAWN_QUIET_END": "06:05",
+    "PUBLIC_BASE_URL": "https://spawn.aztlan-eng.com",
+    "CATCH_MONITOR_ENDPOINT": "https://pokemon30th-discord-monitor.phil-kolevski.workers.dev/status.json"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"
