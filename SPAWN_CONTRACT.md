@@ -111,11 +111,14 @@ Every published target must include, at minimum:
 - Canonical direct product URL.
 - Monitoring lane and requested cadence.
 - Alert-routing key, never a webhook value.
+- Explicit `alert_on_initial_buyable` policy.
 - Approval status, approver or mechanism, reason, and timestamp.
 - Discovery source and supporting evidence reference.
 - Catalog version and record update timestamp.
 
 Catch must fail closed on unknown routing keys and invalid records. It must retain its last successfully validated catalog if Spawn is unavailable or publishes an invalid response.
+
+The initial publishable routing-key vocabulary is `pokemon-main`, `delta-reign`, and `magic-hobbit`. `operations` is reserved inside Catch and must never be published on a product record. Spawn does not know or publish the corresponding Worker binding names.
 
 ## 8. Discord ownership
 
