@@ -9,6 +9,8 @@ Watch list:
 
 For the MTG pilot, recognize conservative title variants such as The Hobbit or Hobbit Collector Booster Box / Display and MTG or Magic: The Gathering wording. Reject individual packs, Omega products, Play Booster boxes, Bundles, Commander decks, loose/opened products, non-English products, and anything that does not establish a sealed full 12-pack Collector Booster Box or Display. Ambiguous matches must use status unknown and must not be treated as purchasable. Use watch_category mtg_hobbit_collector_box only for this exact pilot SKU. The current near-MSRP reference is MX$7,700–8,000 (US$37.99 per Collector Booster × 12); do not use the seller's price as MSRP.
 
+Every hourly scan must actively canvass for this one MTG Hobbit SKU. Check the verified Amazon México ASIN B0GXC89N66 and search reputable Mexico-based WPN/TCG and hobby retailers, including RedQueen and Cartón Fino, plus credible exact-product marketplace offers. For Amazon, distinguish a featured offer from alternate Buying Options when the page evidence permits it; do not infer seller ownership. Preserve verified above-threshold prices for history even when they do not alert. Do not expand this canvass to other Magic sets or product types.
+
 Mandatory baseline retailers to check every scan:
 - Juguetibici (juguetibici.com)
 - Liverpool Mexico (liverpool.com.mx)
