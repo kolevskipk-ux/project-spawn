@@ -7,6 +7,7 @@ import type { Env, InventoryChange, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
 import { distributeWeeklyFeedback, handleWeeklyFeedback } from "./weekly-feedback";
+import { isMtgHobbitAlertable, mtgHobbitDealClassification, MTG_HOBBIT_CATEGORY, MTG_HOBBIT_MSRP_REFERENCE_MXN } from "./mtg";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -45,6 +46,14 @@ function valueLine(change: InventoryChange): string {
 }
 
 function alertText(change: InventoryChange): string {
+  if (change.listing.watch_category === MTG_HOBBIT_CATEGORY) {
+    const classification = mtgHobbitDealClassification(change.listing.price_mxn);
+    const priority = change.listing.price_mxn != null && change.listing.price_mxn <= 10_500 ? "🟢 MTG — High Priority" : "🟢 MTG";
+    return [`**${priority}: ${classification}**`, "**The Hobbit Collector Booster Box**",
+      change.listing.price_mxn == null ? "Price unconfirmed" : `**${money(change.listing.price_mxn)}**`,
+      `Official implied MSRP: ~MX$${(MTG_HOBBIT_MSRP_REFERENCE_MXN.low / 1000).toFixed(1)}–${(MTG_HOBBIT_MSRP_REFERENCE_MXN.high / 1000).toFixed(1)}k`,
+      `Availability: **${change.listing.status === "available" ? "Available" : "Unconfirmed"}**`, `Vendor: **${change.listing.retailer}**`, change.listing.url].join("\n").slice(0, 1900);
+  }
   const badge = change.type === "new" ? "🆕 NEW LISTING" : change.type === "restock" ? "🔄 RESTOCK" : change.type === "preorder_open" ? "🚀 PREORDER OPEN" : "📉 PRICE DROP";
   return [`**${badge}**`, `**${change.listing.title}**`, `${change.listing.retailer}${change.listing.price_mxn == null ? "" : ` — **${money(change.listing.price_mxn)}**`}`,
     `Language: **${languageLabel(change.listing.language)}**`, valueLine(change), change.listing.url].join("\n").slice(0, 1900);
@@ -98,7 +107,8 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
     try {
       const result = await callOpenAI(env);
       const inventory = await updateInventory(env, id, result.listings, started.toISOString());
-      const actionable = inventory.changes.filter((change) => ["new", "restock", "preorder_open", "price_drop"].includes(change.type)).slice(0, 5);
+      const actionable = inventory.changes.filter((change) => ["new", "restock", "preorder_open", "price_drop"].includes(change.type) &&
+        (change.listing.watch_category !== MTG_HOBBIT_CATEGORY || isMtgHobbitAlertable(change.listing))).slice(0, 5);
       const messageIds: string[] = [];
       if (actionable.length) {
         for (const change of actionable) { const messageId = await postChange(env, id, change); if (messageId) messageIds.push(messageId); }

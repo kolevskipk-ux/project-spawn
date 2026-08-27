@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { alertText, handleFetch, heartbeatText } from "../src/index";
-import { amazonAsin, canonicalizeUrl, classifyListing } from "../src/inventory";
+import { D1_MULTI_ROW_BATCHES, D1_SAFE_VARIABLE_LIMIT, amazonAsin, canonicalizeUrl, classifyListing, d1RowsPerStatement } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
 import type { Env, InventoryChange, Listing } from "../src/types";
 import { benchmarkContext, isQuietWindow, normalizeVendor, printSeries, productType } from "../src/garfield";
 import { weekKey } from "../src/weekly-feedback";
+import { isMtgHobbitAlertable, mtgHobbitDealClassification } from "../src/mtg";
 
 const listing = (overrides: Partial<Listing> = {}): Listing => ({
   title: "Pokemon TCG: 30th Celebration Elite Trainer Box",
@@ -24,6 +25,14 @@ const listing = (overrides: Partial<Listing> = {}): Listing => ({
 });
 
 describe("inventory classification", () => {
+  it("keeps every multi-row D1 statement within the safe binding limit as schemas grow", () => {
+    for (const batch of Object.values(D1_MULTI_ROW_BATCHES)) {
+      expect(batch.rowsPerStatement).toBe(d1RowsPerStatement(batch.bindingsPerRow));
+      expect(batch.rowsPerStatement * batch.bindingsPerRow).toBeLessThanOrEqual(D1_SAFE_VARIABLE_LIMIT);
+      expect((batch.rowsPerStatement + 1) * batch.bindingsPerRow).toBeGreaterThan(D1_SAFE_VARIABLE_LIMIT);
+    }
+  });
+
   it("does not alert unchanged inventory", () => {
     expect(classifyListing({ listing_key: "x", canonical_url: "x", status: "available", price_mxn: 2349 }, listing(), false)).toBe("unchanged");
   });
@@ -64,6 +73,36 @@ describe("Discord copy", () => {
     const message = heartbeatText(new Date("2026-08-20T12:00:00Z"), "America/Mexico_City", false);
     expect(message).toContain("No verified new listings, restocks, or meaningful price drops");
     expect(message).not.toContain("Sources scanned");
+  });
+
+  it("clearly labels an MTG pilot alert with its classification and reference range", () => {
+    const change: InventoryChange = { listingKey:"mtg", type:"new", previousPrice:null, listing:listing({
+      title:"Magic: The Gathering | The Hobbit Collector Booster Box — 12 Packs", watch_category:"mtg_hobbit_collector_box",
+      retailer:"Example TCG", price_mxn:9_999, msrp_mxn:7_850, evidence:"Factory sealed display containing 12 Collector Booster packs; add-to-cart is active"
+    }) };
+    expect(alertText(change)).toContain("MTG — High Priority: Excellent Buy");
+    expect(alertText(change)).toContain("Official implied MSRP: ~MX$7.7–8.0k");
+  });
+});
+
+describe("MTG Hobbit pilot policy", () => {
+  it("implements every requested MXN price band", () => {
+    expect(mtgHobbitDealClassification(8_500)).toBe("Exceptional / near-MSRP");
+    expect(mtgHobbitDealClassification(10_500)).toBe("Excellent Buy");
+    expect(mtgHobbitDealClassification(12_500)).toBe("Good Deal");
+    expect(mtgHobbitDealClassification(14_000)).toBe("Acceptable / Availability Opportunity");
+    expect(mtgHobbitDealClassification(15_000)).toBe("Market-ish");
+    expect(mtgHobbitDealClassification(15_001)).toBe("Poor Value");
+  });
+
+  it("alerts only on confirmed English 12-pack boxes at or below the availability ceiling", () => {
+    const exact = listing({ title:"The Hobbit Collector Booster Box — 12 Collector Boosters", watch_category:"mtg_hobbit_collector_box", price_mxn:14_000,
+      evidence:"Factory sealed box with 12 Collector Boosters; add-to-cart is active" });
+    expect(isMtgHobbitAlertable(exact)).toBe(true);
+    expect(isMtgHobbitAlertable({ ...exact, price_mxn:14_001 })).toBe(false);
+    expect(isMtgHobbitAlertable({ ...exact, title:"The Hobbit Collector Booster — Single Pack" })).toBe(false);
+    expect(isMtgHobbitAlertable({ ...exact, evidence:"Add-to-cart is active; pack count and sealed condition are not stated" })).toBe(false);
+    expect(isMtgHobbitAlertable({ ...exact, status:"unknown" })).toBe(false);
   });
 });
 

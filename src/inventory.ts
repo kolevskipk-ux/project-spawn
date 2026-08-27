@@ -10,6 +10,28 @@ interface InventoryRow {
   price_mxn: number | null;
 }
 
+export const D1_SAFE_VARIABLE_LIMIT = 90;
+
+const INVENTORY_COLUMNS = [
+  "listing_key", "canonical_url", "retailer", "title", "watch_category", "retailer_sku", "first_seen_at", "last_seen_at",
+  "status", "availability_state", "price_mxn", "language", "language_evidence", "msrp_mxn", "msrp_source_url",
+  "last_change_type", "print_series", "product_id"
+] as const;
+
+const OBSERVATION_COLUMNS = [
+  "scan_id", "listing_key", "observed_at", "status", "price_mxn", "language", "msrp_mxn", "change_type", "evidence"
+] as const;
+
+export function d1RowsPerStatement(bindingsPerRow: number): number {
+  if (!Number.isInteger(bindingsPerRow) || bindingsPerRow < 1) throw new Error("bindingsPerRow must be a positive integer");
+  return Math.max(1, Math.floor(D1_SAFE_VARIABLE_LIMIT / bindingsPerRow));
+}
+
+export const D1_MULTI_ROW_BATCHES = {
+  inventory: { bindingsPerRow: INVENTORY_COLUMNS.length, rowsPerStatement: d1RowsPerStatement(INVENTORY_COLUMNS.length) },
+  inventoryObservations: { bindingsPerRow: OBSERVATION_COLUMNS.length, rowsPerStatement: d1RowsPerStatement(OBSERVATION_COLUMNS.length) }
+} as const;
+
 export function canonicalizeUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -90,8 +112,8 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
   }));
 
   const statements: D1PreparedStatement[] = [];
-  for (const group of chunks(prepared, 5)) {
-    const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
+  for (const group of chunks(prepared, D1_MULTI_ROW_BATCHES.inventory.rowsPerStatement)) {
+    const values = group.map(() => `(${INVENTORY_COLUMNS.map(() => "?").join(", ")})`).join(",");
     const bindings = group.flatMap((item) => {
       const change = changes.find((candidate) => candidate.listingKey === item.listingKey)!;
       const old = previous.get(item.listingKey);
@@ -100,7 +122,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
         item.listing.availability_state ?? item.listing.status, item.listing.availability_state === "preorder_placeholder" ? null : item.listing.price_mxn, item.listing.language, item.listing.language_evidence, item.listing.msrp_mxn, item.listing.msrp_source_url, change.type, printSeries(item.listing.watch_category), catalogProductId(item.listing)];
     });
     statements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory
-      (listing_key, canonical_url, retailer, title, watch_category, retailer_sku, first_seen_at, last_seen_at, status, availability_state, price_mxn, language, language_evidence, msrp_mxn, msrp_source_url, last_change_type, print_series, product_id)
+      (${INVENTORY_COLUMNS.join(", ")})
       VALUES ${values}
       ON CONFLICT(listing_key) DO UPDATE SET canonical_url=excluded.canonical_url, retailer=excluded.retailer, title=excluded.title,
       watch_category=excluded.watch_category, retailer_sku=COALESCE(excluded.retailer_sku, inventory.retailer_sku),
@@ -110,12 +132,12 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
       msrp_source_url=excluded.msrp_source_url, last_change_type=excluded.last_change_type, print_series=excluded.print_series,
       product_id=COALESCE(excluded.product_id, inventory.product_id)`).bind(...bindings));
   }
-  for (const group of chunks(changes, 8)) {
-    const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
+  for (const group of chunks(changes, D1_MULTI_ROW_BATCHES.inventoryObservations.rowsPerStatement)) {
+    const values = group.map(() => `(${OBSERVATION_COLUMNS.map(() => "?").join(", ")})`).join(",");
     const bindings = group.flatMap((change) => [scanId, change.listingKey, observedAt, change.listing.status, change.listing.price_mxn,
       change.listing.language, change.listing.msrp_mxn, change.type, change.listing.evidence]);
     statements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory_observations
-      (scan_id, listing_key, observed_at, status, price_mxn, language, msrp_mxn, change_type, evidence) VALUES ${values}`).bind(...bindings));
+      (${OBSERVATION_COLUMNS.join(", ")}) VALUES ${values}`).bind(...bindings));
   }
   statements.push(env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('inventory_initialized', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
     .bind(JSON.stringify({ scan_id: scanId, listings: prepared.length }), observedAt));

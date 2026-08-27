@@ -21,7 +21,7 @@ export interface Env {
 
 export interface Listing {
   title: string;
-  watch_category: "30th_celebration" | "ascended_heroes" | "delta_reign";
+  watch_category: "30th_celebration" | "ascended_heroes" | "delta_reign" | "mtg_hobbit_collector_box";
   retailer: string;
   retailer_sku: string | null;
   url: string;
