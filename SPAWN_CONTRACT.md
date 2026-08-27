@@ -12,6 +12,10 @@ Its job is to find relevant TCG product listings that Garfield does not already 
 
 Spawn is not an immediate drop monitor. A Spawn scan may discover an available product, but Garfield must not rely on Spawn's hourly research cycle to catch short-lived inventory.
 
+Spawn describes the observed market, retailer coverage, and discovered listings. It must not describe its results as the complete market size unless a separately defined methodology supports that claim.
+
+The consumer-safe distinction is: Catch is the Amazon fast lane for a curated set of confirmed high-demand SKUs; Spawn provides broader observed-market discovery and context. Neither statement guarantees exhaustive Amazon or whole-market coverage.
+
 ## 2. Required outcomes
 
 Every successful Spawn scan must make these questions answerable:
@@ -53,6 +57,13 @@ Spawn owns:
 - Durable discovery history, rejected candidates, source failures, and scan diagnostics in D1.
 - The authenticated, versioned catalog/watchlist interface consumed by Catch Em All.
 - Operator-facing discovery and catalog views.
+- Recurring Amazon México discovery for new relevant TCG ASINs, formats, preorders, and material price or availability signals.
+
+Amazon discovery must run at least once within every configured multi-hour discovery window when Spawn is scheduled. The initial target is once every three hours, subject to measured cost and access reliability. Each window must record attempted queries or surfaces, coverage outcome, candidate count, and access limitations. A successful run must not imply that every Amazon listing was enumerated.
+
+Amazon discoveries enter `DISCOVERED`; they do not enter Catch automatically. An operator must confirm the exact ASIN, product identity, sealed format, language, demand rationale, and monitoring lane before the record becomes `PUBLISHED`.
+
+Initial Catch eligibility is intentionally narrow: high-demand sealed TCG products where short-lived Amazon inventory warrants fast monitoring. Examples include major preorders and releases such as Pokémon 30th Celebration, Delta Reign, Ascended Heroes, and Prismatic Evolutions. Spawn may discover broader products for market visibility without publishing them to Catch.
 
 ## 5. Spawn non-responsibilities
 
@@ -171,6 +182,7 @@ Do not create this Worker merely to work around unclear ownership or stale branc
 | --- | --- | --- |
 | OpenAI-assisted web discovery | Retain | Spawn |
 | Mandatory retailer canvassing | Retain and instrument | Spawn |
+| Amazon México new-ASIN discovery | Retain; run at least once per three-hour window initially | Spawn discovers; operator approves; Catch monitors |
 | Canonical product and retailer records | Retain | Spawn |
 | Discovery evidence and review queues | Retain | Spawn |
 | Published Amazon watchlist | Retain as a reviewed interface | Spawn publishes; Catch consumes |
@@ -194,6 +206,7 @@ Spawn is healthy when:
 - Review latency is visible.
 - Published targets are versioned, valid, and acknowledged by Catch.
 - Discovery failures cannot interrupt Catch monitoring.
+- Amazon discovery-window coverage and limitations are visible without claiming exhaustive market coverage.
 
 Spawn is not evaluated by whether its hourly run catches a short-lived drop. That is an immediate-monitoring outcome owned by Catch Em All.
 
