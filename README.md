@@ -2,6 +2,8 @@
 
 GitHub-backed Cloudflare Worker that performs an hourly OpenAI web scan, maintains durable inventory in D1, posts meaningful changes to Discord, and serves a protected read-only inventory board.
 
+The proposed post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`. Until that draft is approved and implemented, this README describes the currently deployed architecture rather than the target contract.
+
 ## Architecture
 
 `Cloudflare Cron → Worker → OpenAI Responses API + web search → D1 → Discord webhook`
