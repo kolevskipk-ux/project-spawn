@@ -1,9 +1,11 @@
 import type { Env, Listing } from "./types";
+import { hasMtgHobbitBoxEvidence, isMtgHobbitCollectorBox, MTG_HOBBIT_CATEGORY } from "./mtg";
 
 export const normalizeVendor = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-export const printSeries = (category: string) => ({ "30th_celebration": "30th Celebration", ascended_heroes: "Ascended Heroes", delta_reign: "Delta Reign" } as Record<string, string>)[category] ?? category;
+export const printSeries = (category: string) => ({ "30th_celebration": "30th Celebration", ascended_heroes: "Ascended Heroes", delta_reign: "Delta Reign", [MTG_HOBBIT_CATEGORY]: "The Hobbit" } as Record<string, string>)[category] ?? category;
 export const productType = (title: string) => {
   const value = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (value.includes("collector booster") && (value.includes("box") || value.includes("display"))) return "collector_booster_box";
   for (const [needle, type] of [["build & battle display","build_battle_display"],["build & battle kit","build_battle_kit"],["elite trainer box","elite_trainer_box"],["booster bundle","booster_bundle"],["booster box","booster_box"],["sleeved booster","sleeved_booster"],["3-pack blister","three_pack_blister"],["1-pack blister","one_pack_blister"]] as const) if (value.includes(needle)) return type;
   return "other";
 };
@@ -22,10 +24,11 @@ export async function suppressedVendorKeys(env: Env): Promise<Set<string>> {
 }
 
 export function normalizedCandidate(listing: Listing, listingKey: string) {
-  if (listing.language !== "english" || !["ascended_heroes", "delta_reign"].includes(listing.watch_category)) return null;
+  const mtgHobbit = isMtgHobbitCollectorBox(listing) && hasMtgHobbitBoxEvidence(listing);
+  if (listing.language !== "english" || (!mtgHobbit && !["ascended_heroes", "delta_reign"].includes(listing.watch_category))) return null;
   return { candidate_id: listingKey, source: "spawn", source_url: listing.url, source_listing_key: listingKey,
     vendor: listing.retailer, vendor_key: normalizeVendor(listing.retailer), product_name: listing.title,
-    product_family: printSeries(listing.watch_category), print_series: printSeries(listing.watch_category), product_type: productType(listing.title), language: listing.language,
+    product_family: mtgHobbit ? "Magic: The Gathering | The Hobbit" : printSeries(listing.watch_category), print_series: printSeries(listing.watch_category), product_type: productType(listing.title), language: listing.language,
     retailer_sku: listing.retailer_sku, observed_price_mxn: listing.availability_state === "preorder_placeholder" ? null : listing.price_mxn,
     availability_state: listing.availability_state ?? listing.status };
 }

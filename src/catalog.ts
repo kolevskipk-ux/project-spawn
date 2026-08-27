@@ -1,9 +1,11 @@
 import type { Listing } from "./types";
+import { isMtgHobbitCollectorBox, MTG_HOBBIT_PRODUCT_ID } from "./mtg";
 
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
   .replace(/[^a-z0-9]+/g, " ").trim();
 
 export function catalogProductId(listing: Pick<Listing, "title" | "watch_category" | "language">): string | null {
+  if (isMtgHobbitCollectorBox(listing)) return MTG_HOBBIT_PRODUCT_ID;
   if (listing.language !== "english") return null;
   const title = fold(listing.title);
   const prefix = listing.watch_category === "ascended_heroes" ? "ah-en" : listing.watch_category === "30th_celebration" ? "30-en" : null;
