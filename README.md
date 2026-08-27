@@ -1,12 +1,14 @@
 # Project Spawn
 
-GitHub-backed Cloudflare Worker that performs an hourly OpenAI web scan, maintains durable inventory in D1, posts meaningful changes to Discord, and serves a protected read-only inventory board.
+GitHub-backed Cloudflare Worker that performs three-hourly discovery windows, maintains durable inventory and a review-gated published catalog in D1, and serves protected operator views.
 
 The proposed post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`. Until that draft is approved and implemented, this README describes the currently deployed architecture rather than the target contract.
 
 ## Architecture
 
-`Cloudflare Cron → Worker → OpenAI Responses API + web search → D1 → Discord webhook`
+`Cloudflare Cron → Worker → OpenAI Responses API + web search → D1 review lifecycle → published catalog`
+
+Spawn no longer sends subscriber purchase alerts. Catch Em All owns deterministic monitoring and customer delivery.
 
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
 

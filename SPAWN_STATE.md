@@ -60,3 +60,14 @@ Spawn owns discovery policy, retailer coverage, canonical product identity, cura
 ## Update rule
 
 Update this file with changes to architecture, schedules, interfaces, configuration version, repository/deployment evidence, access model, or pricing-reference lifecycle.
+
+## Pending V8 contract implementation
+
+- Review branch only; not deployed or migrated in production.
+- Adds migration `0012_published_amazon_catalog.sql` with `DISCOVERED`, `VERIFIED`, `APPROVED`, `PUBLISHED`, `REJECTED`, and `SUSPENDED` lifecycle states.
+- Seeds the approved 19-ASIN manifest: 3 priority and 16 normal.
+- New Amazon discoveries remain `DISCOVERED` and cannot activate Catch automatically.
+- The authenticated watchlist endpoint becomes schema- and catalog-versioned and returns only `PUBLISHED` rows.
+- Spawn customer alerts and weekly survey distribution are removed from the scheduled discovery path.
+- Scheduled discovery is gated to one Mexico City window every three hours when cron is later re-enabled.
+- Configuration version: `8.0.0-rc.1`.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertText, handleFetch, heartbeatText } from "../src/index";
+import { alertText, handleFetch, heartbeatText, isAmazonDiscoveryWindow } from "../src/index";
 import { D1_MULTI_ROW_BATCHES, D1_SAFE_VARIABLE_LIMIT, amazonAsin, canonicalizeUrl, classifyListing, d1RowsPerStatement } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
@@ -166,6 +166,10 @@ describe("security helpers", () => {
 });
 
 describe("shared Garfield policy", () => {
+  it("runs scheduled discovery only once per three-hour Mexico City window", () => {
+    expect(isAmazonDiscoveryWindow(new Date("2026-08-27T18:05:00Z"),"America/Mexico_City")).toBe(true);
+    expect(isAmazonDiscoveryWindow(new Date("2026-08-27T19:05:00Z"),"America/Mexico_City")).toBe(false);
+  });
   it("uses the configured Mexico City quiet window with an exclusive end", () => {
     expect(isQuietWindow(new Date("2026-08-26T08:05:00Z"), "America/Mexico_City")).toBe(true);
     expect(isQuietWindow(new Date("2026-08-26T12:05:00Z"), "America/Mexico_City")).toBe(false);
