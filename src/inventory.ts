@@ -90,7 +90,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
   }));
 
   const statements: D1PreparedStatement[] = [];
-  for (const group of chunks(prepared, 6)) {
+  for (const group of chunks(prepared, 5)) {
     const values = group.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(",");
     const bindings = group.flatMap((item) => {
       const change = changes.find((candidate) => candidate.listingKey === item.listingKey)!;
