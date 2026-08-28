@@ -2,19 +2,21 @@
 
 GitHub-backed Cloudflare Worker that performs three-hourly discovery windows, maintains durable inventory and a review-gated published catalog in D1, and serves protected operator views.
 
-The proposed post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`. Until that draft is approved and implemented, this README describes the currently deployed architecture rather than the target contract.
+The post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`.
 
 ## Architecture
 
 `Cloudflare Cron → Worker → OpenAI Responses API + web search → D1 review lifecycle → published catalog`
 
-Spawn no longer sends subscriber purchase alerts. Catch Em All owns deterministic monitoring and customer delivery. During the Amazon-only Catch baseline, Spawn posts each genuinely first-seen canonical listing once as a clearly labeled `UNVERIFIED DISCOVERY` research lead; repeat sightings and initial inventory baselines do not post.
+Spawn sends no customer Discord messages. Catch Em All owns deterministic monitoring and customer delivery, including the deduplicated `NOW TRACKING` acknowledgement after an operator-approved record is published and consumed.
+
+When independent verification reaches `VERIFIED`, Spawn sends a deduplicated review request only to `OPS_DISCORD_WEBHOOK_URL`. An optional `APPROVAL_DISCORD_ROLE_ID` pings the designated admin group so another administrator can review when the primary operator is unavailable. Missing or failed delivery remains pending for hourly retry and never falls back to a customer webhook.
 
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
 
 Production hostname: `https://spawn.aztlan-eng.com`. The custom domain is declared in `wrangler.jsonc`; do not create conflicting DNS records manually.
 
-Discord receives only deduplicated, explicitly unverified first-seen discovery leads during the temporary Amazon-only baseline. Full scan diagnostics, repeat sightings, rejected candidates, blocked sources, and model output remain private in D1 and Worker logs.
+Discoveries, verification evidence, rejected candidates, blocked sources, and model output remain private in D1, the protected dashboard, and Worker logs.
 
 ## One-time setup
 
@@ -26,9 +28,10 @@ Discord receives only deduplicated, explicitly unverified first-seen discovery l
 6. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.jsonc` with the returned database ID and commit that change.
 7. Add production secrets (each command prompts securely):
    - `npx wrangler secret put OPENAI_API_KEY`
-   - `npx wrangler secret put DISCORD_WEBHOOK_URL`
    - `npx wrangler secret put RUN_TOKEN`
    - `npx wrangler secret put BOARD_ACCESS_TOKEN`
+   - `npx wrangler secret put OPS_DISCORD_WEBHOOK_URL`
+   - optionally configure `APPROVAL_DISCORD_ROLE_ID` for an admin-role mention
    - `npx wrangler secret put CATCH_INGEST_SECRET`
 8. Apply the schema once: `pnpm run db:migrate:remote`.
 9. In Cloudflare: **Workers & Pages → Create application → Import a repository**. Select the GitHub repository and production branch `main`.
@@ -42,7 +45,7 @@ Migration `0006_garfield_shared_state.sql` adds the shared reversible vendor reg
 
 Catch Em All reads `/internal/garfield/vendors` and `/internal/garfield/monitoring-candidates` using the existing `CATCH_INGEST_SECRET`, caches the last successful snapshot for five minutes, and fails open to that cache if Spawn is unavailable. Vendor Issue buttons create review records instead of immediately applying a global block. Approve or reject with `PUT /admin/vendor-issues/<id>`, bearer `RUN_TOKEN`, and JSON `{ "decision":"APPROVED"|"REJECTED", "reason":"..." }`. Reinstate a vendor with `PUT /admin/vendors/<normalized-vendor-key>` and JSON `{ "status":"ACTIVE", "reason":"..." }`.
 
-The private `/dashboard?access=...` page combines Spawn health, scan freshness, inventory/error counts, vendor state, discovery-ingestion counts, weekly feedback trends, and Catch Em All `/status.json` on demand. It performs no background polling. `/inventory.csv` includes backward-compatible `print_series` and `availability_state` columns.
+The private `/dashboard?access=...` page combines the Amazon verification queue and evidence-bound Verify, Approve, Reject, and Publish controls with Spawn health, scan freshness, inventory/error counts, vendor state, weekly feedback trends, and Catch Em All `/status.json` on demand. Approval and publication require the latest immutable evidence revision, preventing stale dashboard actions. It performs no background polling. `/inventory.csv` includes backward-compatible `print_series` and `availability_state` columns.
 
 Every Friday around 10:05 `America/Mexico_City`, the existing hourly trigger idempotently posts one low-friction weekly Discord survey. Responses are anonymous per browser receipt and stored by ISO week for trend analysis. Migration `0009_release_feedback_and_availability.sql` adds the survey, placeholder, normalized product-type, and review-queue storage.
 

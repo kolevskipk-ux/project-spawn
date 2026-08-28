@@ -8,10 +8,12 @@ export function catalogProductId(listing: Pick<Listing, "title" | "watch_categor
   if (isMtgHobbitCollectorBox(listing)) return MTG_HOBBIT_PRODUCT_ID;
   if (listing.language !== "english") return null;
   const title = fold(listing.title);
-  const prefix = listing.watch_category === "ascended_heroes" ? "ah-en" : listing.watch_category === "30th_celebration" ? "30-en" : null;
+  const prefix = listing.watch_category === "ascended_heroes" ? "ah-en" : listing.watch_category === "30th_celebration" ? "30-en" : listing.watch_category === "delta_reign" ? "delta-reign-en" : null;
   if (!prefix) return null;
   if (title.includes("elite trainer box")) return `${prefix}-etb`;
   if (title.includes("booster bundle")) return `${prefix}-booster-bundle`;
+  if (listing.watch_category === "delta_reign" && (title.includes("three booster blister") || title.includes("3 booster blister"))) return "delta-reign-en-three-booster-blister";
+  if (listing.watch_category === "delta_reign" && title.includes("build battle box")) return "delta-reign-en-build-battle-box";
   if (title.includes("tech sticker collection")) return `${prefix}-tech-sticker`;
   if (listing.watch_category === "30th_celebration" && title.includes("binder collection")) return "30-en-binder";
   if (listing.watch_category === "30th_celebration" && title.includes("ultra premium collection")) {
