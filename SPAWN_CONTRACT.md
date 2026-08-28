@@ -43,6 +43,48 @@ Spawn owns the following lifecycle:
 
 Rejection and suspension must be explicit, reversible states with an operator reason and audit timestamp. Discovery alone must never activate monitoring.
 
+### 3.1 Proposed two-Worker verification bridge
+
+Status: proposed for implementation and isolated validation; not active merely because it appears in this contract.
+
+The initial verification capability remains inside Spawn as a separately executed and audited phase. It is a distinct role, not permission for the discovery scan to approve its own output. A third Worker is deferred until measured volume, permissions, scaling, or failure-isolation needs justify extraction.
+
+The verification flow is:
+
+`DISCOVERED -> verification attempt -> VERIFIED or REJECTED -> operator APPROVED -> PUBLISHED -> Catch acknowledgement`
+
+Verification must independently re-fetch or re-observe the direct listing. It must not accept the discovery model's description as proof. Every attempt records:
+
+- Candidate and canonical listing identifiers.
+- Verification timestamp, method, HTTP/access outcome, and direct URL.
+- Exact product family, set, sealed format, language, region, and retailer SKU/ASIN/UPC evidence.
+- Retailer identity and canonical-host validation.
+- Observed price, availability wording, seller/fulfillment evidence when attributable, and page evidence reference.
+- Duplicate or collision checks against published and pending catalog identities.
+- Proposed monitoring eligibility, lane, routing key, and `alert_on_initial_buyable` value.
+- Deterministic gate results, confidence, unresolved questions, and a stable rejection or review-needed reason.
+
+Deterministic identity and safety gates are authoritative. AI may summarize evidence or flag ambiguity, but it must not set `APPROVED` or `PUBLISHED`, select a secret destination, or override a failed gate.
+
+`VERIFIED` means the listing identity is sufficiently supported; it does not mean the product is buyable, desirable, or entitled to monitoring. Operator approval separately decides demand relevance, monitoring cost, cadence, routing, and initial-alert policy. Vendor approval and product-target approval are separate decisions: trusting a retailer must not publish every product from that retailer.
+
+Approval must identify the operator, reason, timestamp, accepted evidence revision, and proposed policy. Publication is atomic, increments the catalog version, and exposes only records that pass the published-catalog schema. Catch acknowledgement of the new version is observable in Spawn's operator dashboard.
+
+Spawn's protected Inventory Dashboard is the operator surface for this bridge. It must show queue age, current lifecycle state, the latest independent verification outcome, evidence freshness, duplicate conflicts, proposed Catch policy, decision history, active catalog version, and Catch acknowledgement. Approval and rejection actions require the existing authenticated operator boundary and optimistic concurrency or an equivalent stale-review guard; a decision against an outdated evidence revision must fail closed.
+
+Activation requires:
+
+1. A versioned verification-attempt schema and immutable evidence history.
+2. Tests proving discovery cannot approve or publish itself.
+3. Tests for identity, URL/host, language, format, duplicate, routing-key, and stale-evidence failures.
+4. Protected dashboard review actions with auditable operator identity and reason.
+5. Atomic catalog publication with version increment and rollback evidence.
+6. Catch acknowledgement and one-time-notice integration passing in isolated Workers/D1.
+7. Removal of Spawn's raw customer Discord path and its customer webhook dependency.
+8. Separate approval for database migration, Worker deployment, and production activation.
+
+When this bridge is activated, Spawn becomes fully silent on customer Discord routes. Its temporary raw-discovery feed is removed. Spawn may retain operator-only failure or review-backlog notices through an operations route, but Discord delivery must not determine whether discovery evidence is persisted.
+
 ## 4. Spawn responsibilities
 
 Spawn owns:
@@ -125,6 +167,7 @@ The initial publishable routing-key vocabulary is `pokemon-main`, `delta-reign`,
 - Spawn: operator-only scan failures and review-needed notices.
 - Catch: immediate retailer availability alerts and their delivery status.
 - Temporary baseline exception: while Catch is Amazon-only, Spawn may post a deduplicated first-seen listing to the main channel only when labeled `UNVERIFIED DISCOVERY` and explicitly described as a research lead rather than a confirmed drop. Baseline imports and repeat sightings must not post.
+- Verification-bridge activation retires the temporary baseline exception above. Catch then owns the only customer-visible handoff by announcing a record after it is both `PUBLISHED` and consumed into active monitoring.
 - Neither Worker stores webhook values in source control or catalog records.
 - Alert destinations are referenced by stable routing keys and resolved from Worker secrets.
 
@@ -209,6 +252,7 @@ Spawn is healthy when:
 - Candidate identity and evidence quality meet policy.
 - Review latency is visible.
 - Published targets are versioned, valid, and acknowledged by Catch.
+- Verification attempts, queue age, rejection reasons, operator decisions, catalog publication, and Catch acknowledgement are independently auditable.
 - Discovery failures cannot interrupt Catch monitoring.
 - Amazon discovery-window coverage and limitations are visible without claiming exhaustive market coverage.
 
