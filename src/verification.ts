@@ -21,6 +21,35 @@ export interface VerificationAssessment {
   observedAvailability: string;
 }
 
+const validRoleId=(value:string|undefined)=>/^\d{15,22}$/.test(value||"")?value:null;
+export async function deliverApprovalRequest(env:Env, evidenceRevision:string, fetchFn:typeof fetch=fetch) {
+  const row=await env.SPAWN_DB.prepare(`SELECT n.*,w.product_name,w.product_url,a.confidence,a.unresolved_questions
+    FROM approval_notifications n JOIN amazon_watchlist w ON w.asin=n.asin JOIN amazon_verification_attempts a ON a.id=n.verification_attempt_id
+    WHERE n.evidence_revision=? AND n.status!='DELIVERED'`).bind(evidenceRevision).first<Record<string,unknown>>();
+  if(!row) return {ok:true as const,status:"already-delivered-or-missing"};
+  const now=new Date().toISOString();
+  if(!env.OPS_DISCORD_WEBHOOK_URL) {
+    await env.SPAWN_DB.prepare("UPDATE approval_notifications SET status='PENDING_MISSING_ROUTE',attempts=attempts+1,last_attempt_at=?,last_error='OPS_DISCORD_WEBHOOK_URL_NOT_CONFIGURED' WHERE evidence_revision=?").bind(now,evidenceRevision).run();
+    return {ok:false as const,status:"pending-missing-route"};
+  }
+  const role=validRoleId(env.APPROVAL_DISCORD_ROLE_ID), dashboard=`${env.PUBLIC_BASE_URL}/dashboard`;
+  const content=[role?`<@&${role}>`:"🛡️ Admin support requested","🔎 **SPAWN — APPROVAL REVIEW REQUESTED**",`**${row.product_name}**`,`ASIN: **${row.asin}**`,`Verification confidence: **${row.confidence}**`,row.unresolved_questions?`Open questions: ${row.unresolved_questions}`:"All deterministic verification gates passed.",dashboard,"_Review evidence in the protected dashboard. This is not an availability alert._"].join("\n").slice(0,1900);
+  try {
+    const response=await fetchFn(env.OPS_DISCORD_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({username:"Spawn Operations",content,allowed_mentions:{parse:[],roles:role?[role]:[]}})});
+    if(!response.ok) throw new Error(`Discord ${response.status}`);
+    await env.SPAWN_DB.prepare("UPDATE approval_notifications SET status='DELIVERED',attempts=attempts+1,last_attempt_at=?,delivered_at=?,last_error=NULL WHERE evidence_revision=?").bind(now,now,evidenceRevision).run();
+    return {ok:true as const,status:"delivered"};
+  } catch(error) {
+    await env.SPAWN_DB.prepare("UPDATE approval_notifications SET status='PENDING',attempts=attempts+1,last_attempt_at=?,last_error=? WHERE evidence_revision=?").bind(now,String(error instanceof Error?error.message:error).slice(0,240),evidenceRevision).run();
+    return {ok:false as const,status:"pending-delivery"};
+  }
+}
+
+export async function retryApprovalRequests(env:Env,limit=10) {
+  const rows=await env.SPAWN_DB.prepare("SELECT evidence_revision FROM approval_notifications WHERE status!='DELIVERED' ORDER BY COALESCE(last_attempt_at,created_at) ASC LIMIT ?").bind(limit).all<{evidence_revision:string}>();
+  for(const row of rows.results) await deliverApprovalRequest(env,row.evidence_revision).catch(()=>undefined);
+}
+
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 export function assessAmazonVerification(candidate: VerificationCandidate, response: { status: number; url: string; html: string; error?: string | null }): VerificationAssessment {
@@ -69,6 +98,10 @@ export async function runAmazonVerification(env: Env, asin: string, actor: strin
   const attemptId = Number(insert.meta.last_row_id);
   await env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,verification_attempt_id=?,evidence_revision=?,verified_at=?,updated_at=? WHERE asin=? AND lifecycle_status!='PUBLISHED'`)
     .bind(assessment.outcome==="VERIFIED"?"VERIFIED":assessment.outcome==="REJECTED"?"REJECTED":"DISCOVERED",attemptId,evidenceRevision,assessment.outcome==="VERIFIED"?completed:null,completed,candidate.asin).run();
+  if(assessment.outcome==="VERIFIED") {
+    await env.SPAWN_DB.prepare("INSERT OR IGNORE INTO approval_notifications(evidence_revision,asin,verification_attempt_id,status,created_at) VALUES(?,?,?,'PENDING',?)").bind(evidenceRevision,candidate.asin,attemptId,completed).run();
+    await deliverApprovalRequest(env,evidenceRevision,fetchFn).catch(()=>undefined);
+  }
   return { ok:true as const, asin:candidate.asin, attemptId, evidenceRevision, assessment };
 }
 

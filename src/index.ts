@@ -7,7 +7,7 @@ import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
 import { handleWeeklyFeedback } from "./weekly-feedback";
-import { reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
+import { retryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -62,6 +62,7 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('amazon_discovery_window', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
           .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished)
       ]);
+      await retryApprovalRequests(env).catch(error=>console.error("approval request retry failed",error));
       if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
       return { id, result };
     } catch (error) {
@@ -259,6 +260,7 @@ export function isAmazonDiscoveryWindow(now: Date, timezone: string): boolean {
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   if (isQuietWindow(new Date(), env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
+  ctx.waitUntil(retryApprovalRequests(env).catch((error)=>console.error("approval request retry failed",error)));
   if (!isAmazonDiscoveryWindow(new Date(),env.SPAWN_TIMEZONE)) return;
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;

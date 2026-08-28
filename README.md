@@ -10,6 +10,8 @@ The post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`.
 
 Spawn sends no customer Discord messages. Catch Em All owns deterministic monitoring and customer delivery, including the deduplicated `NOW TRACKING` acknowledgement after an operator-approved record is published and consumed.
 
+When independent verification reaches `VERIFIED`, Spawn sends a deduplicated review request only to `OPS_DISCORD_WEBHOOK_URL`. An optional `APPROVAL_DISCORD_ROLE_ID` pings the designated admin group so another administrator can review when the primary operator is unavailable. Missing or failed delivery remains pending for hourly retry and never falls back to a customer webhook.
+
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
 
 Production hostname: `https://spawn.aztlan-eng.com`. The custom domain is declared in `wrangler.jsonc`; do not create conflicting DNS records manually.
@@ -28,6 +30,8 @@ Discoveries, verification evidence, rejected candidates, blocked sources, and mo
    - `npx wrangler secret put OPENAI_API_KEY`
    - `npx wrangler secret put RUN_TOKEN`
    - `npx wrangler secret put BOARD_ACCESS_TOKEN`
+   - `npx wrangler secret put OPS_DISCORD_WEBHOOK_URL`
+   - optionally configure `APPROVAL_DISCORD_ROLE_ID` for an admin-role mention
    - `npx wrangler secret put CATCH_INGEST_SECRET`
 8. Apply the schema once: `pnpm run db:migrate:remote`.
 9. In Cloudflare: **Workers & Pages → Create application → Import a repository**. Select the GitHub repository and production branch `main`.

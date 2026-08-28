@@ -11,6 +11,8 @@ export interface Env {
   BOARD_ACCESS_TOKEN: string;
   CATCH_INGEST_SECRET?: string;
   CATCH_MONITOR_ENDPOINT?: string;
+  OPS_DISCORD_WEBHOOK_URL?: string;
+  APPROVAL_DISCORD_ROLE_ID?: string;
   PUBLIC_RATE_LIMIT?: RateLimit;
   FEEDBACK_RATE_LIMIT?: RateLimit;
   MANUAL_RATE_LIMIT?: RateLimit;
