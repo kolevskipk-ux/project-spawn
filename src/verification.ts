@@ -129,7 +129,7 @@ export async function reviewAmazonCandidate(env: Env, asin: string, action: Revi
     if (row.lifecycle_status==="PUBLISHED") return {ok:false as const,error:"published_requires_separate_suspension"};
     await env.SPAWN_DB.batch([
       env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET lifecycle_status='REJECTED',updated_at=? WHERE asin=? AND evidence_revision=?").bind(now,asin,input.evidenceRevision),
-      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,actor,decided_at) VALUES(?,?,?,'REJECTED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
+      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'REJECTED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
     ]);
     return {ok:true as const,asin,lifecycleStatus:"REJECTED",catalogVersion:null};
   }
@@ -139,7 +139,7 @@ export async function reviewAmazonCandidate(env: Env, asin: string, action: Revi
     await env.SPAWN_DB.batch([
       env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status='APPROVED',canonical_product_id=?,language='english',lane=?,routing_key=?,alert_on_initial_buyable=?,approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=? AND lifecycle_status='VERIFIED' AND evidence_revision=?`)
         .bind(row.verified_product_id,input.lane,input.routingKey,Number(Boolean(input.alertOnInitialBuyable)),actor,reason,now,now,asin,input.evidenceRevision),
-      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,actor,decided_at) VALUES(?,?,?,'APPROVED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
+      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'APPROVED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
     ]);
     return {ok:true as const,asin,lifecycleStatus:"APPROVED",catalogVersion:null};
   }
@@ -147,9 +147,9 @@ export async function reviewAmazonCandidate(env: Env, asin: string, action: Revi
   await env.SPAWN_DB.batch([
     env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET lifecycle_status='PUBLISHED',updated_at=? WHERE asin=? AND lifecycle_status='APPROVED' AND evidence_revision=?").bind(now,asin,input.evidenceRevision),
     env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('amazon_catalog_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(worker_state.value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
-    env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,actor,decided_at) VALUES(?,?,?,'PUBLISHED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
+    env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'PUBLISHED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
   ]);
   const versionRow=await env.SPAWN_DB.prepare("SELECT value FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string}>(), nextVersion=versionRow?.value??"0";
-  await env.SPAWN_DB.prepare("UPDATE amazon_catalog_decisions SET catalog_version=? WHERE asin=? AND verification_attempt_id=? AND decision='PUBLISHED' AND decided_at=?").bind(nextVersion,asin,input.attemptId,now).run();
+  await env.SPAWN_DB.prepare("UPDATE amazon_catalog_decisions SET resulting_catalog_version=? WHERE asin=? AND verification_attempt_id=? AND decision='PUBLISHED' AND decided_at=?").bind(nextVersion,asin,input.attemptId,now).run();
   return {ok:true as const,asin,lifecycleStatus:"PUBLISHED",catalogVersion:nextVersion};
 }
