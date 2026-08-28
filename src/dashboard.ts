@@ -10,7 +10,7 @@ export async function dashboardData(env: Env) {
     env.SPAWN_DB.prepare("SELECT week_key,COUNT(*) responses,ROUND(AVG(usefulness),1) usefulness,SUM(successful_purchase) purchases FROM weekly_feedback_responses GROUP BY week_key ORDER BY week_key DESC LIMIT 8").all(),
     env.SPAWN_DB.prepare(`SELECT w.asin,w.product_name,w.product_url,w.watch_category,w.language,w.lifecycle_status,w.first_discovered_at,w.last_discovered_at,w.verification_attempt_id,w.evidence_revision,w.lane,w.routing_key,w.alert_on_initial_buyable,
       a.completed_at verification_completed_at,a.outcome verification_outcome,a.access_outcome,a.http_status,a.canonical_product_id,a.observed_availability,a.gate_results_json,a.confidence,a.unresolved_questions,n.status approval_notice_status,n.attempts approval_notice_attempts,n.last_error approval_notice_error,
-      (SELECT json_group_array(json_object('decision',d.decision,'reason',d.reason,'actor',d.actor,'decided_at',d.decided_at,'catalog_version',d.catalog_version)) FROM amazon_catalog_decisions d WHERE d.asin=w.asin) decision_history
+      (SELECT json_group_array(json_object('decision',d.decision,'reason',d.reason,'actor',d.decided_by,'decided_at',d.decided_at,'catalog_version',d.resulting_catalog_version)) FROM amazon_catalog_decisions d WHERE d.asin=w.asin) decision_history
       FROM amazon_watchlist w LEFT JOIN amazon_verification_attempts a ON a.id=w.verification_attempt_id LEFT JOIN approval_notifications n ON n.evidence_revision=w.evidence_revision
       WHERE w.lifecycle_status!='PUBLISHED' ORDER BY w.first_discovered_at ASC LIMIT 200`).all(),
     env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first()
