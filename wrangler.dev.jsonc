@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "project-spawn-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "keep_vars": true,
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "OPENAI_MODEL": "gpt-5.6-terra",
+    "SPAWN_TIMEZONE": "America/Mexico_City",
+    "SPAWN_CONFIG_VERSION": "8.0.0-rc.1-dev",
+    "SPAWN_QUIET_START": "02:05",
+    "SPAWN_QUIET_END": "06:05",
+    "PUBLIC_BASE_URL": "https://project-spawn-dev.phil-kolevski.workers.dev"
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
+  "d1_databases": [
+    {
+      "binding": "SPAWN_DB",
+      "database_name": "project-spawn-dev",
+      "database_id": "d2223ce6-cece-4268-9c98-f8801b9027eb",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": []
+  }
+}

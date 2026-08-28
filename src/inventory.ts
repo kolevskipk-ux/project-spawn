@@ -146,11 +146,15 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
     const asin = amazonAsin(item.canonicalUrl);
     if (!asin) continue;
     statements.push(env.SPAWN_DB.prepare(`INSERT INTO amazon_watchlist
-      (asin,product_name,product_url,watch_category,language,priority,lane,status,source,first_discovered_at,last_discovered_at)
-      VALUES(?,?,?,?,?,'HIGH','normal','ACTIVE','spawn_discovery',?,?)
-      ON CONFLICT(asin) DO UPDATE SET product_name=excluded.product_name,product_url=excluded.product_url,
-      watch_category=excluded.watch_category,language=excluded.language,last_discovered_at=excluded.last_discovered_at`)
-      .bind(asin,item.listing.title,item.canonicalUrl,item.listing.watch_category,item.listing.language,observedAt,observedAt));
+      (asin,product_name,product_url,watch_category,language,priority,lane,lifecycle_status,source,evidence,first_discovered_at,last_discovered_at,updated_at)
+      VALUES(?,?,?,?,?,'HIGH','normal','DISCOVERED','spawn_discovery',?,?,?,?)
+      ON CONFLICT(asin) DO UPDATE SET
+      product_name=CASE WHEN amazon_watchlist.lifecycle_status='DISCOVERED' THEN excluded.product_name ELSE amazon_watchlist.product_name END,
+      product_url=CASE WHEN amazon_watchlist.lifecycle_status='DISCOVERED' THEN excluded.product_url ELSE amazon_watchlist.product_url END,
+      watch_category=CASE WHEN amazon_watchlist.lifecycle_status='DISCOVERED' THEN excluded.watch_category ELSE amazon_watchlist.watch_category END,
+      language=CASE WHEN amazon_watchlist.lifecycle_status='DISCOVERED' THEN excluded.language ELSE amazon_watchlist.language END,
+      evidence=excluded.evidence,last_discovered_at=excluded.last_discovered_at,updated_at=excluded.updated_at`)
+      .bind(asin,item.listing.title,item.canonicalUrl,item.listing.watch_category,item.listing.language,item.listing.evidence,observedAt,observedAt,observedAt));
   }
   if (statements.length) await env.SPAWN_DB.batch(statements);
   for (const item of prepared) {

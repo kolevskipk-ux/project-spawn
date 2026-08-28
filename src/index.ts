@@ -107,21 +107,16 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
     try {
       const result = await callOpenAI(env);
       const inventory = await updateInventory(env, id, result.listings, started.toISOString());
-      const actionable = inventory.changes.filter((change) => ["new", "restock", "preorder_open", "price_drop"].includes(change.type) &&
-        (change.listing.watch_category !== MTG_HOBBIT_CATEGORY || isMtgHobbitAlertable(change.listing))).slice(0, 5);
       const messageIds: string[] = [];
-      if (actionable.length) {
-        for (const change of actionable) { const messageId = await postChange(env, id, change); if (messageId) messageIds.push(messageId); }
-      } else {
-        const messageId = await postDiscord(env, { content: heartbeatText(started, env.SPAWN_TIMEZONE, inventory.baseline) }); if (messageId) messageIds.push(messageId);
-      }
       const resultJson = JSON.stringify(result);
       const resultHash = await sha256(resultJson);
       const finished = new Date().toISOString();
       await env.SPAWN_DB.batch([
         env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=? WHERE id=?").bind(finished, resultJson, resultHash, messageIds.join(","), id),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
-          .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished)
+          .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished),
+        env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('amazon_discovery_window', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+          .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished)
       ]);
       if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
       return { id, result };
@@ -171,8 +166,11 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
     const rows=await env.SPAWN_DB.prepare("SELECT * FROM monitoring_candidates WHERE status IN ('PENDING','ACCEPTED') ORDER BY discovered_at DESC LIMIT 200").all(); return json({candidates:rows.results});
   }
   if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
-    const rows=await env.SPAWN_DB.prepare("SELECT asin,product_name,product_url,watch_category,language,priority,lane,source,last_discovered_at FROM amazon_watchlist WHERE status='ACTIVE' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all();
-    return json({watchlist:rows.results});
+    const [version,rows]=await Promise.all([
+      env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
+      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
+    ]);
+    return json({schema_version:1,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
   }
   return json({error:"not_found"},404);
 }
@@ -192,6 +190,28 @@ async function adminVendor(request: Request, url: URL, env: Env): Promise<Respon
   const body=await request.json().catch(()=>({})) as {status?:string;reason?:string}; if(!["ACTIVE","SUPPRESSED"].includes(body.status||"")) return json({error:"invalid_status"},400);
   const current=await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE vendor_key=?").bind(match[1]).first<{vendor_name:string}>(); if(!current) return json({error:"not_found"},404);
   const now=new Date().toISOString(); await env.SPAWN_DB.batch([env.SPAWN_DB.prepare("UPDATE vendors SET status=?,updated_at=?,updated_by='operator',reason=? WHERE vendor_key=?").bind(body.status,now,body.reason??null,match[1]),env.SPAWN_DB.prepare("INSERT INTO vendor_status_audit(vendor_key,vendor_name,status,reported_at,reporter,reason) VALUES(?,?,?,?,?,?)").bind(match[1],current.vendor_name,body.status,now,"operator",body.reason??null)]); return json({ok:true,status:body.status});
+}
+
+async function adminAmazonWatchlist(request: Request, url: URL, env: Env): Promise<Response | null> {
+  const match=url.pathname.match(/^\/admin\/amazon-watchlist\/([A-Z0-9]{10})$/i); if(!match) return null;
+  if(!authorized(request,env)) return json({error:"unauthorized"},401);
+  if(request.method!=="PUT") return json({error:"method_not_allowed"},405);
+  const asin=match[1].toUpperCase();
+  const current=await env.SPAWN_DB.prepare("SELECT lifecycle_status FROM amazon_watchlist WHERE asin=?").bind(asin).first<{lifecycle_status:string}>();
+  if(!current) return json({error:"not_found"},404);
+  const body=await request.json().catch(()=>({})) as {lifecycle_status?:string;canonical_product_id?:string;language?:string;lane?:string;routing_key?:string;alert_on_initial_buyable?:boolean;reason?:string};
+  const lifecycle=String(body.lifecycle_status||"");
+  if(!["VERIFIED","APPROVED","PUBLISHED","REJECTED","SUSPENDED"].includes(lifecycle)) return json({error:"invalid_lifecycle_status"},400);
+  if(!body.reason?.trim()) return json({error:"reason_required"},400);
+  if(lifecycle==="PUBLISHED" && (!body.canonical_product_id || !["english"].includes(body.language||"") || !["priority","normal"].includes(body.lane||"") || !["pokemon-main","delta-reign","magic-hobbit"].includes(body.routing_key||""))) return json({error:"incomplete_publication"},400);
+  const now=new Date().toISOString(), reviewer=request.headers.get("cf-access-authenticated-user-email")||"operator:run-token";
+  const changesPublication=current.lifecycle_status==="PUBLISHED" || lifecycle==="PUBLISHED";
+  const statements=[env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,canonical_product_id=COALESCE(?,canonical_product_id),language=COALESCE(?,language),lane=COALESCE(?,lane),routing_key=COALESCE(?,routing_key),alert_on_initial_buyable=COALESCE(?,alert_on_initial_buyable),approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=?`)
+    .bind(lifecycle,body.canonical_product_id||null,body.language||null,body.lane||null,body.routing_key||null,body.alert_on_initial_buyable==null?null:Number(body.alert_on_initial_buyable),reviewer,body.reason.trim().slice(0,500),now,now,asin)];
+  if(changesPublication) statements.push(env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('amazon_catalog_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(worker_state.value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now));
+  await env.SPAWN_DB.batch(statements);
+  const version=await env.SPAWN_DB.prepare("SELECT value FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string}>();
+  return json({ok:true,asin,lifecycle_status:lifecycle,catalog_version:version?.value??"0"});
 }
 
 async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
@@ -234,6 +254,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const shared=await sharedState(request,url,env); if(shared) return shared;
+  const amazonAdmin=await adminAmazonWatchlist(request,url,env); if(amazonAdmin) return amazonAdmin;
   const vendorAdmin=await adminVendor(request,url,env); if(vendorAdmin) return vendorAdmin;
   const vendorIssue=await handleVendorIssue(request,url,env); if(vendorIssue) return vendorIssue;
   const weeklyFeedback=await handleWeeklyFeedback(request,url,env); if(weeklyFeedback) return weeklyFeedback;
@@ -284,9 +305,14 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   return json({ error: "not_found" }, 404);
 }
 
+export function isAmazonDiscoveryWindow(now: Date, timezone: string): boolean {
+  const hour=Number(new Intl.DateTimeFormat("en-CA",{timeZone:timezone,hour:"2-digit",hourCycle:"h23"}).format(now));
+  return Number.isInteger(hour) && hour % 3 === 0;
+}
+
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-  ctx.waitUntil(distributeWeeklyFeedback(env).catch((error) => console.error("weekly feedback distribution failed", error)));
   if (isQuietWindow(new Date(), env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
+  if (!isAmazonDiscoveryWindow(new Date(),env.SPAWN_TIMEZONE)) return;
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 
