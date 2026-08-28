@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { alertText, handleFetch, heartbeatText, isAmazonDiscoveryWindow, rawDiscoveryText } from "../src/index";
+import { handleFetch, isAmazonDiscoveryWindow } from "../src/index";
 import { D1_MULTI_ROW_BATCHES, D1_SAFE_VARIABLE_LIMIT, amazonAsin, canonicalizeUrl, classifyListing, d1RowsPerStatement } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
-import type { Env, InventoryChange, Listing } from "../src/types";
+import type { Env, Listing } from "../src/types";
 import { benchmarkContext, isQuietWindow, normalizeVendor, printSeries, productType } from "../src/garfield";
 import { weekKey } from "../src/weekly-feedback";
 import { isMtgHobbitAlertable, mtgHobbitDealClassification } from "../src/mtg";
@@ -49,48 +49,6 @@ describe("inventory classification", () => {
   it("normalizes Shopify locale variants to one product URL", () => {
     expect(canonicalizeUrl("https://monstersandspells.com/en/products/example?variant=123"))
       .toBe("https://monstersandspells.com/products/example?variant=123");
-  });
-});
-
-describe("Discord copy", () => {
-  it("makes an overpriced listing unmistakable", () => {
-    const change: InventoryChange = { listingKey: "x", type: "new", previousPrice: null, listing: listing() };
-    const message = alertText(change);
-    expect(message).toContain("NEW LISTING");
-    expect(message).toContain("English");
-    expect(message).toContain("135% above MSRP");
-    expect(message).toContain("⚠️");
-  });
-
-  it("discloses unconfirmed language and MSRP", () => {
-    const change: InventoryChange = { listingKey: "x", type: "new", previousPrice: null,
-      listing: listing({ language: "unknown", language_evidence: "", msrp_mxn: null, msrp_source_url: null }) };
-    expect(alertText(change)).toContain("Language unconfirmed");
-    expect(alertText(change)).toContain("MSRP: **unconfirmed**");
-  });
-
-  it("uses a non-repetitive heartbeat", () => {
-    const message = heartbeatText(new Date("2026-08-20T12:00:00Z"), "America/Mexico_City", false);
-    expect(message).toContain("No verified new listings, restocks, or meaningful price drops");
-    expect(message).not.toContain("Sources scanned");
-  });
-
-  it("clearly labels an MTG pilot alert with its classification and reference range", () => {
-    const change: InventoryChange = { listingKey:"mtg", type:"new", previousPrice:null, listing:listing({
-      title:"Magic: The Gathering | The Hobbit Collector Booster Box — 12 Packs", watch_category:"mtg_hobbit_collector_box",
-      retailer:"Example TCG", price_mxn:9_999, msrp_mxn:7_850, evidence:"Factory sealed display containing 12 Collector Booster packs; add-to-cart is active"
-    }) };
-    expect(alertText(change)).toContain("MTG — High Priority: Excellent Buy");
-    expect(alertText(change)).toContain("Official implied MSRP: ~MX$7.7–8.0k");
-  });
-  it("labels raw discoveries as unverified research leads", () => {
-    const message = rawDiscoveryText({ listingKey:"raw", type:"new", previousPrice:null, listing:listing({
-      retailer:"Example Store", status:"unknown", availability_state:"unknown", language:"unknown", price_mxn:null
-    }) });
-    expect(message).toContain("UNVERIFIED DISCOVERY");
-    expect(message).toContain("Research lead only");
-    expect(message).toContain("Language unconfirmed");
-    expect(message).not.toContain("VERIFIED BUYABLE");
   });
 });
 
@@ -152,7 +110,7 @@ describe("security helpers", () => {
 
   const minimalEnv = {
     RUN_TOKEN: "operator-secret", SPAWN_CONFIG_VERSION: "5.1", OPENAI_MODEL: "test", SPAWN_TIMEZONE: "America/Mexico_City",
-    OPENAI_API_KEY: "unused", DISCORD_WEBHOOK_URL: "unused", PUBLIC_BASE_URL: "https://example.com", BOARD_ACCESS_TOKEN: "board",
+    OPENAI_API_KEY: "unused", PUBLIC_BASE_URL: "https://example.com", BOARD_ACCESS_TOKEN: "board",
     SPAWN_DB: {} as D1Database
   } satisfies Env;
 

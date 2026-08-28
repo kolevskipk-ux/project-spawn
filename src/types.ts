@@ -1,7 +1,6 @@
 export interface Env {
   SPAWN_DB: D1Database;
   OPENAI_API_KEY: string;
-  DISCORD_WEBHOOK_URL: string;
   RUN_TOKEN: string;
   OPENAI_MODEL: string;
   SPAWN_TIMEZONE: string;

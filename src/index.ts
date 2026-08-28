@@ -3,11 +3,11 @@ import { boardHeaders, boardRows, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
 import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
 import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature } from "./benchmarks";
-import type { Env, InventoryChange, ScanResult } from "./types";
+import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
-import { distributeWeeklyFeedback, handleWeeklyFeedback } from "./weekly-feedback";
-import { isMtgHobbitAlertable, mtgHobbitDealClassification, MTG_HOBBIT_CATEGORY, MTG_HOBBIT_MSRP_REFERENCE_MXN } from "./mtg";
+import { handleWeeklyFeedback } from "./weekly-feedback";
+import { reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -32,70 +32,6 @@ async function callOpenAI(env: Env): Promise<ScanResult> {
   return JSON.parse(outputText) as ScanResult;
 }
 
-const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")} MXN`;
-const languageLabel = (language: InventoryChange["listing"]["language"]) => ({ english: "English", spanish: "Spanish", bilingual: "Bilingual", japanese: "Japanese", chinese: "Chinese", unknown: "Language unconfirmed" })[language];
-
-function valueLine(change: InventoryChange): string {
-  const { price_mxn: price, msrp_mxn: msrp } = change.listing;
-  if (msrp == null) return "MSRP: **unconfirmed**";
-  if (price == null) return `MSRP: **${money(msrp)}** • Current-price comparison unavailable`;
-  const difference = Math.round(((price - msrp) / msrp) * 100);
-  if (difference > 0) return `MSRP: **${money(msrp)}** • **${difference}% above MSRP${difference >= 25 ? " ⚠️" : ""}**`;
-  if (difference < 0) return `MSRP: **${money(msrp)}** • **${Math.abs(difference)}% below MSRP ✅**`;
-  return `MSRP: **${money(msrp)}** • At MSRP ✅`;
-}
-
-function alertText(change: InventoryChange): string {
-  if (change.listing.watch_category === MTG_HOBBIT_CATEGORY) {
-    const classification = mtgHobbitDealClassification(change.listing.price_mxn);
-    const priority = change.listing.price_mxn != null && change.listing.price_mxn <= 10_500 ? "🟢 MTG — High Priority" : "🟢 MTG";
-    return [`**${priority}: ${classification}**`, "**The Hobbit Collector Booster Box**",
-      change.listing.price_mxn == null ? "Price unconfirmed" : `**${money(change.listing.price_mxn)}**`,
-      `Official implied MSRP: ~MX$${(MTG_HOBBIT_MSRP_REFERENCE_MXN.low / 1000).toFixed(1)}–${(MTG_HOBBIT_MSRP_REFERENCE_MXN.high / 1000).toFixed(1)}k`,
-      `Availability: **${change.listing.status === "available" ? "Available" : "Unconfirmed"}**`, `Vendor: **${change.listing.retailer}**`, change.listing.url].join("\n").slice(0, 1900);
-  }
-  const badge = change.type === "new" ? "🆕 NEW LISTING" : change.type === "restock" ? "🔄 RESTOCK" : change.type === "preorder_open" ? "🚀 PREORDER OPEN" : "📉 PRICE DROP";
-  return [`**${badge}**`, `**${change.listing.title}**`, `${change.listing.retailer}${change.listing.price_mxn == null ? "" : ` — **${money(change.listing.price_mxn)}**`}`,
-    `Language: **${languageLabel(change.listing.language)}**`, valueLine(change), change.listing.url].join("\n").slice(0, 1900);
-}
-
-function heartbeatText(timestamp: Date, timezone: string, baseline: boolean): string {
-  const when = new Intl.DateTimeFormat("en-MX", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }).format(timestamp);
-  return ["🐣 **SPAWN — Hourly Scan**", `🕐 ${when}`, "", "✅ Scheduled check completed.", "",
-    baseline ? "Inventory baseline established. Future alerts will identify new listings, restocks, and price drops."
-      : "No verified new listings, restocks, or meaningful price drops this hour."].join("\n");
-}
-
-function rawDiscoveryText(change: InventoryChange): string {
-  const listing = change.listing;
-  const availability = listing.availability_state ?? listing.status;
-  return ["🔎 **UNVERIFIED DISCOVERY**", `**${listing.title}**`, `Retailer: **${listing.retailer}**`,
-    `Observed price: **${listing.price_mxn == null ? "Unconfirmed" : money(listing.price_mxn)}**`,
-    `Language: **${languageLabel(listing.language)}**`, `Observed availability: **${availability.replaceAll("_", " ")}**`,
-    listing.url, "_Research lead only — not a confirmed drop or tracked Catch product._"].join("\n").slice(0, 1900);
-}
-
-async function postDiscord(env: Env, payload: Record<string, unknown>, components = false): Promise<string | null> {
-  const response = await fetch(`${env.DISCORD_WEBHOOK_URL}${components ? "?wait=true&with_components=true" : "?wait=true"}`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } })
-  });
-  if (!response.ok) throw new Error(`Discord ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  return ((await response.json()) as { id?: string }).id ?? null;
-}
-
-async function postChange(env: Env, scanId: string, change: InventoryChange): Promise<string | null> {
-  const token = crypto.randomUUID();
-  const created = new Date();
-  await env.SPAWN_DB.prepare("INSERT INTO feedback_tokens (token, scan_id, listing_key, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(token, scanId, change.listingKey, created.toISOString(), new Date(created.getTime() + 30 * 86400000).toISOString()).run();
-  const feedback = (kind: string) => `${env.PUBLIC_BASE_URL}/feedback/${token}/${kind}`;
-  return postDiscord(env, { content: alertText(change), components: [{ type: 1, components: [
-    { type: 2, style: 5, label: "✅ Got one", url: feedback("got_one") },
-    { type: 2, style: 5, label: "💸 Too expensive", url: feedback("too_expensive") }
-    ,{ type: 2, style: 5, label: "⚠️ Vendor Issue", url: `${env.PUBLIC_BASE_URL}/vendor-issue/${token}` }
-  ] }] }, true);
-}
-
 async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id: string; result: ScanResult }> {
   const id = crypto.randomUUID();
   const started = new Date();
@@ -115,29 +51,16 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
       .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
     try {
       const result = await callOpenAI(env);
-      const inventory = await updateInventory(env, id, result.listings, started.toISOString());
-      const messageIds: string[] = [];
-      let rawDeliveryFailures = 0;
-      for (const discovery of inventory.discoveries) {
-        try {
-          const messageId = await postDiscord(env, { content:rawDiscoveryText(discovery) });
-          if (messageId) messageIds.push(messageId);
-        } catch (error) {
-          rawDeliveryFailures += 1;
-          console.error("raw discovery Discord delivery failed", error);
-        }
-      }
+      await updateInventory(env, id, result.listings, started.toISOString());
       const resultJson = JSON.stringify(result);
       const resultHash = await sha256(resultJson);
       const finished = new Date().toISOString();
       await env.SPAWN_DB.batch([
-        env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=? WHERE id=?").bind(finished, resultJson, resultHash, messageIds.join(","), id),
+        env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=NULL WHERE id=?").bind(finished, resultJson, resultHash, id),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
           .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('amazon_discovery_window', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
-          .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished),
-        env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_raw_discovery_delivery', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
-          .bind(JSON.stringify({ scan_id:id, attempted:inventory.discoveries.length, delivered:messageIds.length, failed:rawDeliveryFailures }), finished)
+          .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished)
       ]);
       if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
       return { id, result };
@@ -216,23 +139,25 @@ async function adminVendor(request: Request, url: URL, env: Env): Promise<Respon
 async function adminAmazonWatchlist(request: Request, url: URL, env: Env): Promise<Response | null> {
   const match=url.pathname.match(/^\/admin\/amazon-watchlist\/([A-Z0-9]{10})$/i); if(!match) return null;
   if(!authorized(request,env)) return json({error:"unauthorized"},401);
-  if(request.method!=="PUT") return json({error:"method_not_allowed"},405);
-  const asin=match[1].toUpperCase();
-  const current=await env.SPAWN_DB.prepare("SELECT lifecycle_status FROM amazon_watchlist WHERE asin=?").bind(asin).first<{lifecycle_status:string}>();
-  if(!current) return json({error:"not_found"},404);
-  const body=await request.json().catch(()=>({})) as {lifecycle_status?:string;canonical_product_id?:string;language?:string;lane?:string;routing_key?:string;alert_on_initial_buyable?:boolean;reason?:string};
-  const lifecycle=String(body.lifecycle_status||"");
-  if(!["VERIFIED","APPROVED","PUBLISHED","REJECTED","SUSPENDED"].includes(lifecycle)) return json({error:"invalid_lifecycle_status"},400);
-  if(!body.reason?.trim()) return json({error:"reason_required"},400);
-  if(lifecycle==="PUBLISHED" && (!body.canonical_product_id || !["english"].includes(body.language||"") || !["priority","normal"].includes(body.lane||"") || !["pokemon-main","delta-reign","magic-hobbit"].includes(body.routing_key||""))) return json({error:"incomplete_publication"},400);
-  const now=new Date().toISOString(), reviewer=request.headers.get("cf-access-authenticated-user-email")||"operator:run-token";
-  const changesPublication=current.lifecycle_status==="PUBLISHED" || lifecycle==="PUBLISHED";
-  const statements=[env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,canonical_product_id=COALESCE(?,canonical_product_id),language=COALESCE(?,language),lane=COALESCE(?,lane),routing_key=COALESCE(?,routing_key),alert_on_initial_buyable=COALESCE(?,alert_on_initial_buyable),approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=?`)
-    .bind(lifecycle,body.canonical_product_id||null,body.language||null,body.lane||null,body.routing_key||null,body.alert_on_initial_buyable==null?null:Number(body.alert_on_initial_buyable),reviewer,body.reason.trim().slice(0,500),now,now,asin)];
-  if(changesPublication) statements.push(env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('amazon_catalog_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(worker_state.value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now));
-  await env.SPAWN_DB.batch(statements);
-  const version=await env.SPAWN_DB.prepare("SELECT value FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string}>();
-  return json({ok:true,asin,lifecycle_status:lifecycle,catalog_version:version?.value??"0"});
+  return json({error:"legacy_endpoint_retired",message:"Use the evidence-bound dashboard workflow."},410);
+}
+
+async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Response|null> {
+  const match=url.pathname.match(/^\/dashboard\/verification\/([A-Z0-9]{10})$/i); if(!match) return null;
+  if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(request.method!=="POST") return json({error:"method_not_allowed"},405);
+  const form=await request.formData(), action=String(form.get("action")||"");
+  const asin=match[1].toUpperCase(), actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard";
+  let result;
+  if(action==="verify") result=await runAmazonVerification(env,asin,actor);
+  else if(["approve","reject","publish"].includes(action)) result=await reviewAmazonCandidate(env,asin,action as ReviewAction,{
+    attemptId:Number(form.get("attempt_id")), evidenceRevision:String(form.get("evidence_revision")||""), reason:String(form.get("reason")||""),
+    lane:String(form.get("lane")||"") as "priority"|"normal", routingKey:String(form.get("routing_key")||"") as "pokemon-main"|"delta-reign"|"magic-hobbit",
+    alertOnInitialBuyable:form.get("alert_on_initial_buyable")==="on"
+  },actor);
+  else result={ok:false as const,error:"invalid_action"};
+  const destination=new URL("/dashboard",url); destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN); destination.searchParams.set(result.ok?"notice":"error",result.ok?`${action}:${asin}`:result.error);
+  return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
 async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
@@ -274,6 +199,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const verification=await dashboardVerification(request,url,env); if(verification) return verification;
   const shared=await sharedState(request,url,env); if(shared) return shared;
   const amazonAdmin=await adminAmazonWatchlist(request,url,env); if(amazonAdmin) return amazonAdmin;
   const vendorAdmin=await adminVendor(request,url,env); if(vendorAdmin) return vendorAdmin;
@@ -337,4 +263,4 @@ export default { fetch: handleFetch, scheduled(_controller: ScheduledController,
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 
-export { alertText, handleFetch, heartbeatText, rawDiscoveryText, runScan };
+export { handleFetch, runScan };
