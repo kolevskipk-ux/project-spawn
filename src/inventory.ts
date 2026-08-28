@@ -80,7 +80,7 @@ function chunks<T>(items: T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 }
 
-export async function updateInventory(env: Env, scanId: string, listings: Listing[], observedAt: string): Promise<{ baseline: boolean; changes: InventoryChange[] }> {
+export async function updateInventory(env: Env, scanId: string, listings: Listing[], observedAt: string): Promise<{ baseline: boolean; changes: InventoryChange[]; discoveries: InventoryChange[] }> {
   const suppressed = await suppressedVendorKeys(env);
   const rawPrepared = await Promise.all(listings.filter(listing => !suppressed.has(normalizeVendor(listing.retailer))).map(async (listing) => {
     const canonicalUrl = canonicalizeUrl(listing.url);
@@ -110,6 +110,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
     previousPrice: previous.get(item.listingKey)?.price_mxn ?? null,
     listing: item.listing
   }));
+  const discoveries = baseline ? [] : changes.filter((change) => !previous.has(change.listingKey));
 
   const statements: D1PreparedStatement[] = [];
   for (const group of chunks(prepared, D1_MULTI_ROW_BATCHES.inventory.rowsPerStatement)) {
@@ -163,5 +164,5 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
       (candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,discovered_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(candidate.candidate_id,candidate.source,candidate.source_url,candidate.source_listing_key,candidate.vendor,candidate.vendor_key,candidate.product_name,candidate.product_family,candidate.print_series,candidate.product_type,candidate.language,candidate.retailer_sku,candidate.observed_price_mxn,candidate.availability_state,observedAt).run();
   }
-  return { baseline, changes };
+  return { baseline, changes, discoveries };
 }

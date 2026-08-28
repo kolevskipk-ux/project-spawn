@@ -68,6 +68,6 @@ Update this file with changes to architecture, schedules, interfaces, configurat
 - Seeds the approved 19-ASIN manifest: 3 priority and 16 normal.
 - New Amazon discoveries remain `DISCOVERED` and cannot activate Catch automatically.
 - The authenticated watchlist endpoint becomes schema- and catalog-versioned and returns only `PUBLISHED` rows.
-- Spawn customer alerts and weekly survey distribution are removed from the scheduled discovery path.
+- Spawn customer purchase alerts and weekly survey distribution are removed from the scheduled discovery path. A temporary raw feed posts each non-baseline, first-seen canonical listing once as an explicitly unverified research lead while Catch remains Amazon-only.
 - Scheduled discovery is gated to one Mexico City window every three hours when cron is later re-enabled.
 - Configuration version: `8.0.0-rc.1`.

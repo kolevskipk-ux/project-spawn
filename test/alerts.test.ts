@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertText, handleFetch, heartbeatText, isAmazonDiscoveryWindow } from "../src/index";
+import { alertText, handleFetch, heartbeatText, isAmazonDiscoveryWindow, rawDiscoveryText } from "../src/index";
 import { D1_MULTI_ROW_BATCHES, D1_SAFE_VARIABLE_LIMIT, amazonAsin, canonicalizeUrl, classifyListing, d1RowsPerStatement } from "../src/inventory";
 import { percentDifference, renderBoard, type BoardRow } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
@@ -82,6 +82,15 @@ describe("Discord copy", () => {
     }) };
     expect(alertText(change)).toContain("MTG — High Priority: Excellent Buy");
     expect(alertText(change)).toContain("Official implied MSRP: ~MX$7.7–8.0k");
+  });
+  it("labels raw discoveries as unverified research leads", () => {
+    const message = rawDiscoveryText({ listingKey:"raw", type:"new", previousPrice:null, listing:listing({
+      retailer:"Example Store", status:"unknown", availability_state:"unknown", language:"unknown", price_mxn:null
+    }) });
+    expect(message).toContain("UNVERIFIED DISCOVERY");
+    expect(message).toContain("Research lead only");
+    expect(message).toContain("Language unconfirmed");
+    expect(message).not.toContain("VERIFIED BUYABLE");
   });
 });
 

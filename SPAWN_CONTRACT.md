@@ -124,6 +124,7 @@ The initial publishable routing-key vocabulary is `pokemon-main`, `delta-reign`,
 
 - Spawn: operator-only scan failures and review-needed notices.
 - Catch: immediate retailer availability alerts and their delivery status.
+- Temporary baseline exception: while Catch is Amazon-only, Spawn may post a deduplicated first-seen listing to the main channel only when labeled `UNVERIFIED DISCOVERY` and explicitly described as a research lead rather than a confirmed drop. Baseline imports and repeat sightings must not post.
 - Neither Worker stores webhook values in source control or catalog records.
 - Alert destinations are referenced by stable routing keys and resolved from Worker secrets.
 

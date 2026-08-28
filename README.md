@@ -8,13 +8,13 @@ The proposed post-review responsibility boundary is documented in `SPAWN_CONTRAC
 
 `Cloudflare Cron → Worker → OpenAI Responses API + web search → D1 review lifecycle → published catalog`
 
-Spawn no longer sends subscriber purchase alerts. Catch Em All owns deterministic monitoring and customer delivery.
+Spawn no longer sends subscriber purchase alerts. Catch Em All owns deterministic monitoring and customer delivery. During the Amazon-only Catch baseline, Spawn posts each genuinely first-seen canonical listing once as a clearly labeled `UNVERIFIED DISCOVERY` research lead; repeat sightings and initial inventory baselines do not post.
 
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
 
 Production hostname: `https://spawn.aztlan-eng.com`. The custom domain is declared in `wrangler.jsonc`; do not create conflicting DNS records manually.
 
-Discord receives a deliberately minimal subscriber-facing report: check completion and verified purchasable listings only. Full scan diagnostics, rejected candidates, blocked sources, and model output remain private in D1 and Worker logs.
+Discord receives only deduplicated, explicitly unverified first-seen discovery leads during the temporary Amazon-only baseline. Full scan diagnostics, repeat sightings, rejected candidates, blocked sources, and model output remain private in D1 and Worker logs.
 
 ## One-time setup
 

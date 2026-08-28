@@ -66,6 +66,15 @@ function heartbeatText(timestamp: Date, timezone: string, baseline: boolean): st
       : "No verified new listings, restocks, or meaningful price drops this hour."].join("\n");
 }
 
+function rawDiscoveryText(change: InventoryChange): string {
+  const listing = change.listing;
+  const availability = listing.availability_state ?? listing.status;
+  return ["🔎 **UNVERIFIED DISCOVERY**", `**${listing.title}**`, `Retailer: **${listing.retailer}**`,
+    `Observed price: **${listing.price_mxn == null ? "Unconfirmed" : money(listing.price_mxn)}**`,
+    `Language: **${languageLabel(listing.language)}**`, `Observed availability: **${availability.replaceAll("_", " ")}**`,
+    listing.url, "_Research lead only — not a confirmed drop or tracked Catch product._"].join("\n").slice(0, 1900);
+}
+
 async function postDiscord(env: Env, payload: Record<string, unknown>, components = false): Promise<string | null> {
   const response = await fetch(`${env.DISCORD_WEBHOOK_URL}${components ? "?wait=true&with_components=true" : "?wait=true"}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } })
@@ -108,6 +117,16 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
       const result = await callOpenAI(env);
       const inventory = await updateInventory(env, id, result.listings, started.toISOString());
       const messageIds: string[] = [];
+      let rawDeliveryFailures = 0;
+      for (const discovery of inventory.discoveries) {
+        try {
+          const messageId = await postDiscord(env, { content:rawDiscoveryText(discovery) });
+          if (messageId) messageIds.push(messageId);
+        } catch (error) {
+          rawDeliveryFailures += 1;
+          console.error("raw discovery Discord delivery failed", error);
+        }
+      }
       const resultJson = JSON.stringify(result);
       const resultHash = await sha256(resultJson);
       const finished = new Date().toISOString();
@@ -116,7 +135,9 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
           .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('amazon_discovery_window', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
-          .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished)
+          .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished),
+        env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_raw_discovery_delivery', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+          .bind(JSON.stringify({ scan_id:id, attempted:inventory.discoveries.length, delivered:messageIds.length, failed:rawDeliveryFailures }), finished)
       ]);
       if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
       return { id, result };
@@ -316,4 +337,4 @@ export default { fetch: handleFetch, scheduled(_controller: ScheduledController,
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 
-export { alertText, handleFetch, heartbeatText, runScan };
+export { alertText, handleFetch, heartbeatText, rawDiscoveryText, runScan };
