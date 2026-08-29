@@ -47,6 +47,8 @@ Catch Em All reads `/internal/garfield/vendors` and `/internal/garfield/monitori
 
 The private `/dashboard?access=...` page combines the Amazon verification queue and evidence-bound Verify, Approve, Reject, and Publish controls with Spawn health, scan freshness, inventory/error counts, vendor state, weekly feedback trends, and Catch Em All `/status.json` on demand. Approval and publication require the latest immutable evidence revision, preventing stale dashboard actions. It performs no background polling. `/inventory.csv` includes backward-compatible `print_series` and `availability_state` columns.
 
+Every genuinely new in-scope listing enters the dashboard's New listing publication queue. The operator may publish it for customer visibility only, publish an independently verified Amazon ASIN with hourly monitoring, promote a high-demand verified Amazon ASIN to five-minute monitoring, or reject it. Catch owns the deduplicated customer notice and recurring monitoring; Spawn never posts to customer Discord routes.
+
 Every Friday around 10:05 `America/Mexico_City`, the existing hourly trigger idempotently posts one low-friction weekly Discord survey. Responses are anonymous per browser receipt and stored by ISO week for trend analysis. Migration `0009_release_feedback_and_availability.sql` adds the survey, placeholder, normalized product-type, and review-queue storage.
 
 KantoCards is evaluation-only, not Always Scan. Its Delta Reign `$1.00` + `PREVENTA PRÓXIMAMENTE` + `Agotado` combination is recorded as `preorder_placeholder`; that nominal price is excluded from benchmarking and does not create historical sold-out state. Promote the retailer to Always Scan only after an operator reviews reliability over multiple observations.
