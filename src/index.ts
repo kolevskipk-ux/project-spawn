@@ -178,7 +178,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
   if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
-  if(!reason||!["publish","reject"].includes(action)||!['visibility_only','hourly','five_minute'].includes(disposition)) return json({error:"invalid_review"},400);
+  if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
   const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,i.watch_category FROM monitoring_candidates c JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
   const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",now=new Date().toISOString();
@@ -282,7 +282,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   }
   if (request.method === "GET" && url.pathname === "/dashboard") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
-    return new Response(renderDashboard(await dashboardData(env), env.BOARD_ACCESS_TOKEN), { headers:boardHeaders() });
+    return new Response(renderDashboard(await dashboardData(env), env.BOARD_ACCESS_TOKEN, {notice:url.searchParams.get("notice"),error:url.searchParams.get("error")}), { headers:boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/inventory.csv") {
     if (!authorized(request, env) && !boardAuthorized(url, env)) return json({ error: "unauthorized" }, 401);
