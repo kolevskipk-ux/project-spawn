@@ -50,6 +50,34 @@ export async function retryApprovalRequests(env:Env,limit=10) {
   for(const row of rows.results) await deliverApprovalRequest(env,row.evidence_revision).catch(()=>undefined);
 }
 
+export async function deliverDiscoveryApprovalRequest(env:Env,candidateId:string,fetchFn:typeof fetch=fetch){
+  const row=await env.SPAWN_DB.prepare(`SELECT n.*,c.product_name,c.vendor,c.product_family,c.language,c.observed_price_mxn,c.availability_state,c.source_url
+    FROM discovery_approval_notifications n JOIN monitoring_candidates c ON c.candidate_id=n.candidate_id
+    WHERE n.candidate_id=? AND n.status!='DELIVERED' AND c.status='PENDING' AND c.review_eligible=1`).bind(candidateId).first<Record<string,unknown>>();
+  if(!row)return {ok:true as const,status:"already-delivered-or-missing"};
+  const now=new Date().toISOString();
+  if(!env.OPS_DISCORD_WEBHOOK_URL){
+    await env.SPAWN_DB.prepare("UPDATE discovery_approval_notifications SET status='PENDING_MISSING_ROUTE',attempts=attempts+1,last_attempt_at=?,last_error='OPS_DISCORD_WEBHOOK_URL_NOT_CONFIGURED' WHERE candidate_id=?").bind(now,candidateId).run();
+    return {ok:false as const,status:"pending-missing-route"};
+  }
+  const role=validRoleId(env.APPROVAL_DISCORD_ROLE_ID),dashboard=`${env.PUBLIC_BASE_URL}/dashboard`;
+  const content=[role?`<@&${role}>`:"🛡️ Admin support requested","🔎 **SPAWN — NEW LISTING APPROVAL REQUESTED**",`**${row.product_name}**`,`Retailer: **${row.vendor}**`,`Family: **${row.product_family}**`,`Language: **${row.language}**`,`Observed: **${row.availability_state}** · ${row.observed_price_mxn==null?"price unconfirmed":`MX$${row.observed_price_mxn}`}`,String(row.source_url),dashboard,"_Approve customer visibility and monitoring separately in the protected dashboard._"].join("\n").slice(0,1900);
+  try{
+    const response=await fetchFn(env.OPS_DISCORD_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({username:"Spawn Operations",content,allowed_mentions:{parse:[],roles:role?[role]:[]}})});
+    if(!response.ok)throw new Error(`Discord ${response.status}`);
+    await env.SPAWN_DB.prepare("UPDATE discovery_approval_notifications SET status='DELIVERED',attempts=attempts+1,last_attempt_at=?,delivered_at=?,last_error=NULL WHERE candidate_id=?").bind(now,now,candidateId).run();
+    return {ok:true as const,status:"delivered"};
+  }catch(error){
+    await env.SPAWN_DB.prepare("UPDATE discovery_approval_notifications SET status='PENDING',attempts=attempts+1,last_attempt_at=?,last_error=? WHERE candidate_id=?").bind(now,String(error instanceof Error?error.message:error).slice(0,240),candidateId).run();
+    return {ok:false as const,status:"pending-delivery"};
+  }
+}
+
+export async function retryDiscoveryApprovalRequests(env:Env,limit=25){
+  const rows=await env.SPAWN_DB.prepare("SELECT candidate_id FROM discovery_approval_notifications WHERE status!='DELIVERED' ORDER BY COALESCE(last_attempt_at,created_at) ASC LIMIT ?").bind(limit).all<{candidate_id:string}>();
+  for(const row of rows.results)await deliverDiscoveryApprovalRequest(env,row.candidate_id).catch(()=>undefined);
+}
+
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 export function assessAmazonVerification(candidate: VerificationCandidate, response: { status: number; url: string; html: string; error?: string | null }): VerificationAssessment {
