@@ -1,6 +1,6 @@
 # Project Spawn
 
-GitHub-backed Cloudflare Worker that performs three-hourly discovery windows, maintains durable inventory and a review-gated published catalog in D1, and serves protected operator views.
+GitHub-backed Cloudflare Worker that performs three-hourly market discovery plus one bounded 04:05 early-ASIN sweep for Delta Reign and 30th Anniversary, maintains durable inventory and review state in D1, and serves protected operator views.
 
 The post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`.
 

@@ -17,13 +17,13 @@ async function sha256(value: string): Promise<string> {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function callOpenAI(env: Env): Promise<ScanResult> {
+async function callOpenAI(env: Env,mode:"market"|"early_asin"="market"): Promise<ScanResult> {
   const suppressed = await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE status='SUPPRESSED'").all<{vendor_name:string}>();
   const suppressionInstruction = suppressed.results.length ? ` Do not search, evaluate, or return listings from these suppressed vendors: ${suppressed.results.map(row=>row.vendor_name).join(", ")}.` : "";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", headers: { authorization: `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({ model: env.OPENAI_MODEL, instructions: SCAN_INSTRUCTIONS,
-      input: `Run the current hourly Spawn scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search" }],
+      input: mode==="early_asin"?`Run the bounded early-ASIN intelligence sweep. Search only for direct Amazon México product pages for Pokémon TCG 30th Anniversary/30th Celebration and Delta Reign sealed products. Return no more than 10 listings. Do not generate, enumerate, or guess ASINs. A candidate requires a direct product URL with an ASIN supported by public search evidence.${suppressionInstruction}`:`Run the current three-hour Spawn market scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search" }],
       text: { format: { type: "json_schema", name: "spawn_scan", strict: true, schema: RESPONSE_SCHEMA } }, store: false })
   });
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 500)}`);
@@ -33,7 +33,7 @@ async function callOpenAI(env: Env): Promise<ScanResult> {
   return JSON.parse(outputText) as ScanResult;
 }
 
-async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id: string; result: ScanResult }> {
+async function runScan(env: Env, triggerSource: "cron" | "manual" | "early_asin"): Promise<{ id: string; result: ScanResult }> {
   const id = crypto.randomUUID();
   const started = new Date();
   if (!await acquireScanLock(env, id, started)) {
@@ -51,11 +51,13 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
     await env.SPAWN_DB.prepare("INSERT INTO scan_runs (id, started_at, trigger_source, status, config_version, model) VALUES (?, ?, ?, 'running', ?, ?)")
       .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
     try {
-      const result = await callOpenAI(env);
+      const rawResult = await callOpenAI(env,triggerSource==="early_asin"?"early_asin":"market");
+      const listings=triggerSource==="early_asin"?rawResult.listings.filter(item=>["30th_celebration","delta_reign"].includes(item.watch_category)&&Boolean(amazonAsin(item.url))).slice(0,10):rawResult.listings;
+      const result:ScanResult={...rawResult,listings,listings_evaluated:listings.length,available:listings.filter(item=>item.status==="available").length,sold_out:listings.filter(item=>item.status==="sold_out").length,unknown:listings.filter(item=>item.status==="unknown").length};
       const inventory=await updateInventory(env, id, result.listings, started.toISOString());
       for(const discovery of inventory.discoveries) {
         const asin=amazonAsin(discovery.listing.url);
-        if(asin) await runAmazonVerification(env,asin,"verifier:automatic-discovery").catch(error=>console.error("automatic Amazon verification failed",error));
+        if(asin) await runAmazonVerification(env,asin,triggerSource==="early_asin"?"verifier:early-asin":"verifier:automatic-discovery").catch(error=>console.error("automatic Amazon verification failed",error));
       }
       const resultJson = JSON.stringify(result);
       const resultHash = await sha256(resultJson);
@@ -119,14 +121,20 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
+      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,COALESCE(routing_key_v2,routing_key) routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
     ]);
     return json({schema_version:1,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
+  }
+  if(request.method==="GET"&&url.pathname==="/internal/garfield/amazon-staging"){
+    const rows=await env.SPAWN_DB.prepare(`SELECT w.asin,a.canonical_product_id,w.product_name,w.product_url,w.watch_category,w.language,'HIGH' priority,'normal' lane,60 poll_interval_minutes,COALESCE(w.routing_key_v2,w.routing_key) routing_key,0 alert_on_initial_buyable,w.staged_at,w.evidence_revision
+      FROM amazon_watchlist w JOIN amazon_verification_attempts a ON a.id=w.verification_attempt_id
+      WHERE w.lifecycle_status='VERIFIED' AND w.staging_enabled=1 AND a.outcome='VERIFIED' AND w.watch_category IN ('30th_celebration','delta_reign') ORDER BY w.staged_at,w.asin`).all();
+    return json({schema_version:1,generated_at:new Date().toISOString(),watchlist:rows.results});
   }
   if (request.method === "GET" && url.pathname === "/internal/garfield/listing-publications") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='listing_publication_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' ORDER BY published_at,candidate_id").all()
+      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,routing_key,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' ORDER BY published_at,candidate_id").all()
     ]);
     return json({schema_version:1,publication_version:version?.value??"0",published_at:version?.updated_at??null,listings:rows.results});
   }
@@ -166,7 +174,7 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
   if(action==="verify") result=await runAmazonVerification(env,asin,actor);
   else if(["approve","reject","publish"].includes(action)) result=await reviewAmazonCandidate(env,asin,action as ReviewAction,{
     attemptId:Number(form.get("attempt_id")), evidenceRevision:String(form.get("evidence_revision")||""), reason:String(form.get("reason")||""),
-    lane:String(form.get("lane")||"") as "priority"|"normal", routingKey:String(form.get("routing_key")||"") as "pokemon-main"|"delta-reign"|"magic-hobbit",
+    lane:String(form.get("lane")||"") as "priority"|"normal", routingKey:String(form.get("routing_key")||"") as "pokemon-main"|"pokemon-30th"|"delta-reign"|"magic-hobbit",
     alertOnInitialBuyable:form.get("alert_on_initial_buyable")==="on"
   },actor);
   else result={ok:false as const,error:"invalid_action"};
@@ -192,7 +200,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       const asin=amazonAsin(String(candidate.source_url)); if(!asin) return json({error:"monitoring_requires_amazon_asin"},400);
       const watch=await env.SPAWN_DB.prepare("SELECT lifecycle_status,verification_attempt_id,evidence_revision FROM amazon_watchlist WHERE asin=?").bind(asin).first<{lifecycle_status:string;verification_attempt_id:number;evidence_revision:string}>();
       if(!watch||watch.lifecycle_status!=="VERIFIED") return json({error:"amazon_candidate_not_verified"},409);
-      const category=String(candidate.watch_category),routingKey=category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
+      const category=String(candidate.watch_category),routingKey=category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
       const approved=await reviewAmazonCandidate(env,asin,"approve",{attemptId:watch.verification_attempt_id,evidenceRevision:watch.evidence_revision,reason,lane:"normal",routingKey,alertOnInitialBuyable:false},actor);
       if(!approved.ok) return json(approved,409);
       await env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET poll_interval_minutes=? WHERE asin=? AND lifecycle_status='APPROVED'").bind(disposition==="hourly"?60:5,asin).run();
@@ -306,10 +314,18 @@ export function isAmazonDiscoveryWindow(now: Date, timezone: string): boolean {
   return Number.isInteger(hour) && hour % 3 === 0;
 }
 
+export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
+  const parts=new Intl.DateTimeFormat("en-CA",{timeZone:timezone,hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(now),values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return Number(values.hour)===4&&Number(values.minute)===5;
+}
+
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-  if (isQuietWindow(new Date(), env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
+  const now=new Date();
+  if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
+  if (isQuietWindow(now, env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
   ctx.waitUntil(retryApprovalRequests(env).catch((error)=>console.error("approval request retry failed",error)));
-  if (!isAmazonDiscoveryWindow(new Date(),env.SPAWN_TIMEZONE)) return;
+  ctx.waitUntil(retryDiscoveryApprovalRequests(env).catch((error)=>console.error("discovery approval request retry failed",error)));
+  if (!isAmazonDiscoveryWindow(now,env.SPAWN_TIMEZONE)) return;
   ctx.waitUntil(runScan(env, "cron").catch((error) => console.error("scheduled scan failed", error)));
 } } satisfies ExportedHandler<Env>;
 

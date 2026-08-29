@@ -45,8 +45,9 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 ### Alert routing
 
 - Catch owns alert destinations.
-- Existing products use `DISCORD_WEBHOOK_URL`.
+- General Pokémon products use `DISCORD_WEBHOOK_URL`; 30th Anniversary products use the explicit `pokemon-30th` routing key resolved by Catch.
 - Products explicitly classified with `series: "delta-reign"` use only `DELTA_REIGN_DIRECT`; a missing dedicated webhook is an error and must not fall back to the existing channel.
+- Independently verified Delta Reign and 30th Anniversary Amazon identities may enter an hourly `STAGED_SILENT` lane before operator publication. Customer delivery is prohibited until approval.
 - Spawn does not proxy or reroute Catch's immediate retailer alerts.
 
 ## Change discipline
