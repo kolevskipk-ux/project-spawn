@@ -25,7 +25,7 @@ export async function suppressedVendorKeys(env: Env): Promise<Set<string>> {
 
 export function normalizedCandidate(listing: Listing, listingKey: string) {
   const mtgHobbit = isMtgHobbitCollectorBox(listing) && hasMtgHobbitBoxEvidence(listing);
-  if (listing.language !== "english" || (!mtgHobbit && !["ascended_heroes", "delta_reign"].includes(listing.watch_category))) return null;
+  if (listing.watch_category === MTG_HOBBIT_CATEGORY && !mtgHobbit) return null;
   return { candidate_id: listingKey, source: "spawn", source_url: listing.url, source_listing_key: listingKey,
     vendor: listing.retailer, vendor_key: normalizeVendor(listing.retailer), product_name: listing.title,
     product_family: mtgHobbit ? "Magic: The Gathering | The Hobbit" : printSeries(listing.watch_category), print_series: printSeries(listing.watch_category), product_type: productType(listing.title), language: listing.language,

@@ -8,6 +8,7 @@ import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
 import { handleWeeklyFeedback } from "./weekly-feedback";
 import { retryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
+import { amazonAsin } from "./inventory";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -51,7 +52,11 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
       .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
     try {
       const result = await callOpenAI(env);
-      await updateInventory(env, id, result.listings, started.toISOString());
+      const inventory=await updateInventory(env, id, result.listings, started.toISOString());
+      for(const discovery of inventory.discoveries) {
+        const asin=amazonAsin(discovery.listing.url);
+        if(asin) await runAmazonVerification(env,asin,"verifier:automatic-discovery").catch(error=>console.error("automatic Amazon verification failed",error));
+      }
       const resultJson = JSON.stringify(result);
       const resultHash = await sha256(resultJson);
       const finished = new Date().toISOString();
@@ -113,9 +118,16 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
+      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
     ]);
     return json({schema_version:1,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
+  }
+  if (request.method === "GET" && url.pathname === "/internal/garfield/listing-publications") {
+    const [version,rows]=await Promise.all([
+      env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='listing_publication_version'").first<{value:string;updated_at:string}>(),
+      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' ORDER BY published_at,candidate_id").all()
+    ]);
+    return json({schema_version:1,publication_version:version?.value??"0",published_at:version?.updated_at??null,listings:rows.results});
   }
   return json({error:"not_found"},404);
 }
@@ -161,6 +173,40 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
+async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<Response|null> {
+  const match=url.pathname.match(/^\/dashboard\/listing\/([a-f0-9]{64})$/i); if(!match) return null;
+  if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(request.method!=="POST") return json({error:"method_not_allowed"},405);
+  const form=await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
+  if(!reason||!["publish","reject"].includes(action)||!['visibility_only','hourly','five_minute'].includes(disposition)) return json({error:"invalid_review"},400);
+  const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,i.watch_category FROM monitoring_candidates c JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
+  if(!candidate) return json({error:"not_found_or_reviewed"},404);
+  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",now=new Date().toISOString();
+  if(action==="reject") await env.SPAWN_DB.batch([
+    env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='REJECTED',reviewed_by=?,review_reason=?,reviewed_at=? WHERE candidate_id=? AND status='PENDING'").bind(actor,reason,now,match[1]),
+    env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,reason,decided_by,decided_at) VALUES(?,'REJECTED',?,?,?)").bind(match[1],reason,actor,now)
+  ]);
+  else {
+    if(disposition!=="visibility_only") {
+      const asin=amazonAsin(String(candidate.source_url)); if(!asin) return json({error:"monitoring_requires_amazon_asin"},400);
+      const watch=await env.SPAWN_DB.prepare("SELECT lifecycle_status,verification_attempt_id,evidence_revision FROM amazon_watchlist WHERE asin=?").bind(asin).first<{lifecycle_status:string;verification_attempt_id:number;evidence_revision:string}>();
+      if(!watch||watch.lifecycle_status!=="VERIFIED") return json({error:"amazon_candidate_not_verified"},409);
+      const category=String(candidate.watch_category),routingKey=category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
+      const approved=await reviewAmazonCandidate(env,asin,"approve",{attemptId:watch.verification_attempt_id,evidenceRevision:watch.evidence_revision,reason,lane:"normal",routingKey,alertOnInitialBuyable:false},actor);
+      if(!approved.ok) return json(approved,409);
+      await env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET poll_interval_minutes=? WHERE asin=? AND lifecycle_status='APPROVED'").bind(disposition==="hourly"?60:5,asin).run();
+      const published=await reviewAmazonCandidate(env,asin,"publish",{attemptId:watch.verification_attempt_id,evidenceRevision:watch.evidence_revision,reason},actor);
+      if(!published.ok) return json(published,409);
+    }
+    await env.SPAWN_DB.batch([
+      env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='ACCEPTED',disposition=?,reviewed_by=?,review_reason=?,reviewed_at=?,published_at=? WHERE candidate_id=? AND status='PENDING'").bind(disposition,actor,reason,now,now,match[1]),
+      env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('listing_publication_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
+      env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) VALUES(?,'PUBLISHED',?,?,?,?)").bind(match[1],disposition,reason,actor,now)
+    ]);
+  }
+  const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
+}
+
 async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
   const match = url.pathname.match(/^\/feedback\/([^/]+)\/(got_one|too_expensive)$/);
   if (!match) return null;
@@ -200,6 +246,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const listingReview=await dashboardListingReview(request,url,env); if(listingReview) return listingReview;
   const verification=await dashboardVerification(request,url,env); if(verification) return verification;
   const shared=await sharedState(request,url,env); if(shared) return shared;
   const amazonAdmin=await adminAmazonWatchlist(request,url,env); if(amazonAdmin) return amazonAdmin;
