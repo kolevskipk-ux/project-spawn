@@ -1,4 +1,5 @@
 import {describe,expect,it} from "vitest";
+import {boardHeaders} from "../src/board";
 import {renderDashboard} from "../src/dashboard";
 
 describe("listing review controls",()=>{
@@ -9,5 +10,6 @@ describe("listing review controls",()=>{
     expect(html).toContain('name="action" value="reject"');
     expect(html).toContain("Action failed:");
     expect(html).toContain("Required: why this listing is approved");
+    expect(new Headers(boardHeaders()).get("content-security-policy")).toContain("form-action 'self'");
   });
 });
