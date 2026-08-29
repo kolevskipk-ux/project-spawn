@@ -34,14 +34,15 @@ A generic `scan completed` result is not sufficient evidence of a successful dis
 
 Spawn owns the following lifecycle:
 
-`DISCOVERED -> VERIFIED -> APPROVED -> PUBLISHED`
+`DISCOVERED -> VERIFIED -> STAGED_SILENT -> APPROVED -> PUBLISHED`
 
 - `DISCOVERED`: a possible direct listing was found. It is not trusted or monitored.
 - `VERIFIED`: exact product identity and current page evidence satisfy the applicable policy.
+- `STAGED_SILENT`: a high-confidence Delta Reign or 30th Anniversary Amazon identity is monitored hourly by Catch without customer delivery while awaiting approval.
 - `APPROVED`: an operator accepts the identity, retailer, language, and proposed monitoring policy.
 - `PUBLISHED`: the candidate is exposed to Catch Em All through the authenticated catalog interface.
 
-Rejection and suspension must be explicit, reversible states with an operator reason and audit timestamp. Discovery alone must never activate monitoring.
+Rejection and suspension must be explicit, reversible states with an operator reason and audit timestamp. Discovery alone must never activate monitoring. Only independent verification may activate `STAGED_SILENT`; that state disables customer alerts and routes an early buyable observation only to operations.
 
 ### 3.1 Proposed two-Worker verification bridge
 
@@ -160,7 +161,7 @@ Every published target must include, at minimum:
 
 Catch must fail closed on unknown routing keys and invalid records. It must retain its last successfully validated catalog if Spawn is unavailable or publishes an invalid response.
 
-The initial publishable routing-key vocabulary is `pokemon-main`, `delta-reign`, and `magic-hobbit`. `operations` is reserved inside Catch and must never be published on a product record. Spawn does not know or publish the corresponding Worker binding names.
+The initial publishable routing-key vocabulary is `pokemon-main`, `pokemon-30th`, `delta-reign`, and `magic-hobbit`. `operations` is reserved inside Catch and must never be published on a product record. Spawn does not know or publish the corresponding Worker binding names.
 
 ## 8. Discord ownership
 

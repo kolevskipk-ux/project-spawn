@@ -120,15 +120,16 @@ export async function runAmazonVerification(env: Env, asin: string, actor: strin
   const completed = new Date().toISOString();
   const evidence = { source_evidence:candidate.evidence, response_url:responseUrl, html_bytes:responseHtml.length, title:responseHtml.match(/<title[^>]*>([^<]{0,500})<\/title>/i)?.[1] ?? null, transport_error:transportError };
   const insert = await env.SPAWN_DB.prepare(`INSERT INTO amazon_verification_attempts
-    (asin,evidence_revision,started_at,completed_at,outcome,method,access_outcome,http_status,product_url,canonical_product_id,product_name,watch_category,language,retailer,retailer_identifier,observed_price_mxn,observed_availability,evidence_json,gate_results_json,confidence,unresolved_questions,proposed_lane,proposed_routing_key,proposed_alert_on_initial_buyable,created_by)
-    VALUES(?,?,?,?,?,'plain_fetch',?,?,?,?,?,?,?,'Amazon México',?,NULL,?,?,?,?,?,?,?,0,?)`)
-    .bind(candidate.asin,evidenceRevision,started.toISOString(),completed,assessment.outcome,assessment.accessOutcome,status||null,responseUrl,assessment.canonicalProductId,candidate.product_name,candidate.watch_category,candidate.language,candidate.asin,assessment.observedAvailability,JSON.stringify(evidence),JSON.stringify(assessment.gateResults),assessment.confidence,assessment.unresolvedQuestions.join(", ")||null,"normal",candidate.watch_category==="delta_reign"?"delta-reign":candidate.watch_category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main",actor).run();
+    (asin,evidence_revision,started_at,completed_at,outcome,method,access_outcome,http_status,product_url,canonical_product_id,product_name,watch_category,language,retailer,retailer_identifier,observed_price_mxn,observed_availability,evidence_json,gate_results_json,confidence,unresolved_questions,proposed_lane,proposed_routing_key,proposed_routing_key_v2,proposed_alert_on_initial_buyable,created_by)
+    VALUES(?,?,?,?,?,'plain_fetch',?,?,?,?,?,?,?,'Amazon México',?,NULL,?,?,?,?,?,?,?,?,0,?)`)
+    .bind(candidate.asin,evidenceRevision,started.toISOString(),completed,assessment.outcome,assessment.accessOutcome,status||null,responseUrl,assessment.canonicalProductId,candidate.product_name,candidate.watch_category,candidate.language,candidate.asin,assessment.observedAvailability,JSON.stringify(evidence),JSON.stringify(assessment.gateResults),assessment.confidence,assessment.unresolvedQuestions.join(", ")||null,"normal",candidate.watch_category==="delta_reign"?"delta-reign":candidate.watch_category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main",candidate.watch_category==="30th_celebration"?"pokemon-30th":candidate.watch_category==="delta_reign"?"delta-reign":candidate.watch_category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main",actor).run();
   const attemptId = Number(insert.meta.last_row_id);
-  await env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,verification_attempt_id=?,evidence_revision=?,verified_at=?,updated_at=? WHERE asin=? AND lifecycle_status!='PUBLISHED'`)
-    .bind(assessment.outcome==="VERIFIED"?"VERIFIED":assessment.outcome==="REJECTED"?"REJECTED":"DISCOVERED",attemptId,evidenceRevision,assessment.outcome==="VERIFIED"?completed:null,completed,candidate.asin).run();
+  const silentStage=assessment.outcome==="VERIFIED"&&["30th_celebration","delta_reign"].includes(candidate.watch_category);
+  await env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,verification_attempt_id=?,evidence_revision=?,verified_at=?,staging_enabled=?,staged_at=?,routing_key_v2=?,updated_at=? WHERE asin=? AND lifecycle_status!='PUBLISHED'`)
+    .bind(assessment.outcome==="VERIFIED"?"VERIFIED":assessment.outcome==="REJECTED"?"REJECTED":"DISCOVERED",attemptId,evidenceRevision,assessment.outcome==="VERIFIED"?completed:null,Number(silentStage),silentStage?completed:null,candidate.watch_category==="30th_celebration"?"pokemon-30th":candidate.watch_category==="delta_reign"?"delta-reign":candidate.watch_category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main",completed,candidate.asin).run();
   if(assessment.outcome==="VERIFIED") {
     await env.SPAWN_DB.prepare("INSERT OR IGNORE INTO approval_notifications(evidence_revision,asin,verification_attempt_id,status,created_at) VALUES(?,?,?,'PENDING',?)").bind(evidenceRevision,candidate.asin,attemptId,completed).run();
-    await deliverApprovalRequest(env,evidenceRevision,fetchFn).catch(()=>undefined);
+    if(actor!=="verifier:early-asin")await deliverApprovalRequest(env,evidenceRevision,fetchFn).catch(()=>undefined);
   }
   return { ok:true as const, asin:candidate.asin, attemptId, evidenceRevision, assessment };
 }
@@ -139,7 +140,7 @@ export interface ReviewInput {
   evidenceRevision: string;
   reason: string;
   lane?: "priority" | "normal";
-  routingKey?: "pokemon-main" | "delta-reign" | "magic-hobbit";
+  routingKey?: "pokemon-main" | "pokemon-30th" | "delta-reign" | "magic-hobbit";
   alertOnInitialBuyable?: boolean;
 }
 
@@ -165,8 +166,8 @@ export async function reviewAmazonCandidate(env: Env, asin: string, action: Revi
     if (row.lifecycle_status!=="VERIFIED" || row.attempt_outcome!=="VERIFIED") return {ok:false as const,error:"candidate_not_verified"};
     if (!row.verified_product_id || row.verified_language!=="english" || !input.lane || !input.routingKey) return {ok:false as const,error:"incomplete_approval"};
     await env.SPAWN_DB.batch([
-      env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status='APPROVED',canonical_product_id=?,language='english',lane=?,routing_key=?,alert_on_initial_buyable=?,approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=? AND lifecycle_status='VERIFIED' AND evidence_revision=?`)
-        .bind(row.verified_product_id,input.lane,input.routingKey,Number(Boolean(input.alertOnInitialBuyable)),actor,reason,now,now,asin,input.evidenceRevision),
+      env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status='APPROVED',canonical_product_id=?,language='english',lane=?,routing_key=?,routing_key_v2=?,alert_on_initial_buyable=?,approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=? AND lifecycle_status='VERIFIED' AND evidence_revision=?`)
+        .bind(row.verified_product_id,input.lane,input.routingKey==="pokemon-30th"?"pokemon-main":input.routingKey,input.routingKey,Number(Boolean(input.alertOnInitialBuyable)),actor,reason,now,now,asin,input.evidenceRevision),
       env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'APPROVED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
     ]);
     return {ok:true as const,asin,lifecycleStatus:"APPROVED",catalogVersion:null};

@@ -1,6 +1,6 @@
 # Project Spawn state
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-29
 
 ## Canonical state
 
@@ -61,13 +61,14 @@ Spawn owns discovery policy, retailer coverage, canonical product identity, cura
 
 Update this file with changes to architecture, schedules, interfaces, configuration version, repository/deployment evidence, access model, or pricing-reference lifecycle.
 
-## Pending V8 contract implementation
+## Pending V8.1 contract implementation
 
 - Review branch only; not deployed or migrated in production.
-- Adds migration `0012_published_amazon_catalog.sql` with `DISCOVERED`, `VERIFIED`, `APPROVED`, `PUBLISHED`, `REJECTED`, and `SUSPENDED` lifecycle states.
-- Seeds the approved 19-ASIN manifest: 3 priority and 16 normal.
-- New Amazon discoveries remain `DISCOVERED` and cannot activate Catch automatically.
+- Builds on the V8 lifecycle and adds migration `0017_explicit_routing_and_staging.sql`.
+- Adds an explicit `pokemon-30th` routing key so webhook selection never depends on product-name inference.
+- High-confidence 30th Anniversary and Delta Reign discoveries may enter `STAGED_SILENT`: Catch can monitor them hourly, but they cannot produce customer availability alerts before operator publication.
+- The bounded early-ASIN intelligence sweep runs at 04:05 `America/Mexico_City`, searches only direct Amazon Mexico product pages, and never guesses or enumerates ASINs.
 - The authenticated watchlist endpoint becomes schema- and catalog-versioned and returns only `PUBLISHED` rows.
 - Spawn customer purchase alerts and weekly survey distribution are removed from the scheduled discovery path. A temporary raw feed posts each non-baseline, first-seen canonical listing once as an explicitly unverified research lead while Catch remains Amazon-only.
 - Scheduled discovery is gated to one Mexico City window every three hours when cron is later re-enabled.
-- Configuration version: `8.0.0-rc.1`.
+- Configuration version: `8.1.0-rc.1`.
