@@ -134,7 +134,7 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/listing-publications") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='listing_publication_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,routing_key,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' ORDER BY published_at,candidate_id").all()
+      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,routing_key,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' AND routing_key IS NOT NULL ORDER BY published_at,candidate_id").all()
     ]);
     return json({schema_version:1,publication_version:version?.value??"0",published_at:version?.updated_at??null,listings:rows.results});
   }
