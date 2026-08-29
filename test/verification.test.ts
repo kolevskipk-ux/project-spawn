@@ -1,9 +1,21 @@
 import {describe,expect,it} from "vitest";
-import {assessAmazonVerification, deliverApprovalRequest, type VerificationCandidate} from "../src/verification";
+import {assessAmazonVerification, deliverApprovalRequest, deliverDiscoveryApprovalRequest, type VerificationCandidate} from "../src/verification";
 
 const candidate=(overrides:Partial<VerificationCandidate>={}):VerificationCandidate=>({
   asin:"B0HG3MQDWP",product_name:"Delta Reign Elite Trainer Box",product_url:"https://www.amazon.com.mx/dp/B0HG3MQDWP",
   watch_category:"delta_reign",language:"english",evidence:"discovered",lifecycle_status:"DISCOVERED",...overrides
+});
+
+describe("discovery approval notification",()=>{
+  it("delivers a backlog review request only to the operations route",async()=>{
+    const updates:string[]=[],calls:string[]=[];
+    const env={OPS_DISCORD_WEBHOOK_URL:"https://discord.test/ops",PUBLIC_BASE_URL:"https://spawn.test",SPAWN_DB:{prepare:(sql:string)=>({bind:(...args:unknown[])=>({
+      first:async()=>sql.includes("discovery_approval_notifications")?{candidate_id:"a".repeat(64),product_name:"Delta Reign ETB",vendor:"Example",product_family:"Delta Reign",language:"english",observed_price_mxn:1499,availability_state:"available",source_url:"https://example.test/item"}:null,
+      run:async()=>{updates.push(`${sql}:${JSON.stringify(args)}`);return {};}
+    })})}} as never;
+    const result=await deliverDiscoveryApprovalRequest(env,"a".repeat(64),async(url,init)=>{calls.push(String(url));expect(String(init?.body)).toContain("NEW LISTING APPROVAL REQUESTED");return new Response(null,{status:204});});
+    expect(result.status).toBe("delivered");expect(calls).toEqual(["https://discord.test/ops"]);expect(updates.join()).toContain("DELIVERED");
+  });
 });
 
 describe("operator approval notification",()=>{

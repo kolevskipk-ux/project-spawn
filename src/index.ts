@@ -7,7 +7,7 @@ import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
 import { handleWeeklyFeedback } from "./weekly-feedback";
-import { retryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
+import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
 import { amazonAsin } from "./inventory";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -68,6 +68,7 @@ async function runScan(env: Env, triggerSource: "cron" | "manual"): Promise<{ id
           .bind(JSON.stringify({ scan_id:id, attempted_at:started.toISOString(), amazon_candidates:result.listings.filter(item=>Boolean(item.url.match(/amazon\.com\.mx/i))).length, exhaustive:false, limitation:"Web-search discovery cannot enumerate all Amazon Mexico listings" }), finished)
       ]);
       await retryApprovalRequests(env).catch(error=>console.error("approval request retry failed",error));
+      await retryDiscoveryApprovalRequests(env).catch(error=>console.error("discovery approval request retry failed",error));
       if (triggerSource === "manual") await auditSecurityEvent(env, "manual_scan_succeeded", id).catch(console.error);
       return { id, result };
     } catch (error) {

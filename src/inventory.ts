@@ -163,6 +163,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
     if (candidate) await env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO monitoring_candidates
       (candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,discovered_at,review_eligible)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(candidate.candidate_id,candidate.source,candidate.source_url,candidate.source_listing_key,candidate.vendor,candidate.vendor_key,candidate.product_name,candidate.product_family,candidate.print_series,candidate.product_type,candidate.language,candidate.retailer_sku,candidate.observed_price_mxn,candidate.availability_state,observedAt,Number(!baseline&&!previous.has(item.listingKey))).run();
+    if(candidate&&!baseline&&!previous.has(item.listingKey))await env.SPAWN_DB.prepare("INSERT OR IGNORE INTO discovery_approval_notifications(candidate_id,status,created_at) VALUES(?,'PENDING',?)").bind(candidate.candidate_id,observedAt).run();
   }
   return { baseline, changes, discoveries };
 }
