@@ -13,7 +13,9 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 
 ### Project Spawn
 
-- Owns broader discovery, retailer-coverage policy, canonical product identity, curated pricing references, review workflows, orchestration, inventory presentation, and future subscriber/product management.
+- Owns broader discovery, retailer-coverage policy, canonical product identity, curated pricing references, review workflows, orchestration, and approval-gated customer inventory presentation.
+- May perform bounded low-frequency revalidation of remembered canonical non-Amazon product URLs, initially targeting one attempt per 24 hours. This is inventory maintenance, not a substitute for Catch's Amazon hunt.
+- Preserves last-known-good inventory presentation when a revalidation returns `ERROR`, `BLOCKED`, or `UNKNOWN`, and archives continuously sold-out listings only through an audited operator review.
 - May accept observations from Catch Em All but must not turn unreviewed observations into curated pricing references.
 - Owns the receiving interface and durable review state for benchmark candidates.
 
@@ -49,6 +51,18 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 - Products explicitly classified with `series: "delta-reign"` use only `DELTA_REIGN_DIRECT`; a missing dedicated webhook is an error and must not fall back to the existing channel.
 - Independently verified Delta Reign and 30th Anniversary Amazon identities may enter an hourly `STAGED_SILENT` lane before operator publication. Customer delivery is prohibited until approval.
 - Spawn does not proxy or reroute Catch's immediate retailer alerts.
+
+### Customer inventory revalidation
+
+- Spawn uses OpenAI-assisted web search for market discovery and canvassing, not as the primary refresh mechanism for every remembered listing.
+- Customer page views read D1 only and never trigger retailer acquisition.
+- Spawn distributes due revalidation work in bounded batches with per-domain pacing and conservative parsing.
+- A failed, blocked, unknown, challenged, or ambiguous observation never becomes sold out and never overwrites last-known-good price or availability.
+- The initial customer freshness deadline is 36 hours. Expired availability evidence is visibly stale and excluded from confirmed-available totals.
+- Thirty continuous days of successfully confirmed sold-out evidence creates one operator removal review; it does not automatically delete the listing.
+- Approved operator outcomes are `KEEP_TRACKING`, `SNOOZE_30_DAYS`, and `ARCHIVE`. Archive retains durable identity and observation history.
+- Spawn may emit a versioned, idempotent event for an approved customer-visible publication or meaningful inventory change. Catch owns Discord routing, deduplication, and delivery; accepting the event does not transfer non-Amazon monitoring ownership to Catch.
+- Activation requires coordinated schemas and tests in both repositories and separate approval for migration, Worker deployment, cron activation, and customer delivery.
 
 ## Change discipline
 

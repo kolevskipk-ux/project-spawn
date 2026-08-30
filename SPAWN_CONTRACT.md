@@ -1,7 +1,7 @@
 # Project Spawn contract
 
-Status: approved operating contract  
-Date: 2026-08-27  
+Status: approved operating contract
+Date: 2026-08-30
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
 ## 1. Mission
@@ -86,6 +86,42 @@ Activation requires:
 
 When this bridge is activated, Spawn becomes fully silent on customer Discord routes. Its temporary raw-discovery feed is removed. Spawn may retain operator-only failure or review-backlog notices through an operations route, but Discord delivery must not determine whether discovery evidence is persisted.
 
+### 3.2 Proposed remembered-inventory revalidation
+
+Status: approved for implementation and isolated validation on 2026-08-30; not active until its migration, Worker, cron, and customer-delivery gates are separately approved.
+
+Spawn separates open-ended discovery from maintenance of listings it already remembers:
+
+`OpenAI-assisted discovery -> durable direct listing -> bounded Worker revalidation -> normalized observation -> customer inventory and approved Catch event`
+
+OpenAI-assisted web search remains responsible for market canvassing, new-product discovery, new-retailer discovery, and ambiguous evidence research. It must not be the primary mechanism for keeping every remembered listing fresh. Spawn's Worker may re-fetch a known canonical direct product URL at low frequency without invoking discovery, subject to retailer policy, robots/access controls, per-domain limits, and conservative parsing.
+
+The initial revalidation objective is one successful attempt per active published listing within each 24-hour window. Work must be distributed in bounded batches rather than launched as a daily burst. The initial customer freshness deadline is 36 hours, allowing bounded retry without representing substantially old evidence as current; changing that deadline requires a versioned configuration change and tests. The scheduler records due time, attempt time, access outcome, parser outcome, next eligible time, and per-domain backoff. A customer page view must never trigger retailer acquisition.
+
+The remembered-inventory lifecycle is:
+
+- `ACTIVE`: a recent successful observation supports the displayed state.
+- `STALE`: the freshness objective was missed; the last observation is historical rather than current.
+- `UNKNOWN`: the page was reached but current availability could not be established.
+- `BLOCKED`: robots, challenge, access control, or retailer protection prevented reliable observation.
+- `SOLD_OUT`: successful direct evidence confirms unavailable inventory.
+- `REMOVAL_REVIEW`: the listing satisfies the continuous sold-out review rule and awaits an operator decision.
+- `ARCHIVED`: removed from the live customer inventory by an audited operator decision while history and identity remain durable.
+
+`ERROR`, `BLOCKED`, `UNKNOWN`, timeouts, parser failures, redirects to non-product pages, and missing evidence must never become `SOLD_OUT` and must never overwrite the last-known-good price or availability observation. A listing presented as available becomes visibly stale after a configurable freshness deadline and must be excluded from confirmed-available totals when its confirmation expires. Freshness policy and timestamps must be visible to customers.
+
+A listing becomes eligible for `REMOVAL_REVIEW` only when all of the following are true:
+
+1. A successful observation first confirmed `SOLD_OUT` at least 30 days earlier.
+2. At least one later successful sold-out confirmation exists.
+3. No successful buyable observation occurred during the interval.
+4. A recent successful observation still confirms sold out; access failures do not advance or complete the rule.
+5. No unresolved removal review or archive decision already exists.
+
+Spawn sends one deduplicated operator-only removal-review notice. The authenticated decision vocabulary is `KEEP_TRACKING`, `SNOOZE_30_DAYS`, or `ARCHIVE`, with operator identity, reason, accepted evidence revision, and timestamp. `ARCHIVE` never deletes evidence. Rediscovery of an archived identity creates a reopening review or restores it under an explicit policy; it must not create an unrelated duplicate.
+
+Only customer-visible listings approved under the publication workflow may produce customer events. Spawn persists and exposes a stable, idempotent normalized change event; Catch owns customer delivery and delivery deduplication. A discovery observation, failed revalidation, stale transition, blocked transition, or removal-review event must not become a customer purchase alert. The exact event interface, retry policy, and customer-visible transition vocabulary require coordinated schema tests in both repositories before activation.
+
 ## 4. Spawn responsibilities
 
 Spawn owns:
@@ -100,6 +136,9 @@ Spawn owns:
 - Durable discovery history, rejected candidates, source failures, and scan diagnostics in D1.
 - The authenticated, versioned catalog/watchlist interface consumed by Catch Em All.
 - Operator-facing discovery and catalog views.
+- A read-only customer inventory of operator-approved listings with explicit freshness and evidence limitations.
+- Low-frequency, bounded revalidation of remembered canonical non-Amazon listing URLs under the proposed revalidation contract.
+- Durable revalidation history, last-known-good protection, stale classification, and audited archive review.
 - Recurring Amazon México discovery for new relevant TCG ASINs, formats, preorders, and material price or availability signals.
 
 Amazon discovery must run at least once within every configured multi-hour discovery window when Spawn is scheduled. The initial target is once every three hours, subject to measured cost and access reliability. Each window must record attempted queries or surfaces, coverage outcome, candidate count, and access limitations. A successful run must not imply that every Amazon listing was enumerated.
@@ -112,12 +151,12 @@ Initial Catch eligibility is intentionally narrow: high-demand sealed TCG produc
 
 Spawn must not own:
 
-- One-minute, five-minute, or other deterministic availability polling.
+- One-minute, five-minute, or other fast deterministic availability polling.
 - Immediate restock or preorder alerts.
 - Amazon availability circuit breakers.
-- Last-known-good monitoring state.
+- Last-known-good state for Catch-owned Amazon hunting. Spawn does own conservative last-known-good presentation for its low-frequency customer inventory.
 - Customer-facing per-product Discord routing.
-- Repeated polling of known ASINs as a substitute for Catch Em All.
+- Repeated Amazon ASIN polling as a substitute for Catch Em All. A once-daily customer-inventory refresh must not compete with or impersonate Catch's Amazon hunt.
 - Automatic promotion of discoveries into active monitoring.
 - Automatic replacement of curated pricing references with unreviewed observations.
 - Subscriber surveys or unrelated engagement features in the critical discovery execution path.
@@ -135,6 +174,7 @@ Catch Em All should pick up these responsibilities removed from Spawn:
 - Detect meaningful availability transitions.
 - Route immediate alerts to the approved destination.
 - Report monitor freshness, catalog version, lane membership, breaker state, and delivery outcome.
+- Deliver deduplicated customer-visible publication or approved inventory-change events emitted through the coordinated Spawn interface.
 
 Catch Em All should not pick up:
 
@@ -168,7 +208,8 @@ The initial publishable routing-key vocabulary is `pokemon-main`, `pokemon-30th`
 - Spawn: operator-only scan failures and review-needed notices.
 - Catch: immediate retailer availability alerts and their delivery status.
 - The former temporary raw-discovery exception is retired by the verification bridge. Spawn has no customer Discord delivery path.
-- Catch owns the only customer-visible handoff by announcing a record after it is both `PUBLISHED` and consumed into active monitoring.
+- Catch owns the only customer-visible Discord handoff by announcing a record after it is `PUBLISHED` and consumed into its approved visibility or monitoring disposition.
+- Under the proposed revalidation contract, Catch also owns delivery of approved customer inventory-change events. Visibility-only non-Amazon delivery does not make Catch the monitor or source of the observation.
 - Neither Worker stores webhook values in source control or catalog records.
 - Alert destinations are referenced by stable routing keys and resolved from Worker secrets.
 
@@ -238,10 +279,14 @@ Do not create this Worker merely to work around unclear ownership or stale branc
 | Curated benchmark intake | Retain, review-gated | Spawn |
 | Immediate available-product Discord alerts | Remove | Catch |
 | Known-ASIN availability polling | Remove from discovery loop | Catch |
-| Availability state transitions | Remove | Catch |
+| Amazon hunt availability transitions | Remove from Spawn | Catch |
+| Low-frequency non-Amazon inventory state | Add after isolated validation | Spawn; never represented as Catch-speed monitoring |
 | Amazon circuit breakers | Do not add | Catch |
 | Per-product alert-channel routing | Remove | Catch |
-| Inventory presentation | Retain only as an operator catalog/discovery view | Spawn |
+| Customer inventory presentation | Retain and formalize as read-only, approval-gated, and freshness-qualified | Spawn |
+| Low-frequency remembered-listing revalidation | Add after isolated validation; target once per 24 hours | Spawn for non-Amazon inventory; Catch remains Amazon hunt owner |
+| Thirty-day sold-out archive review | Add; archive rather than delete | Spawn operator workflow |
+| Customer inventory-change delivery | Add only through a versioned, idempotent interface | Spawn emits approved event; Catch deduplicates and delivers |
 | Weekly subscriber survey | Decouple from core path; reassess separately | Neither core Worker by default |
 | Combined Catch/Spawn operations dashboard | Retain only if read-only and operator-focused | Spawn may present; ownership remains separate |
 
@@ -256,6 +301,9 @@ Spawn is healthy when:
 - Verification attempts, queue age, rejection reasons, operator decisions, catalog publication, and Catch acknowledgement are independently auditable.
 - Discovery failures cannot interrupt Catch monitoring.
 - Amazon discovery-window coverage and limitations are visible without claiming exhaustive market coverage.
+- Published customer inventory exposes observation freshness and never counts expired evidence as confirmed available.
+- Due revalidation backlog, per-domain access failures, parser uncertainty, sold-out duration, and archive-review age are measurable.
+- Archived listings retain identity and history and can be deliberately reopened when rediscovered.
 
 Spawn is not evaluated by whether its hourly run catches a short-lived drop. That is an immediate-monitoring outcome owned by Catch Em All.
 
