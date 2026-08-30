@@ -92,6 +92,9 @@ describe("Inventory Board", () => {
     expect(html).toContain("Night &amp; Day &lt;UPC&gt;");
     expect(html).toContain("+45%");
     expect(html).toContain("inventory.csv?access=private-token");
+    expect(html).toContain('id="store"');
+    expect(html).toContain('<option value="amazon méxico">Amazon México</option>');
+    expect(html).toContain('data-store="amazon méxico"');
     expect(html).not.toContain("Night & Day <UPC>");
   });
 });
