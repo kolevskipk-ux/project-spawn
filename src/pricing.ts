@@ -14,7 +14,7 @@ export interface PricingReferenceInput {
 
 const finite=(value:FormDataEntryValue|null,min:number,max:number)=>{if(value==null||String(value).trim()==="")return undefined;const number=Number(value);return Number.isFinite(number)&&number>=min&&number<=max?number:null;};
 const timestamp=(value:FormDataEntryValue|null,now:number)=>{if(value==null||String(value).trim()==="")return undefined;const parsed=Date.parse(String(value));return Number.isFinite(parsed)&&parsed<=now+300_000?new Date(parsed).toISOString():null;};
-const sourceUrl=(value:FormDataEntryValue|null,kind:"amazon"|"collectr")=>{if(value==null||String(value).trim()==="")return undefined;try{const url=new URL(String(value));const host=url.hostname.toLowerCase();if(url.protocol!=="https:"||url.username||url.password)return null;if(kind==="amazon"&&!/(^|\.)amazon\.com\.mx$/.test(host))return null;if(kind==="collectr"&&!/(^|\.)collectr\.com$/.test(host))return null;return url.toString();}catch{return null;}};
+const sourceUrl=(value:FormDataEntryValue|null,kind:"amazon"|"collectr")=>{if(value==null||String(value).trim()==="")return undefined;try{const url=new URL(String(value));const host=url.hostname.toLowerCase();if(url.protocol!=="https:"||url.username||url.password)return null;if(kind==="amazon"&&!/(^|\.)amazon\.com\.mx$/.test(host))return null;if(kind==="collectr"&&!/(^|\.)(?:collectr|getcollectr)\.com$/.test(host))return null;return url.toString();}catch{return null;}};
 
 export function validatePricingReferenceForm(form:FormData,now=Date.now()):{ok:true;value:PricingReferenceInput}|{ok:false;error:string}{
   const reason=String(form.get("reason")||"").trim().slice(0,500);if(!reason)return {ok:false,error:"reason_required"};

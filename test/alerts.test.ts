@@ -98,6 +98,13 @@ describe("Inventory Board", () => {
     expect(html).not.toContain("Night & Day <UPC>");
   });
 
+  it("renders the reviewed Collectr conversion with the captured Banxico rate",()=>{
+    const html=renderBoard([{...row,title:"30th Celebration Booster Bundle",retailer:"Juguetibici",price_mxn:979,amazon_launch_mxn:null,amazon_confidence:null,collectr_usd:89.90,usd_mxn_rate:17.0427}],"token",new Date("2026-08-23T12:00:00.000Z"));
+    expect(percentDifference(979,89.90*17.0427)).toBe(-36);
+    expect(html).toContain("≈ −36%");
+    expect(html).toContain("Strong Value");
+  });
+
   it("does not count evidence older than 36 hours as confirmed available",()=>{
     const html=renderBoard([{...row,last_seen_at:"2026-08-20T00:00:00.000Z",revalidation_state:"STALE",revalidation_last_outcome:"ERROR"}],"token",new Date("2026-08-23T12:00:00.000Z"));
     expect(html).toContain("<strong>0</strong><span>Confirmed available</span>");

@@ -22,6 +22,14 @@ describe("decision schema alignment",()=>{
   });
   it("keeps pricing reference decisions evidence-bound and auditable",()=>{
     const migration=readFileSync(new URL("../migrations/0019_pricing_reference_audit.sql",import.meta.url),"utf8"),runtime=readFileSync(new URL("../src/pricing.ts",import.meta.url),"utf8");
-    expect(migration).toContain("pricing_reference_decisions");expect(runtime).toContain("pricing_reference_decisions");expect(runtime).toContain("amazon\\.com\\.mx");expect(runtime).toContain("collectr\\.com");
+    expect(migration).toContain("pricing_reference_decisions");expect(runtime).toContain("pricing_reference_decisions");expect(runtime).toContain("amazon\\.com\\.mx");expect(runtime).toContain("getcollectr");expect(runtime).toContain("collectr");
+  });
+  it("keeps every published Amazon canonical identity in the pricing catalog",()=>{
+    const published=readFileSync(new URL("../migrations/0012_published_amazon_catalog.sql",import.meta.url),"utf8");
+    const originalProducts=readFileSync(new URL("../migrations/0007_product_identity.sql",import.meta.url),"utf8")+readFileSync(new URL("../migrations/0010_mtg_hobbit_pilot.sql",import.meta.url),"utf8");
+    const completion=readFileSync(new URL("../migrations/0020_complete_pricing_catalog.sql",import.meta.url),"utf8");
+    const ids=[...published.matchAll(/'((?:30-en|delta-reign-en|mtg-hobbit-en)-[a-z0-9-]+)'/g)].map(match=>match[1]);
+    expect(new Set(ids).size).toBe(19);
+    for(const id of new Set(ids))expect(originalProducts+completion).toContain(`'${id}'`);
   });
 });

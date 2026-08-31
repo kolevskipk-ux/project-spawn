@@ -24,4 +24,14 @@ describe("listing review controls",()=>{
     expect(html).toContain("Collectr exact variant: <b>0/1</b>");
     expect(html).toContain("Save pricing evidence");
   });
+
+  it("reports the full 26-product evidence denominator and renders canonical Collectr links",()=>{
+    const pricing=Array.from({length:26},(_,index)=>({id:`product-${index}`,canonical_name:`Product ${index}`,mapped_offers:0,
+      amazon_launch_mxn:index<2?999:null,amazon_confidence:index<2?"exact":null,amazon_source_url:index<2?`https://www.amazon.com.mx/dp/B0ABC1234${index}`:null,amazon_captured_at:index<2?"2026-08-31T16:00:00Z":null,
+      collectr_usd:index<15?89.90:null,collectr_source_url:index<15?`https://app.getcollectr.com/explore/product/${700000+index}/example`:null,collectr_captured_at:index<15?"2026-08-31T19:33:43Z":null,usd_mxn_rate:index<15?17.0427:null}));
+    const html=renderDashboard({verification_queue:[],listing_queue:[],published_catalog:[],pricing_catalog:pricing,catalog_version:{value:"4"},publication_version:{value:"1"},spawn:{},catch_em_all:null,vendors:[],discovery_ingestion:[],weekly_feedback:[],generated_at:"now"} as never,"token");
+    expect(html).toContain("Amazon launch: <b>2/26</b>");
+    expect(html).toContain("Collectr exact variant: <b>15/26</b>");
+    expect(html).toContain("https://app.getcollectr.com/explore/product/700000/example");
+  });
 });
