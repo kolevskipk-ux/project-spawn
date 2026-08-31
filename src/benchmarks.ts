@@ -36,7 +36,7 @@ export function parseBenchmarkCandidate(value: unknown): BenchmarkCandidate | nu
   const price = item.price_mxn;
   if (!eventId || !version || !productId || !productName || !asin || !productUrl || !observedAt) return null;
   if (item.source !== "catch_em_all" || item.retailer !== "Amazon México") return null;
-  if (!/^[A-Z0-9]{10}$/.test(asin) || !/^amazon-30th-[a-z0-9-]+$/.test(productId)) return null;
+  if (!/^[A-Z0-9]{10}$/.test(asin) || !/^amazon-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(productId)) return null;
   if (observedState !== "PREORDER_BUYABLE" && observedState !== "BUYABLE") return null;
   if (typeof price !== "number" || !Number.isFinite(price) || price <= 0 || price > 1_000_000) return null;
   if (!Number.isFinite(Date.parse(observedAt))) return null;

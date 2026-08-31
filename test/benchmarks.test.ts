@@ -27,12 +27,18 @@ async function signature(secret: string, timestamp: string, body: string): Promi
 describe("Catch Em All benchmark ingestion", () => {
   it("accepts a tightly scoped Amazon Mexico observation", () => {
     expect(parseBenchmarkCandidate(candidate())).toMatchObject({ asin: "B0H77VYKSM", price_mxn: 3649, source: "catch_em_all" });
+    expect(parseBenchmarkCandidate({ ...candidate(), source_product_id: "amazon-delta-reign-etb", asin: "B0HG3MQDWP", product_url: "https://www.amazon.com.mx/dp/B0HG3MQDWP" }))
+      .toMatchObject({ source_product_id: "amazon-delta-reign-etb", asin: "B0HG3MQDWP" });
+    expect(parseBenchmarkCandidate({ ...candidate(), source_product_id: "amazon-mtg-hobbit-collector-box", asin: "B0GXC89N66", product_url: "https://www.amazon.com.mx/dp/B0GXC89N66" }))
+      .toMatchObject({ source_product_id: "amazon-mtg-hobbit-collector-box", asin: "B0GXC89N66" });
   });
 
   it("rejects non-Amazon URLs, unavailable states, and malformed prices", () => {
     expect(parseBenchmarkCandidate({ ...candidate(), product_url: "https://example.com/dp/B0H77VYKSM" })).toBeNull();
     expect(parseBenchmarkCandidate({ ...candidate(), observed_state: "SOLD_OUT" })).toBeNull();
     expect(parseBenchmarkCandidate({ ...candidate(), price_mxn: -1 })).toBeNull();
+    expect(parseBenchmarkCandidate({ ...candidate(), source_product_id: "walmart-30th-day-upc" })).toBeNull();
+    expect(parseBenchmarkCandidate({ ...candidate(), source_product_id: "amazon--30th-day-upc" })).toBeNull();
   });
 
   it("validates HMAC signatures inside the replay window", async () => {
