@@ -17,6 +17,12 @@ export interface Env {
   FEEDBACK_RATE_LIMIT?: RateLimit;
   MANUAL_RATE_LIMIT?: RateLimit;
   INGEST_RATE_LIMIT?: RateLimit;
+  INVENTORY_REVALIDATION_ENABLED?: string;
+  INVENTORY_REVALIDATION_BATCH_SIZE?: string;
+  INVENTORY_REVALIDATION_TARGET_HOURS?: string;
+  INVENTORY_FRESHNESS_HOURS?: string;
+  SEED_VERIFICATION_ENABLED?: string;
+  SEED_VERIFICATION_BATCH_SIZE?: string;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 

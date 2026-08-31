@@ -38,3 +38,13 @@ Catch Em All observations enter `benchmark_candidates` as pending evidence and c
 ## Tester review
 
 Use `TESTER_REVIEW.md` for the seven-day protocol. Preserve historical observations when correcting current inventory; do not delete evidence merely to improve review metrics.
+
+## Seed intake and remembered-inventory validation
+
+Apply migration `0018_seed_campaigns_and_revalidation.sql` to the isolated development D1 before uploading the corresponding Worker build. Do not apply it to production as part of an ordinary Worker deployment.
+
+The bulk seed endpoint is `POST /admin/seed-campaigns` with the existing `RUN_TOKEN` bearer credential and `application/json`. Never put the token in a URL, log, fixture, or repository file. Inspect per-item `ACCEPTED`, `DUPLICATE`, and `REJECTED` receipts plus the durable campaign totals before running verification.
+
+Development-only validation uses the protected `POST /admin/seed-verification/run` and `POST /admin/revalidation/run` diagnostics. `wrangler.dev.jsonc` has no cron; each call is operator-triggered and bounded. Confirm that Catch-owned ASINs are excluded, only one listing per domain is selected, `ERROR`/`BLOCKED`/`UNKNOWN` preserve inventory, and no customer delivery occurs.
+
+Production configuration keeps `SEED_VERIFICATION_ENABLED=false` and `INVENTORY_REVALIDATION_ENABLED=false`. Activation requires a reviewed migration, an exact deployed commit, isolated D1 evidence, a separate cron decision, and a later customer-event delivery gate. Never reset inventory baselines or delete observation history during validation.

@@ -78,6 +78,30 @@ export async function retryDiscoveryApprovalRequests(env:Env,limit=25){
   for(const row of rows.results)await deliverDiscoveryApprovalRequest(env,row.candidate_id).catch(()=>undefined);
 }
 
+export async function runPendingSeedVerifications(env:Env,limit=2){
+  if(env.SEED_VERIFICATION_ENABLED!=="true")return {enabled:false,attempted:0,results:[] as Array<Record<string,unknown>>};
+  const bounded=Math.max(1,Math.min(3,Number(env.SEED_VERIFICATION_BATCH_SIZE)||limit));
+  const rows=await env.SPAWN_DB.prepare(`SELECT w.asin FROM amazon_watchlist w
+    WHERE w.source='codex_seed' AND w.lifecycle_status='DISCOVERED'
+      AND NOT EXISTS(SELECT 1 FROM amazon_verification_attempts a WHERE a.asin=w.asin)
+    ORDER BY w.first_discovered_at,w.asin LIMIT ?`).bind(bounded).all<{asin:string}>();
+  const results:Array<Record<string,unknown>>=[];
+  for(const row of rows.results){
+    const result=await runAmazonVerification(env,row.asin,"verifier:codex-seed").catch(error=>({ok:false as const,error:String(error instanceof Error?error.message:error)}));results.push(result);
+    if(result.ok&&result.assessment.canonicalProductId==null){
+      const gates=result.assessment.gateResults,identityVerified=gates.directAmazonMxUrl&&gates.httpSuccess&&gates.amazonPage&&gates.expectedAsin&&gates.notRobotBlocked&&gates.englishLanguage;
+      if(identityVerified){
+        const candidate=await env.SPAWN_DB.prepare("SELECT candidate_id FROM monitoring_candidates WHERE source='codex_seed' AND retailer_sku=? AND status='PENDING'").bind(row.asin).first<{candidate_id:string}>();
+        if(candidate){const now=new Date().toISOString();await env.SPAWN_DB.batch([
+          env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET review_eligible=1 WHERE candidate_id=? AND status='PENDING'").bind(candidate.candidate_id),
+          env.SPAWN_DB.prepare("INSERT OR IGNORE INTO discovery_approval_notifications(candidate_id,status,created_at) VALUES(?,'PENDING',?)").bind(candidate.candidate_id,now)
+        ]);}
+      }
+    }
+  }
+  return {enabled:true,attempted:results.length,results};
+}
+
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 export function assessAmazonVerification(candidate: VerificationCandidate, response: { status: number; url: string; html: string; error?: string | null }): VerificationAssessment {

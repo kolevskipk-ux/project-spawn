@@ -7,8 +7,10 @@ import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
 import { handleWeeklyFeedback } from "./weekly-feedback";
-import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, type ReviewAction } from "./verification";
+import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, runPendingSeedVerifications, type ReviewAction } from "./verification";
 import { amazonAsin } from "./inventory";
+import { handleSeedCampaign } from "./seed-intake";
+import { runInventoryRevalidation } from "./revalidation";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -188,7 +190,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
   if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
-  const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,i.watch_category FROM monitoring_candidates c JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
+  const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
   const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",now=new Date().toISOString();
   if(action==="reject") await env.SPAWN_DB.batch([
@@ -207,11 +209,16 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       const published=await reviewAmazonCandidate(env,asin,"publish",{attemptId:watch.verification_attempt_id,evidenceRevision:watch.evidence_revision,reason},actor);
       if(!published.ok) return json(published,409);
     }
-    await env.SPAWN_DB.batch([
+    const publicationStatements:D1PreparedStatement[]=[
       env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='ACCEPTED',disposition=?,reviewed_by=?,review_reason=?,reviewed_at=?,published_at=? WHERE candidate_id=? AND status='PENDING'").bind(disposition,actor,reason,now,now,match[1]),
       env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('listing_publication_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
       env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) VALUES(?,'PUBLISHED',?,?,?,?)").bind(match[1],disposition,reason,actor,now)
-    ]);
+    ];
+    if(!candidate.existing_inventory_key&&disposition==="visibility_only") publicationStatements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory
+      (listing_key,canonical_url,retailer,title,watch_category,retailer_sku,first_seen_at,last_seen_at,status,availability_state,price_mxn,language,language_evidence,last_change_type,print_series)
+      VALUES(?,?,?,?,?,?,?,?,'unknown','unknown',NULL,?,?,'baseline',?)`)
+      .bind(candidate.source_listing_key,candidate.source_url,candidate.vendor,candidate.product_name,"pokemon_tcg",candidate.retailer_sku,candidate.discovered_at,candidate.discovered_at,candidate.language,"Verified direct identity; availability requires Worker revalidation",candidate.print_series));
+    await env.SPAWN_DB.batch(publicationStatements);
   }
   const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
@@ -255,6 +262,21 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === "/admin/seed-campaigns") {
+    if (!authorized(request,env)) return json({error:"unauthorized"},401);
+    if (!await allowedBy(env.INGEST_RATE_LIMIT,requestRateKey(request))) return json({error:"rate_limited"},429);
+    return handleSeedCampaign(request,env);
+  }
+  if (request.method==="POST"&&url.pathname==="/admin/revalidation/run") {
+    if(!authorized(request,env))return json({error:"unauthorized"},401);
+    if(!await allowedBy(env.MANUAL_RATE_LIMIT,requestRateKey(request)))return json({error:"rate_limited"},429);
+    return json(await runInventoryRevalidation(env));
+  }
+  if (request.method==="POST"&&url.pathname==="/admin/seed-verification/run") {
+    if(!authorized(request,env))return json({error:"unauthorized"},401);
+    if(!await allowedBy(env.MANUAL_RATE_LIMIT,requestRateKey(request)))return json({error:"rate_limited"},429);
+    return json(await runPendingSeedVerifications(env));
+  }
   const listingReview=await dashboardListingReview(request,url,env); if(listingReview) return listingReview;
   const verification=await dashboardVerification(request,url,env); if(verification) return verification;
   const shared=await sharedState(request,url,env); if(shared) return shared;
@@ -322,6 +344,8 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
+  ctx.waitUntil(runInventoryRevalidation(env,now).catch(error=>console.error("inventory revalidation failed",error)));
+  ctx.waitUntil(runPendingSeedVerifications(env).catch(error=>console.error("seed verification failed",error)));
   if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
   if (isQuietWindow(now, env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
   ctx.waitUntil(retryApprovalRequests(env).catch((error)=>console.error("approval request retry failed",error)));

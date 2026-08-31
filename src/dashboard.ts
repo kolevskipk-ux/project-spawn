@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 
 export async function dashboardData(env: Env) {
-  const [lastSuccess,recent,inventory,vendors,candidates,feedback,verificationQueue,catalogVersion,listingQueue,publicationVersion,publishedCatalog,pricingCatalog] = await Promise.all([
+  const [lastSuccess,recent,inventory,vendors,candidates,feedback,verificationQueue,catalogVersion,listingQueue,publicationVersion,publishedCatalog,pricingCatalog,seedCampaigns,revalidation,removalReviews,customerEvents] = await Promise.all([
     env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='last_success'").first(),
     env.SPAWN_DB.prepare("SELECT started_at,finished_at,status,error FROM scan_runs ORDER BY started_at DESC LIMIT 8").all(),
     env.SPAWN_DB.prepare("SELECT COUNT(*) total,SUM(status='available') available,SUM(status='unknown') unknown,SUM(availability_state='preorder_placeholder') placeholders,MAX(last_seen_at) freshest FROM inventory").first(),
@@ -17,11 +17,15 @@ export async function dashboardData(env: Env) {
     env.SPAWN_DB.prepare(`SELECT c.candidate_id,c.source_url,c.vendor,c.product_name,c.product_family,c.print_series,c.product_type,c.language,c.retailer_sku,c.observed_price_mxn,c.availability_state,c.discovered_at,n.status notification_status,n.attempts notification_attempts,n.last_error notification_error FROM monitoring_candidates c LEFT JOIN discovery_approval_notifications n ON n.candidate_id=c.candidate_id WHERE c.review_eligible=1 AND c.status='PENDING' ORDER BY c.discovered_at ASC LIMIT 200`).all(),
     env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='listing_publication_version'").first(),
     env.SPAWN_DB.prepare("SELECT asin,product_name,lane,poll_interval_minutes,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY product_name,asin").all(),
-    env.SPAWN_DB.prepare(`SELECT p.id,p.canonical_name,p.amazon_launch_mxn,p.amazon_confidence,p.amazon_source_url,p.amazon_captured_at,p.collectr_usd,p.collectr_source_url,p.collectr_captured_at,p.usd_mxn_rate,COUNT(i.listing_key) mapped_offers FROM products p LEFT JOIN inventory i ON i.product_id=p.id GROUP BY p.id ORDER BY p.canonical_name`).all()
+    env.SPAWN_DB.prepare(`SELECT p.id,p.canonical_name,p.amazon_launch_mxn,p.amazon_confidence,p.amazon_source_url,p.amazon_captured_at,p.collectr_usd,p.collectr_source_url,p.collectr_captured_at,p.usd_mxn_rate,COUNT(i.listing_key) mapped_offers FROM products p LEFT JOIN inventory i ON i.product_id=p.id GROUP BY p.id ORDER BY p.canonical_name`).all(),
+    env.SPAWN_DB.prepare("SELECT campaign_id,source,received_at,item_count,accepted_count,duplicate_count,rejected_count FROM seed_campaigns ORDER BY received_at DESC LIMIT 10").all(),
+    env.SPAWN_DB.prepare("SELECT lifecycle_state,last_outcome,COUNT(*) count,SUM(datetime(next_eligible_at)<=CURRENT_TIMESTAMP) due FROM inventory_revalidation_state GROUP BY lifecycle_state,last_outcome ORDER BY lifecycle_state,last_outcome").all(),
+    env.SPAWN_DB.prepare("SELECT status,COUNT(*) count FROM inventory_removal_reviews GROUP BY status").all(),
+    env.SPAWN_DB.prepare("SELECT delivery_status,event_type,COUNT(*) count FROM customer_inventory_events GROUP BY delivery_status,event_type").all()
   ]);
   let catchHealth:unknown=null;
   if(env.CATCH_MONITOR_ENDPOINT) try { const response=await fetch(env.CATCH_MONITOR_ENDPOINT,{headers:{accept:"application/json"}}); catchHealth=response.ok?await response.json():{ok:false,status:response.status}; } catch { catchHealth={ok:false,error:"unreachable"}; }
-  return {generated_at:new Date().toISOString(),spawn:{last_success:lastSuccess,recent_runs:recent.results,inventory},vendors:vendors.results,discovery_ingestion:candidates.results,weekly_feedback:feedback.results,verification_queue:verificationQueue.results,catalog_version:catalogVersion,listing_queue:listingQueue.results,publication_version:publicationVersion,published_catalog:publishedCatalog.results,pricing_catalog:pricingCatalog.results,catch_em_all:catchHealth};
+  return {generated_at:new Date().toISOString(),spawn:{last_success:lastSuccess,recent_runs:recent.results,inventory},vendors:vendors.results,discovery_ingestion:candidates.results,weekly_feedback:feedback.results,verification_queue:verificationQueue.results,catalog_version:catalogVersion,listing_queue:listingQueue.results,publication_version:publicationVersion,published_catalog:publishedCatalog.results,pricing_catalog:pricingCatalog.results,seed_campaigns:seedCampaigns.results,revalidation:revalidation.results,removal_reviews:removalReviews.results,customer_events:customerEvents.results,catch_em_all:catchHealth};
 }
 
 const esc=(value:unknown)=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]!);
@@ -38,6 +42,7 @@ export function renderDashboard(data:Awaited<ReturnType<typeof dashboardData>>, 
   const pricingSection=`<section><h2>Pricing-reference coverage</h2><p>Amazon launch: <b>${amazonReferenceCount}/${pricing.length}</b> · Collectr exact variant: <b>${collectrReferenceCount}/${pricing.length}</b>. Missing references remain unavailable to customers; availability scans never invent or overwrite them.</p><div class="table"><table><thead><tr><th>Canonical product</th><th>Mapped offers</th><th>Amazon launch</th><th>Collectr</th></tr></thead><tbody>${pricingRows}</tbody></table></div></section>`;
   const sections=[
     ["Spawn health",data.spawn],["Catch Em All health",data.catch_em_all??"CATCH_MONITOR_ENDPOINT not configured"],
+    ["Seed campaigns",data.seed_campaigns],["Inventory revalidation",data.revalidation],["Removal reviews",data.removal_reviews],["Customer event ledger",data.customer_events],
     ["Vendor suppressions",data.vendors],["Discovery → ingestion",data.discovery_ingestion],["Weekly feedback trends",data.weekly_feedback]
   ];
   const queue=(data.verification_queue as Array<Record<string,unknown>>).map(row=>{

@@ -98,6 +98,13 @@ describe("Inventory Board", () => {
     expect(html).not.toContain("Night & Day <UPC>");
   });
 
+  it("does not count evidence older than 36 hours as confirmed available",()=>{
+    const html=renderBoard([{...row,last_seen_at:"2026-08-20T00:00:00.000Z",revalidation_state:"STALE",revalidation_last_outcome:"ERROR"}],"token",new Date("2026-08-23T12:00:00.000Z"));
+    expect(html).toContain("<strong>0</strong><span>Confirmed available</span>");
+    expect(html).toContain('data-status="unknown"');
+    expect(html).toContain(">Stale</span>");
+  });
+
   it("shows the complete Catch Amazon hunt and removes duplicate Spawn offers", () => {
     const amazonRow = { ...row, retailer_sku:"B0ABC12345", canonical_url:"https://www.amazon.com.mx/dp/B0ABC12345" };
     const hunt: CatchHuntSnapshot = { available:true, mode:"NORMAL", degraded:false, rollout:"safe-hourly", rows:[
@@ -167,6 +174,15 @@ describe("security helpers", () => {
     const response = await handleFetch(new Request("https://example.com/"), minimalEnv);
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "not_found" });
+  });
+
+  it("fails closed on unauthenticated seed and manual revalidation operations", async () => {
+    const seed=await handleFetch(new Request("https://example.com/admin/seed-campaigns",{method:"POST",headers:{"content-type":"application/json"},body:"{}"}),minimalEnv);
+    expect(seed.status).toBe(401);
+    const revalidate=await handleFetch(new Request("https://example.com/admin/revalidation/run",{method:"POST"}),minimalEnv);
+    expect(revalidate.status).toBe(401);
+    const verify=await handleFetch(new Request("https://example.com/admin/seed-verification/run",{method:"POST"}),minimalEnv);
+    expect(verify.status).toBe(401);
   });
 });
 

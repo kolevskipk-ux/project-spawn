@@ -71,10 +71,15 @@ KantoCards is evaluation-only, not Always Scan. Its Delta Reign `$1.00` + `PREVE
 - `GET /inventory.csv?access=...`: protected Excel/CSV export.
 - `POST /run`: authenticated manual scan for smoke tests and recovery.
 - `POST /internal/benchmark-candidates`: signed Catch Em All price-observation intake; candidates remain pending until reviewed.
+- `POST /admin/seed-campaigns`: `RUN_TOKEN`-authenticated, JSON-only bulk intake for bounded Codex one-off campaigns. Maximum 100 items per batch and 1,000 per campaign; accepted evidence remains `DISCOVERED` and cannot publish or alert itself.
+- `POST /admin/seed-verification/run`: authenticated bounded seed-verification diagnostic. It is inert unless `SEED_VERIFICATION_ENABLED=true`.
+- `POST /admin/revalidation/run`: authenticated bounded remembered-inventory diagnostic. It is inert unless `INVENTORY_REVALIDATION_ENABLED=true`.
 
 ## Catch Em All integration
 
 Catch Em All can submit signed Amazon México price observations to Spawn's durable benchmark-candidate inbox. The integration is one-way and review-gated; automated observations cannot overwrite curated benchmark prices. See `CATCH_INTEGRATION.md`.
+
+Migration `0018_seed_campaigns_and_revalidation.sql` adds seed receipts/evidence, bounded revalidation state and attempts, per-domain backoff, removal review, and a dormant customer-event ledger. Apply it to the isolated development D1 before deploying code that exposes the new protected endpoints. Production defaults both execution flags to `false`; the development configuration enables manual isolated validation but has no cron. Enabling production revalidation, seed verification, event delivery, or a cron remains a separate approval gate.
 
 ## Updating the watch list
 
