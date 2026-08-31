@@ -21,6 +21,10 @@ export interface BoardRow {
   collectr_usd: number | null;
   usd_mxn_rate: number | null;
   value_classification?: string;
+  revalidation_state?: string | null;
+  revalidation_last_success_at?: string | null;
+  revalidation_last_outcome?: string | null;
+  revalidation_due_at?: string | null;
 }
 
 export interface CatchHuntRow {
@@ -48,18 +52,20 @@ export interface CatchHuntSnapshot {
 
 const BOARD_QUERY = `WITH ranked AS (
   SELECT i.*, p.amazon_launch_mxn, p.amazon_confidence, p.collectr_usd, p.usd_mxn_rate,
+    r.lifecycle_state revalidation_state,r.last_success_at revalidation_last_success_at,r.last_outcome revalidation_last_outcome,r.due_at revalidation_due_at,
     ROW_NUMBER() OVER (
       PARTITION BY replace(replace(lower(i.retailer), 'é', 'e'), 'í', 'i'), COALESCE(i.retailer_sku, i.canonical_url)
       ORDER BY i.last_seen_at DESC, i.first_seen_at DESC
     ) AS offer_rank
   FROM inventory i
   LEFT JOIN products p ON p.id = i.product_id
+  LEFT JOIN inventory_revalidation_state r ON r.listing_key=i.listing_key
   WHERE i.canonical_url NOT LIKE '%/collections/%'
     AND i.canonical_url NOT LIKE '%/content/%'
     AND i.canonical_url NOT LIKE '%/undefined%'
 )
 SELECT listing_key, title, print_series, watch_category, retailer, retailer_sku, language, price_mxn, status, availability_state, last_change_type,
-  first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate
+  first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate,revalidation_state,revalidation_last_success_at,revalidation_last_outcome,revalidation_due_at
 FROM ranked WHERE offer_rank = 1
 ORDER BY CASE status WHEN 'available' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, last_seen_at DESC`;
 
@@ -119,7 +125,7 @@ function comparison(value: number | null, approximate = false): string {
 function freshness(lastSeen: string, now: Date): { text: string; stale: boolean } {
   const hours = Math.max(0, Math.floor((now.getTime() - Date.parse(lastSeen)) / 3600000));
   if (hours < 1) return { text: "Verified less than 1 hour ago", stale: false };
-  if (hours < 24) return { text: `Verified ${hours}h ago`, stale: false };
+  if (hours < 36) return { text: `Verified ${hours}h ago`, stale: false };
   const days = Math.floor(hours / 24);
   return { text: `Not rechecked for ${days}d`, stale: true };
 }
@@ -147,10 +153,11 @@ function card(row: BoardRow, now: Date): string {
   const amazonDifference = percentDifference(row.price_mxn, row.amazon_launch_mxn);
   const collectrDifference = percentDifference(row.price_mxn, collectrMxn);
   const valueClassification = row.value_classification ?? benchmarkContext(row.price_mxn, row.amazon_launch_mxn, collectrMxn, row.availability_state).classification;
-  const fresh = freshness(row.last_seen_at, now);
+  const fresh = freshness(row.revalidation_last_success_at ?? row.last_seen_at, now);
+  const effectiveStatus = fresh.stale || ["STALE","UNKNOWN","BLOCKED"].includes(row.revalidation_state ?? "") ? "unknown" : row.status;
   const searchable = [row.title, row.retailer, row.retailer_sku, row.print_series, label(row.language), valueClassification].join(" ").toLowerCase();
-  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(row.status)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}">
-    <div class="offer-top"><span class="status ${escapeHtml(row.status)}">${escapeHtml(label(row.status))}</span>${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
+  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(effectiveStatus)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}">
+    <div class="offer-top"><span class="status ${escapeHtml(effectiveStatus)}">${escapeHtml(fresh.stale?"Stale":row.revalidation_state==="BLOCKED"?"Access blocked":row.revalidation_state==="UNKNOWN"?"Unconfirmed":label(effectiveStatus))}</span>${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
     <p class="set">${escapeHtml(row.print_series || label(row.watch_category))}</p>
     <h2>${escapeHtml(row.title)}</h2>
     <p class="retailer">${escapeHtml(row.retailer)}${row.retailer_sku ? ` <span>• SKU ${escapeHtml(row.retailer_sku)}</span>` : ""}</p>
@@ -168,9 +175,9 @@ function card(row: BoardRow, now: Date): string {
 export function renderBoard(rows: BoardRow[], accessToken: string, now = new Date(), hunt: CatchHuntSnapshot = {available:false,mode:null,degraded:false,rollout:null,rows:[]}): string {
   const huntedAsins = new Set(hunt.rows.map(row => row.asin));
   const inventoryRows = rows.filter(row => !(row.retailer.toLowerCase().includes("amazon") && huntedAsins.has(boardAsin(row) ?? "")));
-  const available = inventoryRows.filter((row) => row.status === "available").length + hunt.rows.filter(row => ["BUYABLE","PREORDER_BUYABLE"].includes(row.persistedState ?? "") && !row.overdue).length;
+  const available = inventoryRows.filter((row) => row.status === "available" && !freshness(row.revalidation_last_success_at ?? row.last_seen_at,now).stale && !["STALE","UNKNOWN","BLOCKED"].includes(row.revalidation_state ?? "")).length + hunt.rows.filter(row => ["BUYABLE","PREORDER_BUYABLE"].includes(row.persistedState ?? "") && !row.overdue).length;
   const retailers = new Set([...inventoryRows.map((row) => row.retailer.toLowerCase()), ...(hunt.rows.length ? ["amazon méxico"] : [])]).size;
-  const lastVerified = inventoryRows.reduce((latest, row) => row.last_seen_at > latest ? row.last_seen_at : latest, "");
+  const lastVerified = inventoryRows.reduce((latest, row) => (row.revalidation_last_success_at ?? row.last_seen_at) > latest ? (row.revalidation_last_success_at ?? row.last_seen_at) : latest, "");
   const stores = [...new Map(inventoryRows.map((row) => [row.retailer.toLowerCase(), row.retailer])).entries()]
     .sort((left, right) => left[1].localeCompare(right[1], "es-MX"));
   return `<!doctype html>

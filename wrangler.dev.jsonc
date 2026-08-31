@@ -9,10 +9,16 @@
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "SPAWN_TIMEZONE": "America/Mexico_City",
-    "SPAWN_CONFIG_VERSION": "8.1.0-rc.1-dev",
+    "SPAWN_CONFIG_VERSION": "8.2.0-rc.1-dev",
     "SPAWN_QUIET_START": "02:05",
     "SPAWN_QUIET_END": "06:05",
-    "PUBLIC_BASE_URL": "https://project-spawn-dev.phil-kolevski.workers.dev"
+    "PUBLIC_BASE_URL": "https://project-spawn-dev.phil-kolevski.workers.dev",
+    "INVENTORY_REVALIDATION_ENABLED": "true",
+    "INVENTORY_REVALIDATION_BATCH_SIZE": "2",
+    "INVENTORY_REVALIDATION_TARGET_HOURS": "24",
+    "INVENTORY_FRESHNESS_HOURS": "36",
+    "SEED_VERIFICATION_ENABLED": "true",
+    "SEED_VERIFICATION_BATCH_SIZE": "2"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"
