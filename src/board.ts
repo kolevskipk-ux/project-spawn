@@ -10,6 +10,9 @@ export interface BoardRow {
   retailer_sku: string | null;
   language: string;
   price_mxn: number | null;
+  seller?: string | null;
+  fulfilled_by?: string | null;
+  availability_evidence_type?: string | null;
   status: string;
   availability_state?: string;
   last_change_type: string;
@@ -64,7 +67,7 @@ const BOARD_QUERY = `WITH ranked AS (
     AND i.canonical_url NOT LIKE '%/content/%'
     AND i.canonical_url NOT LIKE '%/undefined%'
 )
-SELECT listing_key, title, print_series, watch_category, retailer, retailer_sku, language, price_mxn, status, availability_state, last_change_type,
+SELECT listing_key, title, print_series, watch_category, retailer, retailer_sku, language, price_mxn, seller, fulfilled_by, availability_evidence_type, status, availability_state, last_change_type,
   first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate,revalidation_state,revalidation_last_success_at,revalidation_last_outcome,revalidation_due_at
 FROM ranked WHERE offer_rank = 1
 ORDER BY CASE status WHEN 'available' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, last_seen_at DESC`;
@@ -161,7 +164,7 @@ function card(row: BoardRow, now: Date): string {
     <p class="set">${escapeHtml(row.print_series || label(row.watch_category))}</p>
     <h2>${escapeHtml(row.title)}</h2>
     <p class="retailer">${escapeHtml(row.retailer)}${row.retailer_sku ? ` <span>• SKU ${escapeHtml(row.retailer_sku)}</span>` : ""}</p>
-    <div class="price">${escapeHtml(money(row.price_mxn))}</div>
+    <div class="price">${escapeHtml(money(row.price_mxn))}</div>${row.seller ? `<p class="retailer">Sold by ${escapeHtml(row.seller)}${row.fulfilled_by ? ` · Fulfilled by ${escapeHtml(row.fulfilled_by)}` : ""}${row.availability_evidence_type === "buying_options" ? " · Buying options" : ""}</p>` : ""}
     <dl class="comparisons">
       <div><dt>Value</dt><dd><span class="comparison neutral">${escapeHtml(valueClassification)}</span></dd></div>
       <div><dt>vs Amazon launch${row.amazon_confidence && row.amazon_confidence !== "exact" ? " proxy" : ""}</dt><dd>${comparison(amazonDifference)}</dd></div>

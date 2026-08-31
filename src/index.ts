@@ -3,6 +3,7 @@ import { boardHeaders, boardRows, catchHuntSnapshot, renderBoard } from "./board
 import { updateInventory } from "./inventory";
 import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
 import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature } from "./benchmarks";
+import { handleCatchInventoryObservation } from "./catch-inventory";
 import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderDashboard } from "./dashboard";
@@ -302,6 +303,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   const vendorIssue=await handleVendorIssue(request,url,env); if(vendorIssue) return vendorIssue;
   const weeklyFeedback=await handleWeeklyFeedback(request,url,env); if(weeklyFeedback) return weeklyFeedback;
   if (request.method === "POST" && url.pathname === "/internal/benchmark-candidates") return handleCatchIngest(request, env);
+  if (request.method === "POST" && url.pathname === "/internal/catch-inventory-observations") return handleCatchInventoryObservation(request, env);
   const feedback = request.method === "GET" ? await handleFeedback(request, url, env) : null;
   if (feedback) return feedback;
   if (request.method === "GET" && !await allowedBy(env.PUBLIC_RATE_LIMIT, requestRateKey(request))) return json({ error: "rate_limited" }, 429);
