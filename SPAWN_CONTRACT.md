@@ -1,7 +1,7 @@
 # Project Spawn contract
 
 Status: approved operating contract
-Date: 2026-08-30
+Date: 2026-08-31
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
 ## 1. Mission
@@ -121,6 +121,40 @@ A listing becomes eligible for `REMOVAL_REVIEW` only when all of the following a
 Spawn sends one deduplicated operator-only removal-review notice. The authenticated decision vocabulary is `KEEP_TRACKING`, `SNOOZE_30_DAYS`, or `ARCHIVE`, with operator identity, reason, accepted evidence revision, and timestamp. `ARCHIVE` never deletes evidence. Rediscovery of an archived identity creates a reopening review or restores it under an explicit policy; it must not create an unrelated duplicate.
 
 Only customer-visible listings approved under the publication workflow may produce customer events. Spawn persists and exposes a stable, idempotent normalized change event; Catch owns customer delivery and delivery deduplication. A discovery observation, failed revalidation, stale transition, blocked transition, or removal-review event must not become a customer purchase alert. The exact event interface, retry policy, and customer-visible transition vocabulary require coordinated schema tests in both repositories before activation.
+
+#### 3.2.1 Observation reuse and Amazon ownership
+
+One trustworthy acquisition result may support several downstream views, but it remains one immutable observation with one source owner. Deriving customer inventory, pricing evidence, freshness, and an eligible change event from that observation must not trigger duplicate retailer requests.
+
+- Catch remains the acquisition and state owner for every Amazon ASIN in its published or staged monitoring catalog. Spawn consumes a versioned, authenticated, bounded customer-safe observation projection for those identities; it does not issue a second daily Amazon fetch.
+- Spawn may revalidate customer-visible Amazon listings that are not monitored by Catch, but only in the low-frequency revalidation scheduler, with a distinct request budget and Amazon access/backoff telemetry. This is inventory maintenance, never a fast lane.
+- A Codex seed record, OpenAI discovery response, search result, model statement, or catalog publication is evidence of identity only. None satisfies revalidation freshness or proves current availability.
+- Benchmark promotion remains review-gated even when the same trustworthy observation supports customer inventory. Reuse does not convert evidence into a curated price reference.
+- Observation identity, source owner, acquisition timestamp, parser/classifier version, and evidence revision must remain traceable through every derived record and event.
+
+#### 3.2.2 Customer inventory event interface
+
+The normalized customer-event vocabulary is initially closed to `LISTING_PUBLISHED`, `BECAME_BUYABLE`, and `PRICE_DROP`. `LISTING_PUBLISHED` announces an operator-approved customer-visible listing and does not claim availability. `BECAME_BUYABLE` requires a trustworthy transition from a non-buyable last-known-good state. `PRICE_DROP` requires trustworthy current and prior prices plus the configured materiality threshold.
+
+`SOLD_OUT`, `STALE`, `UNKNOWN`, `BLOCKED`, `ERROR`, removal-review, archive, discovery, verification, and benchmark-review changes update operational or inventory state only and never become customer purchase alerts.
+
+Each event contains a stable event ID, schema version, event type, canonical product and listing IDs, retailer, direct URL, observed state, verified price and seller fields when attributable, source observation ID, occurred-at timestamp, routing key, and evidence freshness. Spawn persists events before exposure through an authenticated bounded feed. Replays return the same event ID. Catch records delivery independently and acknowledges terminal delivery outcomes without changing the underlying observation. Retention, cursors, retry limits, and acknowledgement endpoints must be covered by cross-repository schema fixtures before activation.
+
+### 3.3 Approved bulk seed-campaign intake
+
+Status: approved for implementation and isolated validation on 2026-08-31; not active until its endpoint, migration, authentication, rate limit, and production deployment receive their separate gates.
+
+The one-off Amazon México Pokémon TCG canvass may be performed directly by Codex rather than consuming the recurring OpenAI discovery budget. Results enter Spawn through a protected bulk evidence boundary:
+
+`Codex canvass -> authenticated seed batch -> durable DISCOVERED evidence -> independent verification -> customer-visibility and Catch decisions`
+
+The operator endpoint uses the existing `RUN_TOKEN` bearer boundary, accepts JSON only, and is rate- and size-limited. The initial limits are at most 100 candidates per request and 1,000 candidates per campaign. A campaign supplies a schema version, stable campaign ID, stable batch ID, submission timestamp, declared source, and items. Each item supplies a stable source ID, canonical direct URL, retailer, retailer identifier such as ASIN/SKU/UPC, observed title, proposed family/set/format/language/region, observed price and seller/fulfilment evidence when present, observation timestamp, and bounded provenance or evidence text.
+
+The receiver must validate HTTPS and canonical host policy, direct-product URL shape, identifier syntax, campaign and batch identity, timestamps, payload bounds, and duplicate retailer identity before persistence. It returns a deterministic per-item disposition of `ACCEPTED`, `DUPLICATE`, or `REJECTED` with a stable reason. Campaign, batch, payload hash, actor, counts, and receipt time are audited without retaining credentials.
+
+Bulk intake grants no approval authority. Accepted records begin as `DISCOVERED`, cannot publish themselves, cannot enter `STAGED_SILENT`, cannot change current inventory, cannot create a customer event, and cannot overwrite curated pricing references. Existing identities receive new evidence revisions rather than unrelated duplicates. Partial item rejection must not discard valid items, and safe replay of the same batch must not create additional records.
+
+Recurring OpenAI-assisted discovery remains limited to its contracted windows. The seed campaign neither changes that schedule nor authorizes a daily intensive canvass. After an accepted listing is independently verified and approved for customer visibility, deterministic Worker revalidation—not repeated model search—maintains it at the applicable low-frequency objective. Only separately approved high-demand Amazon identities may be published to Catch monitoring.
 
 ## 4. Spawn responsibilities
 
