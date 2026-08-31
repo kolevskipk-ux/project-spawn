@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { handleFetch, isAmazonDiscoveryWindow } from "../src/index";
 import { D1_MULTI_ROW_BATCHES, D1_SAFE_VARIABLE_LIMIT, amazonAsin, canonicalizeUrl, classifyListing, d1RowsPerStatement } from "../src/inventory";
-import { percentDifference, renderBoard, type BoardRow } from "../src/board";
+import { catchHuntSnapshot, percentDifference, renderBoard, type BoardRow, type CatchHuntSnapshot } from "../src/board";
 import { feedbackClientNonce, requestRateKey } from "../src/security";
 import type { Env, Listing } from "../src/types";
 import { benchmarkContext, isQuietWindow, normalizeVendor, printSeries, productType } from "../src/garfield";
@@ -96,6 +96,41 @@ describe("Inventory Board", () => {
     expect(html).toContain('<option value="amazon méxico">Amazon México</option>');
     expect(html).toContain('data-store="amazon méxico"');
     expect(html).not.toContain("Night & Day <UPC>");
+  });
+
+  it("shows the complete Catch Amazon hunt and removes duplicate Spawn offers", () => {
+    const amazonRow = { ...row, retailer_sku:"B0ABC12345", canonical_url:"https://www.amazon.com.mx/dp/B0ABC12345" };
+    const hunt: CatchHuntSnapshot = { available:true, mode:"NORMAL", degraded:false, rollout:"safe-hourly", rows:[
+      { id:"amazon-one", name:"30th Celebration ETB", asin:"B0ABC12345", url:"https://www.amazon.com.mx/dp/B0ABC12345", cadenceClass:"hot", cadenceMinutes:60,
+        persistedState:"BUYABLE", lastTrustworthyAt:"2026-08-23T11:30:00.000Z", overdue:false, overdueReason:null, lastCheck:{ observedState:"BUYABLE", price:"$1,999 MXN", seller:"Amazon México" } },
+      { id:"amazon-two", name:"Delta Reign Bundle", asin:"B0DEF67890", url:"https://www.amazon.com.mx/dp/B0DEF67890", cadenceClass:"warm", cadenceMinutes:60,
+        persistedState:"SOLD_OUT", lastTrustworthyAt:"2026-08-23T11:00:00.000Z", overdue:false, overdueReason:null, lastCheck:{ observedState:"SOLD_OUT" } }
+    ] };
+    const html = renderBoard([amazonRow], "private-token", new Date("2026-08-23T12:00:00.000Z"), hunt);
+    expect(html).toContain("Amazon México Hunt");
+    expect(html).toContain("30th Celebration ETB");
+    expect(html).toContain("Delta Reign Bundle");
+    expect(html).toContain("Inventory offers");
+    expect(html).toContain("2 approved ASINs");
+    expect((html.match(/B0ABC12345/g) ?? [])).toHaveLength(2);
+    expect(html).not.toContain('class="offer"');
+  });
+
+  it("sanitizes Catch status input and fails closed when status is unreachable", async () => {
+    const env = { CATCH_MONITOR_ENDPOINT:"https://catch.example/status" } as Env;
+    const goodFetch = async () => new Response(JSON.stringify({
+      architecture:{ cadenceRolloutMode:"safe-hourly" }, health:{ retailerAccess:{ amazon:{ mode:"NORMAL", degraded:false } } }, rows:[
+        { group:"amazon", id:"valid", name:"Valid ASIN", asin:"b0abc12345", url:"javascript:alert(1)", cadenceClass:"hot", cadenceMinutes:60, persistedState:"BUYABLE" },
+        { group:"pokemon", id:"wrong-group", asin:"B0DEF67890" }, { group:"amazon", id:"bad-asin", asin:"unsafe" }
+      ]
+    }), { status:200, headers:{ "content-type":"application/json" } });
+    const snapshot = await catchHuntSnapshot(env, goodFetch as typeof fetch);
+    expect(snapshot.rows).toHaveLength(1);
+    expect(snapshot.rows[0].asin).toBe("B0ABC12345");
+    expect(snapshot.rows[0].url).toBe("https://www.amazon.com.mx/dp/B0ABC12345");
+    expect(snapshot.rollout).toBe("safe-hourly");
+    const failed = await catchHuntSnapshot(env, (async () => new Response("no", { status:503 })) as typeof fetch);
+    expect(failed).toMatchObject({ available:false, rows:[], error:"http_503" });
   });
 });
 

@@ -1,5 +1,5 @@
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
-import { boardHeaders, boardRows, renderBoard } from "./board";
+import { boardHeaders, boardRows, catchHuntSnapshot, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
 import { acquireManualCooldown, acquireScanLock, allowedBy, auditSecurityEvent, feedbackClientNonce, OperationalGuardError, releaseScanLock, requestRateKey } from "./security";
 import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature } from "./benchmarks";
@@ -287,7 +287,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   }
   if (request.method === "GET" && url.pathname === "/inventory") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
-    return new Response(renderBoard(await boardRows(env), env.BOARD_ACCESS_TOKEN), { headers: boardHeaders() });
+    const [rows,hunt]=await Promise.all([boardRows(env),catchHuntSnapshot(env)]);
+    return new Response(renderBoard(rows, env.BOARD_ACCESS_TOKEN, new Date(), hunt), { headers: boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/dashboard") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
