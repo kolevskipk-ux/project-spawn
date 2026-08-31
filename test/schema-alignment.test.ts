@@ -22,7 +22,7 @@ describe("decision schema alignment",()=>{
   });
   it("keeps pricing reference decisions evidence-bound and auditable",()=>{
     const migration=readFileSync(new URL("../migrations/0019_pricing_reference_audit.sql",import.meta.url),"utf8"),runtime=readFileSync(new URL("../src/pricing.ts",import.meta.url),"utf8");
-    expect(migration).toContain("pricing_reference_decisions");expect(runtime).toContain("pricing_reference_decisions");expect(runtime).toContain("amazon\\.com\\.mx");expect(runtime).toContain("collectr\\.com");
+    expect(migration).toContain("pricing_reference_decisions");expect(runtime).toContain("pricing_reference_decisions");expect(runtime).toContain("amazon\\.com\\.mx");expect(runtime).toContain("getcollectr");expect(runtime).toContain("collectr");
   });
   it("keeps every published Amazon canonical identity in the pricing catalog",()=>{
     const published=readFileSync(new URL("../migrations/0012_published_amazon_catalog.sql",import.meta.url),"utf8");
