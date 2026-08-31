@@ -10,6 +10,8 @@ The post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`.
 
 Spawn sends no customer Discord messages. Catch Em All owns deterministic monitoring and customer delivery, including the deduplicated `NOW TRACKING` acknowledgement after an operator-approved record is published and consumed.
 
+Spawn exposes pending `LISTING_PUBLISHED`, `BECAME_BUYABLE`, and `PRICE_DROP` records only through the authenticated Garfield customer-event feed. Catch acknowledges delivery outcomes idempotently; Spawn never resolves Discord bindings or delivers these events itself.
+
 When independent verification reaches `VERIFIED`, Spawn sends a deduplicated review request only to `OPS_DISCORD_WEBHOOK_URL`. An optional `APPROVAL_DISCORD_ROLE_ID` pings the designated admin group so another administrator can review when the primary operator is unavailable. Missing or failed delivery remains pending for hourly retry and never falls back to a customer webhook.
 
 GitHub `main` is the source of truth. Cloudflare Workers Builds deploys commits from the repository. D1 is operational state, not source code.
