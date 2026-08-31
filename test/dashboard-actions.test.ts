@@ -22,5 +22,6 @@ describe("listing review controls",()=>{
     expect(html).toContain("hot");
     expect(html).toContain("Amazon launch: <b>1/1</b>");
     expect(html).toContain("Collectr exact variant: <b>0/1</b>");
+    expect(html).toContain("Save pricing evidence");
   });
 });

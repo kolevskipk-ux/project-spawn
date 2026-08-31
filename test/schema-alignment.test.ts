@@ -20,4 +20,8 @@ describe("decision schema alignment",()=>{
     expect(development).toContain('"INVENTORY_REVALIDATION_ENABLED": "true"');
     expect(development).toContain('"crons": []');
   });
+  it("keeps pricing reference decisions evidence-bound and auditable",()=>{
+    const migration=readFileSync(new URL("../migrations/0019_pricing_reference_audit.sql",import.meta.url),"utf8"),runtime=readFileSync(new URL("../src/pricing.ts",import.meta.url),"utf8");
+    expect(migration).toContain("pricing_reference_decisions");expect(runtime).toContain("pricing_reference_decisions");expect(runtime).toContain("amazon\\.com\\.mx");expect(runtime).toContain("collectr\\.com");
+  });
 });

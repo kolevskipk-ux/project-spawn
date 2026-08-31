@@ -12,6 +12,7 @@ import { amazonAsin } from "./inventory";
 import { handleSeedCampaign } from "./seed-intake";
 import { runInventoryRevalidation } from "./revalidation";
 import { handleCustomerEvents } from "./customer-events";
+import { updatePricingReferences, validatePricingReferenceForm } from "./pricing";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -227,6 +228,16 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
   const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
+async function dashboardPricingReview(request:Request,url:URL,env:Env):Promise<Response|null>{
+  const match=url.pathname.match(/^\/dashboard\/pricing\/([a-z0-9][a-z0-9-]{2,119})$/);if(!match)return null;
+  if(!boardAuthorized(url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(request.method!=="POST")return json({error:"method_not_allowed"},405);
+  const checked=validatePricingReferenceForm(await request.formData());if(!checked.ok)return json({error:checked.error},400);
+  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",result=await updatePricingReferences(env,match[1],checked.value,actor);
+  const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set(result.ok?"notice":"error",result.ok?`pricing:${match[1]}`:result.error);
+  return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
+}
+
 async function handleFeedback(request: Request, url: URL, env: Env): Promise<Response | null> {
   const match = url.pathname.match(/^\/feedback\/([^/]+)\/(got_one|too_expensive)$/);
   if (!match) return null;
@@ -267,6 +278,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
+  const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
   if (url.pathname === "/admin/seed-campaigns") {
     if (!authorized(request,env)) return json({error:"unauthorized"},401);
     if (!await allowedBy(env.INGEST_RATE_LIMIT,requestRateKey(request))) return json({error:"rate_limited"},429);
