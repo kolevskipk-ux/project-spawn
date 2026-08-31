@@ -1,5 +1,7 @@
 # Operations runbook
 
+Customer inventory events are durable D1 records. `GET /internal/garfield/customer-events` and `POST /internal/garfield/customer-events/ack` require `CATCH_INGEST_SECRET`. Deployment does not activate customer delivery: Catch owns its separately gated consumer and Discord routes.
+
 ## Discord is quiet
 
 1. Check `/healthz`, then `/readyz`.

@@ -11,6 +11,7 @@ import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCand
 import { amazonAsin } from "./inventory";
 import { handleSeedCampaign } from "./seed-intake";
 import { runInventoryRevalidation } from "./revalidation";
+import { handleCustomerEvents } from "./customer-events";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -214,10 +215,13 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('listing_publication_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
       env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) VALUES(?,'PUBLISHED',?,?,?,?)").bind(match[1],disposition,reason,actor,now)
     ];
-    if(!candidate.existing_inventory_key&&disposition==="visibility_only") publicationStatements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory
+    if(!candidate.existing_inventory_key) publicationStatements.push(env.SPAWN_DB.prepare(`INSERT INTO inventory
       (listing_key,canonical_url,retailer,title,watch_category,retailer_sku,first_seen_at,last_seen_at,status,availability_state,price_mxn,language,language_evidence,last_change_type,print_series)
       VALUES(?,?,?,?,?,?,?,?,'unknown','unknown',NULL,?,?,'baseline',?)`)
       .bind(candidate.source_listing_key,candidate.source_url,candidate.vendor,candidate.product_name,"pokemon_tcg",candidate.retailer_sku,candidate.discovered_at,candidate.discovered_at,candidate.language,"Verified direct identity; availability requires Worker revalidation",candidate.print_series));
+    const category=String(candidate.watch_category),routingKey=category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
+    const eventPayload={schema_version:1,event_id:match[1],event_type:"LISTING_PUBLISHED",listing_key:candidate.source_listing_key,product_name:candidate.product_name,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null};
+    publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,1,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
     await env.SPAWN_DB.batch(publicationStatements);
   }
   const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
@@ -262,6 +266,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   if (url.pathname === "/admin/seed-campaigns") {
     if (!authorized(request,env)) return json({error:"unauthorized"},401);
     if (!await allowedBy(env.INGEST_RATE_LIMIT,requestRateKey(request))) return json({error:"rate_limited"},429);

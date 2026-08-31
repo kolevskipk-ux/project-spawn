@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "accepted": [
+    {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_version": 1,
+      "event_type": "LISTING_PUBLISHED",
+      "listing_key": "listing-approved-1",
+      "source_observation_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "routing_key": "pokemon-main",
+      "occurred_at": "2026-08-31T17:55:00.000Z",
+      "created_at": "2026-08-31T17:55:01.000Z",
+      "payload": {
+        "schema_version": 1,
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "event_type": "LISTING_PUBLISHED",
+        "listing_key": "listing-approved-1",
+        "product_name": "Pokémon Approved Listing",
+        "retailer": "Example Store",
+        "direct_url": "https://example.com/products/pokemon-approved",
+        "observed_state": "unconfirmed",
+        "price_mxn": null,
+        "source_observation_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurred_at": "2026-08-31T17:55:00.000Z",
+        "routing_key": "pokemon-main",
+        "evidence_fresh_until": null
+      }
+    },
+    {
+      "event_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "schema_version": 1,
+      "event_type": "BECAME_BUYABLE",
+      "listing_key": "listing-approved-2",
+      "source_observation_id": "11111111-1111-4111-8111-111111111111",
+      "routing_key": "pokemon-30th",
+      "occurred_at": "2026-08-31T17:55:00.000Z",
+      "created_at": "2026-08-31T17:55:01.000Z",
+      "payload": {
+        "schema_version": 1,
+        "event_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_type": "BECAME_BUYABLE",
+        "listing_key": "listing-approved-2",
+        "product_name": "Pokémon 30th Approved Listing",
+        "retailer": "Example Store",
+        "direct_url": "https://example.com/products/pokemon-30th-approved",
+        "observed_state": "available",
+        "price_mxn": 999,
+        "source_observation_id": "11111111-1111-4111-8111-111111111111",
+        "occurred_at": "2026-08-31T17:55:00.000Z",
+        "routing_key": "pokemon-30th",
+        "evidence_fresh_until": "2026-09-01T17:55:00.000Z"
+      }
+    }
+  ],
+  "rejected": [
+    {"reason": "unknown_event_type", "event_type": "SOLD_OUT"},
+    {"reason": "unknown_routing_key", "routing_key": "operations"},
+    {"reason": "unsafe_url", "direct_url": "http://example.com/product"},
+    {"reason": "stale_evidence", "evidence_fresh_until": "2026-08-31T17:00:00.000Z"}
+  ]
+}
