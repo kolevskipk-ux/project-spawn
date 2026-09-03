@@ -5,7 +5,7 @@ export const REVALIDATION_PARSER_VERSION="direct-page-v1";
 export type RevalidationOutcome="AVAILABLE"|"SOLD_OUT"|"UNKNOWN"|"BLOCKED"|"ERROR";
 
 export interface RevalidationAssessment { outcome:RevalidationOutcome; priceMxn:number|null; evidence:string; }
-interface DueListing { listing_key:string; canonical_url:string; retailer:string; title:string; status:string; price_mxn:number|null; routing_key:string|null; due_at:string|null; next_eligible_at:string|null; }
+interface DueListing { listing_key:string; canonical_url:string; retailer:string; title:string; status:string; price_mxn:number|null; routing_key:string|null; due_at:string|null; next_eligible_at:string|null; fulfilment_region_state:string; retailer_country:string|null; ship_from_country:string|null; original_price:number|null; original_currency:string|null; mexico_delivery_status:string; shipping_mxn:number|null; import_cost_status:string; destination_checked_at:string|null; destination_fresh_until:string|null; }
 
 const fold=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ");
 async function sha256(value:string):Promise<string>{const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");}
@@ -33,7 +33,7 @@ export function nextRevalidationTime(outcome:RevalidationOutcome,now:Date,failur
 export async function runInventoryRevalidation(env:Env,now=new Date(),fetchFn:typeof fetch=fetch){
   if(env.INVENTORY_REVALIDATION_ENABLED!=="true") return {enabled:false,attempted:0,results:[] as Array<Record<string,unknown>>};
   const limit=Math.max(1,Math.min(5,Number(env.INVENTORY_REVALIDATION_BATCH_SIZE)||2)), targetHours=Math.max(24,Number(env.INVENTORY_REVALIDATION_TARGET_HOURS)||24),freshnessHours=Math.max(targetHours,Number(env.INVENTORY_FRESHNESS_HOURS)||36);
-  const candidates=await env.SPAWN_DB.prepare(`SELECT i.listing_key,i.canonical_url,i.retailer,i.title,i.status,i.price_mxn,c.routing_key,s.due_at,s.next_eligible_at
+  const candidates=await env.SPAWN_DB.prepare(`SELECT i.listing_key,i.canonical_url,i.retailer,i.title,i.status,i.price_mxn,c.routing_key,s.due_at,s.next_eligible_at,i.fulfilment_region_state,i.retailer_country,i.ship_from_country,i.original_price,i.original_currency,i.mexico_delivery_status,i.shipping_mxn,i.import_cost_status,i.destination_checked_at,i.destination_fresh_until
     FROM inventory i JOIN monitoring_candidates c ON c.source_listing_key=i.listing_key AND c.status='ACCEPTED'
     LEFT JOIN inventory_revalidation_state s ON s.listing_key=i.listing_key
     WHERE COALESCE(s.lifecycle_state,'ACTIVE')!='ARCHIVED' AND COALESCE(s.next_eligible_at,i.last_seen_at)<=?
@@ -44,7 +44,7 @@ export async function runInventoryRevalidation(env:Env,now=new Date(),fetchFn:ty
   for(const row of candidates.results){
     let url:URL;try{url=new URL(row.canonical_url);}catch{continue;}
     const domain=url.hostname.toLowerCase(),asin=amazonAsin(row.canonical_url);
-    if(domains.has(domain)||blockedDomains.has(domain)||(asin&&catchAsins.has(asin)))continue;
+    if(domains.has(domain)||blockedDomains.has(domain)||(asin&&catchAsins.has(asin))||(row.fulfilment_region_state==="CROSS_BORDER_CONFIRMED"&&Date.parse(row.destination_fresh_until??"")<=now.getTime()))continue;
     domains.add(domain);selected.push(row);if(selected.length>=limit)break;
   }
   const results:Array<Record<string,unknown>>=[];
@@ -77,8 +77,8 @@ export async function runInventoryRevalidation(env:Env,now=new Date(),fetchFn:ty
     const reduction=assessment.priceMxn!=null&&row.price_mxn!=null?row.price_mxn-assessment.priceMxn:0;
     const eventType=assessment.outcome==="AVAILABLE"&&row.status==="sold_out"?"BECAME_BUYABLE":assessment.outcome==="AVAILABLE"&&assessment.priceMxn!=null&&row.price_mxn!=null&&(reduction>=100||reduction/row.price_mxn>=0.05)?"PRICE_DROP":null;
     if(eventType&&row.routing_key){
-      const eventId=await sha256(`${attemptId}\n${eventType}\n${row.listing_key}`),payload={schema_version:1,event_id:eventId,event_type:eventType,listing_key:row.listing_key,product_name:row.title,retailer:row.retailer,direct_url:row.canonical_url,observed_state:"available",price_mxn:assessment.priceMxn,source_observation_id:attemptId,occurred_at:finished.toISOString(),routing_key:row.routing_key,evidence_fresh_until:new Date(finished.getTime()+freshnessHours*3_600_000).toISOString()};
-      statements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,1,?,?,?,?,?,?,?)").bind(eventId,eventType,row.listing_key,attemptId,row.routing_key,JSON.stringify(payload),finished.toISOString(),finished.toISOString()));
+      const eventId=await sha256(`${attemptId}\n${eventType}\n${row.listing_key}`),payload={schema_version:2,event_id:eventId,event_type:eventType,source_owner:"spawn",listing_key:row.listing_key,product_name:row.title,retailer:row.retailer,direct_url:row.canonical_url,observed_state:"available",price_mxn:assessment.priceMxn,source_observation_id:attemptId,occurred_at:finished.toISOString(),routing_key:row.routing_key,evidence_fresh_until:new Date(finished.getTime()+freshnessHours*3_600_000).toISOString(),fulfilment_region_state:row.fulfilment_region_state,retailer_country:row.retailer_country,ship_from_country:row.ship_from_country,original_price:row.original_price,original_currency:row.original_currency,mexico_delivery_status:row.mexico_delivery_status,shipping_mxn:row.shipping_mxn,import_cost_status:row.import_cost_status,destination_checked_at:row.destination_checked_at,destination_fresh_until:row.destination_fresh_until};
+      statements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,?,?,?,?,?,?,?)").bind(eventId,eventType,row.listing_key,attemptId,row.routing_key,JSON.stringify(payload),finished.toISOString(),finished.toISOString()));
     }
     if(assessment.outcome==="SOLD_OUT"&&soldOutConfirmations>=2&&Date.parse(String(soldOutSince))<=finished.getTime()-30*86_400_000){
       const reviewId=await crypto.randomUUID();statements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO inventory_removal_reviews(review_id,listing_key,evidence_revision,status,created_at) VALUES(?,?,?,'PENDING',?)").bind(reviewId,row.listing_key,Number(prior?.evidence_revision??0)+1,finished.toISOString()),env.SPAWN_DB.prepare("UPDATE inventory_revalidation_state SET lifecycle_state='REMOVAL_REVIEW' WHERE listing_key=?").bind(row.listing_key));

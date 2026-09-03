@@ -9,7 +9,9 @@ describe("listing review controls",()=>{
     expect(html).toContain('name="action" value="publish"');
     expect(html).toContain('name="action" value="reject"');
     expect(html).toContain("Action failed:");
-    expect(html).toContain("Required: why this listing is approved");
+    expect(html).toContain("Required: identity, destination and seller evidence");
+    expect(html).toContain('name="fulfilment_region_state"');
+    expect(html).toContain("International — unverified (cannot publish)");
     expect(html).toContain("Not tracked — awaiting approval");
     expect(html).toContain("Customer visibility only (no Catch monitoring)");
     expect(new Headers(boardHeaders()).get("content-security-policy")).toContain("form-action 'self'");

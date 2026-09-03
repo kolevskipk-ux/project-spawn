@@ -7,6 +7,7 @@ import type { Env, Listing } from "../src/types";
 import { benchmarkContext, isQuietWindow, normalizeVendor, printSeries, productType } from "../src/garfield";
 import { weekKey } from "../src/weekly-feedback";
 import { isMtgHobbitAlertable, mtgHobbitDealClassification } from "../src/mtg";
+import { validateFulfilmentReview } from "../src/cross-border";
 
 const listing = (overrides: Partial<Listing> = {}): Listing => ({
   title: "Pokemon TCG: 30th Celebration Elite Trainer Box",
@@ -145,6 +146,25 @@ describe("Inventory Board", () => {
     expect(snapshot.rollout).toBe("safe-hourly");
     const failed = await catchHuntSnapshot(env, (async () => new Response("no", { status:503 })) as typeof fetch);
     expect(failed).toMatchObject({ available:false, rows:[], error:"http_503" });
+  });
+
+  it("renders and filters a confirmed international offer with checkout disclosure",()=>{
+    const html=renderBoard([{...row,retailer:"Pokémon Plug",fulfilment_region_state:"CROSS_BORDER_CONFIRMED",retailer_country:"US",ship_from_country:"US",original_price:219.99,original_currency:"USD",mexico_delivery_status:"CONFIRMED",shipping_mxn:null,import_cost_status:"UNKNOWN",destination_checked_at:"2026-08-23T11:00:00Z",destination_fresh_until:"2026-08-24T23:00:00Z"}],"token",new Date("2026-08-23T12:00:00Z"));
+    expect(html).toContain("🌎 International offer");
+    expect(html).toContain("USD 219.99 displayed item price");
+    expect(html).toContain("may be added or changed at checkout");
+    expect(html).toContain('id="fulfilment"');
+    expect(html).toContain('data-fulfilment="cross_border"');
+  });
+});
+
+describe("cross-border publication gate",()=>{
+  const form=(entries:Record<string,string>)=>{const value=new FormData();for(const [key,item] of Object.entries(entries))value.set(key,item);return value;};
+  it("accepts only fresh confirmed Mexico delivery evidence",()=>{
+    const valid={fulfilment_region_state:"CROSS_BORDER_CONFIRMED",retailer_country:"US",ship_from_country:"US",original_price:"219.99",original_currency:"USD",shipping_mxn:"",import_cost_status:"UNKNOWN",destination_checked_at:"2026-09-03T12:00:00Z",destination_fresh_until:"2026-09-05T12:00:00Z"};
+    expect(validateFulfilmentReview(form(valid),Date.parse("2026-09-03T13:00:00Z")).ok).toBe(true);
+    expect(validateFulfilmentReview(form({...valid,destination_fresh_until:"2026-09-03T12:30:00Z"}),Date.parse("2026-09-03T13:00:00Z"))).toMatchObject({ok:false,error:"cross_border_requires_fresh_destination_evidence"});
+    expect(validateFulfilmentReview(form({...valid,fulfilment_region_state:"CROSS_BORDER_UNVERIFIED"}),Date.parse("2026-09-03T13:00:00Z"))).toMatchObject({ok:false,error:"fulfilment_not_publishable"});
   });
 });
 

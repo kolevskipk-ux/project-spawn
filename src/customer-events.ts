@@ -39,9 +39,9 @@ export async function handleCustomerEvents(request:Request,url:URL,env:Env):Prom
     FROM customer_inventory_events WHERE delivery_status IN ('PENDING','FAILED') AND event_id>? ORDER BY event_id LIMIT ?`).bind(cursor,limit+1).all<Record<string,unknown>>();
   const page=rows.results.slice(0,limit),events=[];
   for(const row of page){
-    if(row.schema_version!==1||!EVENT_TYPES.has(String(row.event_type))||!ROUTING_KEYS.has(String(row.routing_key)))continue;
+    if(![1,2].includes(Number(row.schema_version))||!EVENT_TYPES.has(String(row.event_type))||!ROUTING_KEYS.has(String(row.routing_key)))continue;
     let payload:unknown;try{payload=JSON.parse(String(row.payload_json));}catch{continue;}
     events.push({event_id:row.event_id,schema_version:row.schema_version,event_type:row.event_type,listing_key:row.listing_key,source_observation_id:row.source_observation_id,routing_key:row.routing_key,payload,occurred_at:row.occurred_at,created_at:row.created_at});
   }
-  return response({schema_version:1,events,next_cursor:rows.results.length>limit?String(page.at(-1)?.event_id||cursor):null});
+  return response({schema_version:2,events,next_cursor:rows.results.length>limit?String(page.at(-1)?.event_id||cursor):null});
 }
