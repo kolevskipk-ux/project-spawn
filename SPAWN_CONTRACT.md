@@ -1,7 +1,7 @@
 # Project Spawn contract
 
-Status: approved operating contract
-Date: 2026-08-31
+Status: approved operating contract with proposed availability/enrichment and unified-inventory amendments
+Date: 2026-09-02
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
 ## 1. Mission
@@ -142,7 +142,69 @@ The normalized customer-event vocabulary is initially closed to `LISTING_PUBLISH
 
 Each event contains a stable event ID, schema version, event type, canonical product and listing IDs, retailer, direct URL, observed state, verified price and seller fields when attributable, source observation ID, occurred-at timestamp, routing key, and evidence freshness. Spawn persists events before exposure through an authenticated bounded feed. Replays return the same event ID. Catch records delivery independently and acknowledges terminal delivery outcomes without changing the underlying observation. Retention, cursors, retry limits, and acknowledgement endpoints must be covered by cross-repository schema fixtures before activation.
 
-### 3.3 Approved bulk seed-campaign intake
+### 3.3 Proposed availability/enrichment ownership amendment
+
+Status: proposed for review. This section does not authorize implementation, schema migration, deployment, cron change, or production activation.
+
+The coordinated operating boundary is:
+
+`Catch cadence availability observation -> immediate transition alert -> authenticated Spawn handoff -> immediate or daily commercial enrichment -> unified customer inventory`
+
+Catch remains the sole owner of fast Amazon availability acquisition, state transitions, last-known-good hunt state, circuit breakers, and immediate customer restock delivery. Spawn becomes the sole owner of routine price history, seller and fulfilment enrichment, benchmark comparison, MSRP-context inference, and customer-inventory commercial presentation.
+
+This amendment narrowly replaces the prior rule that Spawn never performs a second Amazon fetch. Spawn may fetch an approved Amazon listing for bounded commercial enrichment, but must not reproduce Catch's Hot, Warm, or Standard availability cadence, decide Catch availability state, close a Catch breaker, or deliver an immediate restock alert. The default enrichment objective is at most one scheduled commercial refresh per active listing in each 24-hour window, distributed in bounded batches under a separate Amazon enrichment budget and backoff policy.
+
+When Catch reports a trustworthy `BECAME_BUYABLE` transition, Spawn queues one deduplicated immediate enrichment attempt for that listing. The Catch-to-Spawn message is a versioned availability observation with a stable Catch transition ID and delivery outcome, not a request for Spawn to deliver the same alert. A pending or failed enrichment does not alter the Catch transition. Replayed observations reuse the same queue identity and cannot create duplicate retailer requests. Per-listing cooldown, global concurrency, daily request limits, and Amazon access outcomes must be measurable.
+
+Catch availability observations may omit price, seller, and fulfilment. Spawn accepts such an observation when its identity, authentication, source ownership, transition evidence, timestamp, routing key, and freshness are valid. The inventory record becomes buyable with `price_verification_status = PENDING`. Enrichment later records attributable price, seller, fulfilment, observation time, and evidence source without generating a routine second customer alert.
+
+For a Catch-owned Amazon observation, Spawn must not generate or expose a `BECAME_BUYABLE` customer event back to Catch because Catch already owns and attempts that immediate delivery. The Catch transition ID is the cross-system deduplication key. The existing Spawn-to-Catch `BECAME_BUYABLE` event remains applicable to Spawn-owned non-Amazon revalidation, where Spawn detects the transition and Catch is only the delivery owner.
+
+Only a separately eligible commercial event may create a follow-up customer message. Initial examples are a material `PRICE_DROP` under a configured threshold and a future explicitly approved `AMAZON_SOLD_LIKELY_MSRP` signal. Routine enrichment completion, seller text changes, and unchanged prices remain silent.
+
+Amazon evidence precedence is confidence-aware:
+
+1. A newer verified Buying Options or featured-offer observation establishes buyability.
+2. A main-page `NO_FEATURED_OFFER` observation cannot invalidate verified alternate-offer evidence.
+3. Only a newer authoritative inspection that explicitly finds no eligible purchase options may establish `SOLD_OUT` after buyability.
+4. Evidence that misses its freshness deadline becomes visibly stale or revalidation-pending; expiry alone does not assert sold out.
+5. `UNKNOWN`, `BLOCKED`, `ERROR`, parser failure, and quota exhaustion preserve the last-known-good observation while degrading freshness.
+
+Cross-repository activation requires a versioned optional-price availability-observation schema, mandatory source ownership and Catch transition identity, loop-prevention fixtures, queue idempotency, bounded enrichment scheduling, independent Amazon enrichment backoff, evidence-precedence fixtures, stale-state behavior, meaningful-commercial-event thresholds, and proof that Spawn enrichment failure cannot delay or duplicate Catch alerts. Migration, Worker deployment, enrichment cron activation, and customer-event activation remain separate approval gates.
+
+### 3.4 Proposed unified customer inventory presentation
+
+Status: proposed for review. This section does not authorize customer-access publication or authentication changes.
+
+Spawn presents one customer inventory across all approved retailers. Amazon and non-Amazon listings must not be separated into different pages, totals, or primary navigation merely because different Workers acquire them. Internal Worker ownership remains visible in operator telemetry, not as the customer's information architecture.
+
+The customer surface is product- and offering-oriented. Each offering exposes at least:
+
+- Canonical product name, set/family, sealed format, language, and region.
+- Store or retailer, retailer-specific identifier, and safe direct URL.
+- Customer availability status and price-verification status as separate fields.
+- Current verified price, seller, and fulfilment only when attributable.
+- Last availability observation and last commercial-enrichment timestamps.
+- A plain-language freshness label and monitoring class.
+
+The initial customer availability vocabulary is `BUYABLE`, `SOLD_OUT`, `NO_FEATURED_OFFER`, `UNKNOWN`, and `STALE`. The initial price-verification vocabulary is `VERIFIED`, `PENDING`, `STALE`, and `UNAVAILABLE`. Availability and price status must not be collapsed into one field: a listing can be buyable while price verification is pending.
+
+The initial freshness labels are:
+
+- `LIVE_MONITORED`: availability is checked by Catch at a published Hot, Warm, or Standard objective.
+- `DAILY_VERIFIED`: the listing is maintained by Spawn's bounded low-frequency revalidation.
+- `REVALIDATION_PENDING`: the applicable freshness deadline has passed or enrichment is queued.
+- `ACCESS_DEGRADED`: access, parser, quota, or breaker evidence prevents a current claim while last-known-good history is retained.
+
+The unified inventory supports store as a first-class filter alongside status, set, language, and text search. Store badges and freshness labels may distinguish offerings; there is no Amazon-only customer inventory view required by contract. Multiple confidently matched retailer offerings may be grouped beneath one canonical product. Unmatched or ambiguous identities remain separate until operator review rather than being merged heuristically.
+
+Customer totals must be derived consistently from the unified dataset. Confirmed-available totals exclude stale, pending, unknown, blocked, and error-like evidence. CSV/export uses the same filtered records and status semantics as the visible page. A page view never triggers retailer acquisition.
+
+Customer access must be read-only and separated from the authenticated operator dashboard. Approval, publication, rejection, archive, evidence, health, and secret-bearing interfaces must never be reachable merely because a customer can view inventory. Authentication, authorization, tenant/subscriber entitlement, rate limiting, caching, privacy, and export policy require a separate reviewed security and monetization amendment before external access is activated.
+
+Activation requires schema migration and backfill tests, cross-retailer identity fixtures, filter and export parity, freshness and total calculations, responsive/accessibility review, cache behavior, and proof that customer reads cannot invoke acquisition or operator mutations.
+
+### 3.5 Approved bulk seed-campaign intake
 
 Status: approved for implementation and isolated validation on 2026-08-31; not active until its endpoint, migration, authentication, rate limit, and production deployment receive their separate gates.
 
@@ -172,7 +234,7 @@ Spawn owns:
 - Durable discovery history, rejected candidates, source failures, and scan diagnostics in D1.
 - The authenticated, versioned catalog/watchlist interface consumed by Catch Em All.
 - Operator-facing discovery and catalog views.
-- A read-only customer inventory of operator-approved listings with explicit freshness and evidence limitations.
+- One unified read-only customer inventory of operator-approved Amazon and non-Amazon offerings with explicit availability, price-verification, and freshness dimensions.
 - Low-frequency, bounded revalidation of remembered canonical non-Amazon listing URLs under the proposed revalidation contract.
 - Durable revalidation history, last-known-good protection, stale classification, and audited archive review.
 - Recurring Amazon México discovery for new relevant TCG ASINs, formats, preorders, and material price or availability signals.
@@ -192,7 +254,7 @@ Spawn must not own:
 - Amazon availability circuit breakers.
 - Last-known-good state for Catch-owned Amazon hunting. Spawn does own conservative last-known-good presentation for its low-frequency customer inventory.
 - Customer-facing per-product Discord routing.
-- Repeated Amazon ASIN polling as a substitute for Catch Em All. A once-daily customer-inventory refresh must not compete with or impersonate Catch's Amazon hunt.
+- Repeated fast Amazon ASIN polling as a substitute for Catch Em All. Bounded daily or transition-triggered commercial enrichment is allowed only under section 3.3 and must not compete with or impersonate Catch's hunt.
 - Automatic promotion of discoveries into active monitoring.
 - Automatic replacement of curated pricing references with unreviewed observations.
 - Subscriber surveys or unrelated engagement features in the critical discovery execution path.
@@ -211,6 +273,7 @@ Catch Em All should pick up these responsibilities removed from Spawn:
 - Route immediate alerts to the approved destination.
 - Report monitor freshness, catalog version, lane membership, breaker state, and delivery outcome.
 - Deliver deduplicated customer-visible publication or approved inventory-change events emitted through the coordinated Spawn interface.
+- Emit authenticated Amazon availability-observation handoffs that may omit price and cannot be echoed as duplicate customer events.
 
 Catch Em All should not pick up:
 
@@ -319,10 +382,11 @@ Do not create this Worker merely to work around unclear ownership or stale branc
 | Low-frequency non-Amazon inventory state | Add after isolated validation | Spawn; never represented as Catch-speed monitoring |
 | Amazon circuit breakers | Do not add | Catch |
 | Per-product alert-channel routing | Remove | Catch |
-| Customer inventory presentation | Retain and formalize as read-only, approval-gated, and freshness-qualified | Spawn |
+| Customer inventory presentation | Retain as one unified, read-only, approval-gated cross-retailer inventory with store filtering and separate freshness dimensions | Spawn |
 | Low-frequency remembered-listing revalidation | Add after isolated validation; target once per 24 hours | Spawn for non-Amazon inventory; Catch remains Amazon hunt owner |
 | Thirty-day sold-out archive review | Add; archive rather than delete | Spawn operator workflow |
 | Customer inventory-change delivery | Add only through a versioned, idempotent interface | Spawn emits approved event; Catch deduplicates and delivers |
+| Amazon price/seller enrichment | Add as bounded daily and transition-triggered work after coordinated activation | Spawn; Catch remains fast availability owner |
 | Weekly subscriber survey | Decouple from core path; reassess separately | Neither core Worker by default |
 | Combined Catch/Spawn operations dashboard | Retain only if read-only and operator-focused | Spawn may present; ownership remains separate |
 
