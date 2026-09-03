@@ -17,6 +17,9 @@ describe("listing review controls",()=>{
     expect(html).toContain("3. Approval record");
     expect(html).toContain("Reject this listing");
     expect(html).toContain("data-approve");
+    expect(html).toContain('placeholder="Leave blank if unknown"');
+    expect(html).toContain('class="international-only country-evidence">Retailer country');
+    expect(html).toContain('class="international-only country-evidence">Ships from');
     expect(html).toContain("Not tracked — awaiting approval");
     expect(html).toContain("Customer inventory only");
     expect(new Headers(boardHeaders()).get("content-security-policy")).toContain("form-action 'self'");

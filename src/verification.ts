@@ -21,6 +21,16 @@ export interface VerificationAssessment {
   observedAvailability: string;
 }
 
+export function eligibleForOperatorReview(assessment: VerificationAssessment): boolean {
+  const gates=assessment.gateResults;
+  return assessment.outcome==="REVIEW_REQUIRED"
+    && gates.directAmazonMxUrl===true
+    && gates.httpSuccess===true
+    && gates.amazonPage===true
+    && gates.expectedAsin===true
+    && gates.notRobotBlocked===true;
+}
+
 const validRoleId=(value:string|undefined)=>/^\d{15,22}$/.test(value||"")?value:null;
 export async function deliverApprovalRequest(env:Env, evidenceRevision:string, fetchFn:typeof fetch=fetch) {
   const row=await env.SPAWN_DB.prepare(`SELECT n.*,w.product_name,w.product_url,a.confidence,a.unresolved_questions
@@ -88,15 +98,12 @@ export async function runPendingSeedVerifications(env:Env,limit=2){
   const results:Array<Record<string,unknown>>=[];
   for(const row of rows.results){
     const result=await runAmazonVerification(env,row.asin,"verifier:codex-seed").catch(error=>({ok:false as const,error:String(error instanceof Error?error.message:error)}));results.push(result);
-    if(result.ok&&result.assessment.canonicalProductId==null){
-      const gates=result.assessment.gateResults,identityVerified=gates.directAmazonMxUrl&&gates.httpSuccess&&gates.amazonPage&&gates.expectedAsin&&gates.notRobotBlocked&&gates.englishLanguage;
-      if(identityVerified){
+    if(result.ok&&eligibleForOperatorReview(result.assessment)){
         const candidate=await env.SPAWN_DB.prepare("SELECT candidate_id FROM monitoring_candidates WHERE source='codex_seed' AND retailer_sku=? AND status='PENDING'").bind(row.asin).first<{candidate_id:string}>();
         if(candidate){const now=new Date().toISOString();await env.SPAWN_DB.batch([
           env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET review_eligible=1 WHERE candidate_id=? AND status='PENDING'").bind(candidate.candidate_id),
           env.SPAWN_DB.prepare("INSERT OR IGNORE INTO discovery_approval_notifications(candidate_id,status,created_at) VALUES(?,'PENDING',?)").bind(candidate.candidate_id,now)
         ]);}
-      }
     }
   }
   return {enabled:true,attempted:results.length,results};

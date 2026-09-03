@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {assessAmazonVerification, deliverApprovalRequest, deliverDiscoveryApprovalRequest, type VerificationCandidate} from "../src/verification";
+import {assessAmazonVerification, deliverApprovalRequest, deliverDiscoveryApprovalRequest, eligibleForOperatorReview, type VerificationCandidate} from "../src/verification";
 
 const candidate=(overrides:Partial<VerificationCandidate>={}):VerificationCandidate=>({
   asin:"B0HG3MQDWP",product_name:"Delta Reign Elite Trainer Box",product_url:"https://www.amazon.com.mx/dp/B0HG3MQDWP",
@@ -47,5 +47,15 @@ describe("independent Amazon verification gates",()=>{
   });
   it("rejects a redirected non-direct identity",()=>{
     expect(assessAmazonVerification(candidate(),{status:200,url:"https://www.amazon.com.mx/s?k=delta",html:"Amazon B0HG3MQDWP"}).outcome).toBe("REJECTED");
+  });
+
+  it("queues valid unresolved identities for operator review but fails closed on blocks and redirects",()=>{
+    const unresolved=assessAmazonVerification(candidate({product_name:"Pokémon TCG unknown sealed product",language:"unknown"}),{status:200,url:candidate().product_url,html:"<title>Amazon Pokémon TCG</title> B0HG3MQDWP Agregar al carrito"});
+    const blocked=assessAmazonVerification(candidate(),{status:503,url:candidate().product_url,html:"Amazon Robot Check B0HG3MQDWP"});
+    const redirected=assessAmazonVerification(candidate(),{status:200,url:"https://www.amazon.com.mx/s?k=delta",html:"Amazon B0HG3MQDWP"});
+    expect(unresolved.outcome).toBe("REVIEW_REQUIRED");
+    expect(eligibleForOperatorReview(unresolved)).toBe(true);
+    expect(eligibleForOperatorReview(blocked)).toBe(false);
+    expect(eligibleForOperatorReview(redirected)).toBe(false);
   });
 });
