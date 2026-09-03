@@ -1,7 +1,7 @@
 # Project Spawn contract
 
-Status: approved operating contract with proposed availability/enrichment and unified-inventory amendments
-Date: 2026-09-02
+Status: approved operating contract with proposed cross-border inventory amendment
+Date: 2026-09-03
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
 ## 1. Mission
@@ -203,6 +203,51 @@ Customer totals must be derived consistently from the unified dataset. Confirmed
 Customer access must be read-only and separated from the authenticated operator dashboard. Approval, publication, rejection, archive, evidence, health, and secret-bearing interfaces must never be reachable merely because a customer can view inventory. Authentication, authorization, tenant/subscriber entitlement, rate limiting, caching, privacy, and export policy require a separate reviewed security and monetization amendment before external access is activated.
 
 Activation requires schema migration and backfill tests, cross-retailer identity fixtures, filter and export parity, freshness and total calculations, responsive/accessibility review, cache behavior, and proof that customer reads cannot invoke acquisition or operator mutations.
+
+### 3.4.1 Proposed cross-border inventory and customer disclosure amendment
+
+Status: proposed for review. This section does not authorize schema migration, retailer activation, customer publication, scheduled acquisition, alert delivery, or production deployment.
+
+Spawn may discover and retain relevant international retailer listings when they provide useful market coverage for Mexico-based customers. A localized path, translated page, MXN display, or `en-mx` storefront selector is presentation evidence only; none independently proves that the retailer is based in Mexico, ships the exact item to Mexico, includes import costs, or sells the required product-language variant.
+
+Every offer receives exactly one fulfilment-region state:
+
+- `DOMESTIC`: trustworthy evidence establishes domestic Mexican fulfilment for the exact offer.
+- `CROSS_BORDER_CONFIRMED`: trustworthy current evidence establishes that the exact offer can be delivered to Mexico from outside Mexico.
+- `CROSS_BORDER_UNVERIFIED`: the retailer or shipment appears international and Mexico delivery, origin, or checkout eligibility is unresolved.
+- `DESTINATION_UNAVAILABLE`: trustworthy current evidence establishes that the exact offer cannot be delivered to Mexico.
+
+Discovery may store all four states for research and deduplication. Only `DOMESTIC` and `CROSS_BORDER_CONFIRMED` are eligible for routine customer publication. `CROSS_BORDER_UNVERIFIED` remains in operator review or research inventory, and `DESTINATION_UNAVAILABLE` is not customer-buyable. An operator cannot convert localized currency or page language into delivery confirmation without separate evidence.
+
+Cross-border verification is evidence-bound and records, when attributable:
+
+- Retailer legal or operating country and evidence source.
+- Ship-from country for the exact offer, which may differ from retailer country.
+- Whether the exact product and selected variant can be delivered to a Mexico destination.
+- Product language and region, independently of storefront language.
+- Displayed item price, original currency, conversion currency and rate when conversion is performed.
+- Shipping charge and whether it is known before checkout.
+- Import-duty and tax treatment as `INCLUDED`, `EXCLUDED`, or `UNKNOWN`.
+- Destination-check timestamp, evidence freshness deadline, acquisition method, and parser or reviewer identity.
+
+The displayed item price is never represented as a landed price when shipping, duties, taxes, brokerage, or currency conversion remain unknown. The first release must not estimate landed cost. Price comparisons involving incomplete cross-border costs are labelled `DISPLAYED_PRICE_ONLY` and cannot support `best price`, `below MSRP`, `likely MSRP`, or equivalent total-cost claims.
+
+The unified customer inventory applies the fulfilment distinction throughout the experience:
+
+- Each offering displays a `Domestic`, `International`, or `Region unverified` badge.
+- Domestic offers sort before cross-border offers by default. Cross-border offers with unknown landed cost do not outrank a domestic offer merely because their displayed item price is lower.
+- Filters include `Ships from Mexico`, `International`, and `Shipping unverified`, in addition to the existing store filter.
+- Availability distinguishes `BUYABLE` with Mexico delivery confirmed from retailer-site buyability whose destination is unresolved.
+- The product link is accompanied by a checkout-proximate disclosure equivalent to: **International seller. Shipping, import duties, taxes, currency conversion, and delivery times may be added or changed at checkout.**
+- Customer alerts for confirmed cross-border offers begin with an unmistakable `INTERNATIONAL OFFER` label and include original currency, seller or retailer country, Mexico-delivery status, known shipping cost, import-cost status, evidence time, direct URL, and the same disclosure.
+- Product grouping may place domestic and international offerings under one confidently matched canonical product, but each retailer offer retains its own availability, price, fulfilment-region, and freshness evidence.
+- CSV/export includes fulfilment-region state, retailer country, ship-from country, original currency, Mexico-delivery status, shipping amount, import-cost status, and evidence timestamps using the same filtered dataset as the page.
+
+Customer preferences may later allow cross-border alerts to be disabled, but the event contract must carry the fulfilment-region fields from its first activated version so a subscriber-facing preference can be added without reclassifying historic evidence.
+
+Spawn owns discovery, retailer review, destination verification, low-frequency monitoring, stale-state handling, and event creation for international non-Amazon listings. The initial monitoring objective is no more frequent than once per 24 hours unless a retailer-specific contract is separately approved. `UNKNOWN`, `BLOCKED`, checkout ambiguity, geolocation variance, and expired destination evidence preserve the last-known-good record while degrading it to unverified or stale; they never assert domestic fulfilment or Mexico deliverability.
+
+Activation requires fixtures for localized-but-US storefronts, original and converted currency, unknown shipping, included and excluded duties, destination denial, product-language independence, stale destination evidence, grouping, default sort order, filters, CSV parity, disclosure placement, event replay, and proof that a page view cannot initiate checkout or retailer acquisition. Secure customer access remains governed by its separate future security and monetization gate.
 
 ### 3.5 Approved bulk seed-campaign intake
 
