@@ -1,20 +1,32 @@
 import {describe,expect,it} from "vitest";
 import {boardHeaders} from "../src/board";
-import {renderDashboard} from "../src/dashboard";
+import {renderApprovals,renderDashboard} from "../src/dashboard";
 
 describe("listing review controls",()=>{
   it("renders independent explicit publish and reject forms",()=>{
-    const html=renderDashboard({verification_queue:[],listing_queue:[{candidate_id:"a".repeat(64),product_name:"Test listing",vendor:"Test vendor",product_family:"Delta Reign",language:"english",availability_state:"available",observed_price_mxn:1000,discovered_at:"2026-08-29T00:00:00Z",source_url:"https://example.test/item"}],catalog_version:{value:"3"},publication_version:{value:"1"},spawn:{},catch_em_all:null,vendors:[],discovery_ingestion:[],weekly_feedback:[],generated_at:"now"} as never,"token",{error:"invalid_review"});
+    const html=renderApprovals({verification_queue:[],listing_queue:[{candidate_id:"a".repeat(64),product_name:"Test listing",vendor:"Test vendor",product_family:"Delta Reign",language:"english",availability_state:"available",observed_price_mxn:1000,discovered_at:"2026-08-29T00:00:00Z",source_url:"https://example.test/item"}],catalog_version:{value:"3"},publication_version:{value:"1"},spawn:{},catch_em_all:null,vendors:[],discovery_ingestion:[],weekly_feedback:[],generated_at:"now"} as never,"token",{error:"invalid_review"});
     expect(html.match(/<form /g)).toHaveLength(2);
     expect(html).toContain('name="action" value="publish"');
     expect(html).toContain('name="action" value="reject"');
     expect(html).toContain("Action failed:");
-    expect(html).toContain("Required: identity, destination and seller evidence");
+    expect(html).toContain("Describe identity, destination and seller evidence");
     expect(html).toContain('name="fulfilment_region_state"');
-    expect(html).toContain("International — unverified (cannot publish)");
+    expect(html).toContain("International — not yet verified");
+    expect(html).toContain("1. Publication decision");
+    expect(html).toContain("2. Fulfilment evidence");
+    expect(html).toContain("3. Approval record");
+    expect(html).toContain("Reject this listing");
+    expect(html).toContain("data-approve");
     expect(html).toContain("Not tracked — awaiting approval");
-    expect(html).toContain("Customer visibility only (no Catch monitoring)");
+    expect(html).toContain("Customer inventory only");
     expect(new Headers(boardHeaders()).get("content-security-policy")).toContain("form-action 'self'");
+  });
+
+  it("keeps decisions on /approvals and leaves a concise dashboard entry point",()=>{
+    const data={verification_queue:[],listing_queue:[{candidate_id:"a".repeat(64),product_name:"Pending item",vendor:"Store",product_family:"30th",language:"english",availability_state:"unknown",discovered_at:"2026-09-03",source_url:"https://example.test/item"}],published_catalog:[],pricing_catalog:[],catalog_version:{value:"3"},publication_version:{value:"2"},spawn:{},catch_em_all:null,vendors:[],discovery_ingestion:[],weekly_feedback:[],seed_campaigns:[],revalidation:[],removal_reviews:[],customer_events:[],generated_at:"now"} as never;
+    const dashboard=renderDashboard(data,"token"),approvals=renderApprovals(data,"token");
+    expect(dashboard).toContain("1 items need attention");expect(dashboard).toContain("/approvals?access=token");expect(dashboard).not.toContain("1. Publication decision");
+    expect(approvals).toContain("<h1>Approvals</h1>");expect(approvals).toContain("1. Publication decision");expect(approvals).not.toContain("Pricing-reference coverage");
   });
 
   it("shows published catalog coverage reported by Catch",()=>{

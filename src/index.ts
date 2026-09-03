@@ -6,7 +6,7 @@ import { parseBenchmarkCandidate, storeBenchmarkCandidate, verifyCatchSignature 
 import { handleCatchInventoryObservation } from "./catch-inventory";
 import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
-import { dashboardData, renderDashboard } from "./dashboard";
+import { dashboardData, renderApprovals, renderDashboard } from "./dashboard";
 import { handleWeeklyFeedback } from "./weekly-feedback";
 import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, runPendingSeedVerifications, type ReviewAction } from "./verification";
 import { amazonAsin } from "./inventory";
@@ -185,7 +185,7 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
     alertOnInitialBuyable:form.get("alert_on_initial_buyable")==="on"
   },actor);
   else result={ok:false as const,error:"invalid_action"};
-  const destination=new URL("/dashboard",url); destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN); destination.searchParams.set(result.ok?"notice":"error",result.ok?`${action}:${asin}`:result.error);
+  const destination=new URL("/approvals",url); destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN); destination.searchParams.set(result.ok?"notice":"error",result.ok?`${action}:${asin}`:result.error);
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
@@ -230,7 +230,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
     publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
     await env.SPAWN_DB.batch(publicationStatements);
   }
-  const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
+  const destination=new URL("/approvals",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
 async function dashboardPricingReview(request:Request,url:URL,env:Env):Promise<Response|null>{
@@ -338,6 +338,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/dashboard") {
     if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
     return new Response(renderDashboard(await dashboardData(env), env.BOARD_ACCESS_TOKEN, {notice:url.searchParams.get("notice"),error:url.searchParams.get("error")}), { headers:boardHeaders() });
+  }
+  if (request.method === "GET" && url.pathname === "/approvals") {
+    if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
+    return new Response(renderApprovals(await dashboardData(env), env.BOARD_ACCESS_TOKEN, {notice:url.searchParams.get("notice"),error:url.searchParams.get("error")}), { headers:boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/inventory.csv") {
     if (!authorized(request, env) && !boardAuthorized(url, env)) return json({ error: "unauthorized" }, 401);
