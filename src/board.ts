@@ -32,6 +32,16 @@ export interface BoardRow {
   revalidation_last_success_at?: string | null;
   revalidation_last_outcome?: string | null;
   revalidation_due_at?: string | null;
+  fulfilment_region_state?: string | null;
+  retailer_country?: string | null;
+  ship_from_country?: string | null;
+  original_price?: number | null;
+  original_currency?: string | null;
+  mexico_delivery_status?: string | null;
+  shipping_mxn?: number | null;
+  import_cost_status?: string | null;
+  destination_checked_at?: string | null;
+  destination_fresh_until?: string | null;
 }
 
 export interface CatchHuntRow {
@@ -72,9 +82,10 @@ const BOARD_QUERY = `WITH ranked AS (
     AND i.canonical_url NOT LIKE '%/undefined%'
 )
 SELECT listing_key, title, print_series, watch_category, retailer, retailer_sku, language, price_mxn, seller, fulfilled_by, availability_evidence_type, price_verification_status, availability_freshness_status, availability_observed_at, pricing_observed_at, status, availability_state, last_change_type,
-  first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate,revalidation_state,revalidation_last_success_at,revalidation_last_outcome,revalidation_due_at
+  first_seen_at, last_seen_at, canonical_url, amazon_launch_mxn, amazon_confidence, collectr_usd, usd_mxn_rate,revalidation_state,revalidation_last_success_at,revalidation_last_outcome,revalidation_due_at,
+  fulfilment_region_state,retailer_country,ship_from_country,original_price,original_currency,mexico_delivery_status,shipping_mxn,import_cost_status,destination_checked_at,destination_fresh_until
 FROM ranked WHERE offer_rank = 1
-ORDER BY CASE status WHEN 'available' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, last_seen_at DESC`;
+ORDER BY CASE fulfilment_region_state WHEN 'DOMESTIC' THEN 0 WHEN 'CROSS_BORDER_CONFIRMED' THEN 1 ELSE 2 END, CASE status WHEN 'available' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, last_seen_at DESC`;
 
 export async function boardRows(env: Env): Promise<BoardRow[]> {
   return (await env.SPAWN_DB.prepare(BOARD_QUERY).all<BoardRow>()).results.map(row => ({...row, value_classification: benchmarkContext(row.price_mxn,row.amazon_launch_mxn,row.collectr_usd != null && row.usd_mxn_rate != null ? row.collectr_usd*row.usd_mxn_rate:null,row.availability_state).classification}));
@@ -150,7 +161,7 @@ function huntCard(row: CatchHuntRow, now: Date): string {
   const currentEvidence = row.lastCheck && !["ERROR","BLOCKED","UNKNOWN"].includes(String(row.lastCheck.observedState ?? ""));
   const offer = currentEvidence && row.lastCheck?.price ? `${row.lastCheck.price}${row.lastCheck.seller ? ` · Sold by ${row.lastCheck.seller}` : ""}` : "Price unavailable from the last trustworthy check";
   const status=catchStateClass(row.persistedState),searchable=[row.name,"Amazon México",row.asin,"Catch Em All"].join(" ").toLowerCase();
-  return `<article class="hunt-card" data-search="${escapeHtml(searchable)}" data-status="${status}" data-set="" data-language="unknown" data-store="amazon méxico"><div class="offer-top"><span class="status ${status}">${escapeHtml(catchStateLabel(row.persistedState))}</span><span class="change">${escapeHtml(row.cadenceClass)} · ${escapeHtml(row.cadenceMinutes)} min</span></div>
+  return `<article class="hunt-card" data-search="${escapeHtml(searchable)}" data-status="${status}" data-set="" data-language="unknown" data-store="amazon méxico" data-fulfilment="domestic"><div class="offer-top"><span class="status ${status}">${escapeHtml(catchStateLabel(row.persistedState))}</span><span class="change">${escapeHtml(row.cadenceClass)} · ${escapeHtml(row.cadenceMinutes)} min</span></div>
     <p class="set">Amazon México hunt</p><h3>${escapeHtml(row.name)}</h3><p class="retailer"><code>${escapeHtml(row.asin)}</code></p>
     <p>${escapeHtml(offer)}</p><div class="meta"><span>Live monitored</span><span class="${fresh.stale || row.overdue ? "stale" : ""}">${escapeHtml(row.overdue ? `Overdue: ${row.overdueReason ?? "monitoring delayed"}` : fresh.text)}</span></div>
     <a class="buy" href="${escapeHtml(row.url)}" target="_blank" rel="noopener noreferrer">View on Amazon <span aria-hidden="true">↗</span></a></article>`;
@@ -163,13 +174,15 @@ function card(row: BoardRow, now: Date): string {
   const valueClassification = row.value_classification ?? benchmarkContext(row.price_mxn, row.amazon_launch_mxn, collectrMxn, row.availability_state).classification;
   const fresh = freshness(row.availability_observed_at ?? row.revalidation_last_success_at ?? row.last_seen_at, now);
   const effectiveStatus = fresh.stale || ["STALE","UNKNOWN","BLOCKED"].includes(row.revalidation_state ?? "") ? "unknown" : row.status;
-  const searchable = [row.title, row.retailer, row.retailer_sku, row.print_series, label(row.language), valueClassification].join(" ").toLowerCase();
-  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(effectiveStatus)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}">
-    <div class="offer-top"><span class="status ${escapeHtml(effectiveStatus)}">${escapeHtml(fresh.stale?"Stale":row.revalidation_state==="BLOCKED"?"Access blocked":row.revalidation_state==="UNKNOWN"?"Unconfirmed":label(effectiveStatus))}</span>${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
+  const crossBorder=row.fulfilment_region_state==="CROSS_BORDER_CONFIRMED";
+  const fulfilment=crossBorder?"cross_border":row.fulfilment_region_state==="DOMESTIC"?"domestic":"unverified";
+  const searchable = [row.title, row.retailer, row.retailer_sku, row.print_series, label(row.language), valueClassification,row.retailer_country,row.ship_from_country,fulfilment].join(" ").toLowerCase();
+  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(effectiveStatus)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}" data-fulfilment="${fulfilment}">
+    <div class="offer-top"><span class="status ${escapeHtml(effectiveStatus)}">${escapeHtml(fresh.stale?"Stale":row.revalidation_state==="BLOCKED"?"Access blocked":row.revalidation_state==="UNKNOWN"?"Unconfirmed":label(effectiveStatus))}</span>${crossBorder?`<span class="change">🌎 International offer</span>`:""}${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
     <p class="set">${escapeHtml(row.print_series || label(row.watch_category))}</p>
     <h2>${escapeHtml(row.title)}</h2>
     <p class="retailer">${escapeHtml(row.retailer)}${row.retailer_sku ? ` <span>• SKU ${escapeHtml(row.retailer_sku)}</span>` : ""}</p>
-    <div class="price">${escapeHtml(row.price_verification_status==="PENDING"?"Price verification pending":money(row.price_mxn))}</div>${row.seller ? `<p class="retailer">Sold by ${escapeHtml(row.seller)}${row.fulfilled_by ? ` · Fulfilled by ${escapeHtml(row.fulfilled_by)}` : ""}${row.availability_evidence_type === "buying_options" ? " · Buying options" : ""}</p>` : ""}
+    <div class="price">${escapeHtml(crossBorder&&row.original_price!=null&&row.original_currency?`${row.original_currency} ${row.original_price.toLocaleString("en-US")} displayed item price`:row.price_verification_status==="PENDING"?"Price verification pending":money(row.price_mxn))}</div>${row.seller ? `<p class="retailer">Sold by ${escapeHtml(row.seller)}${row.fulfilled_by ? ` · Fulfilled by ${escapeHtml(row.fulfilled_by)}` : ""}${row.availability_evidence_type === "buying_options" ? " · Buying options" : ""}</p>` : ""}${crossBorder?`<p class="retailer">Retailer ${escapeHtml(row.retailer_country)} · Ships from ${escapeHtml(row.ship_from_country)} · Mexico delivery confirmed${row.shipping_mxn!=null?` · Shipping MX$${escapeHtml(row.shipping_mxn)}`:""} · Import costs ${escapeHtml(String(row.import_cost_status??"UNKNOWN").toLowerCase())}</p><p class="note"><strong>International seller.</strong> Shipping, import duties, taxes, currency conversion, and delivery times may be added or changed at checkout.</p>`:""}
     <dl class="comparisons">
       <div><dt>Value</dt><dd><span class="comparison neutral">${escapeHtml(valueClassification)}</span></dd></div>
       <div><dt>vs Amazon launch${row.amazon_confidence && row.amazon_confidence !== "exact" ? " proxy" : ""}</dt><dd>${comparison(amazonDifference)}</dd></div>
@@ -208,6 +221,7 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <select id="status" aria-label="Filter by status"><option value="">All statuses</option><option value="available">Available</option><option value="sold_out">Sold out</option><option value="unknown">Unknown</option></select>
 <select id="set" aria-label="Filter by set"><option value="">All sets</option><option value="30th_celebration">30th Celebration</option><option value="ascended_heroes">Ascended Heroes</option><option value="delta_reign">Delta Reign</option></select>
 <select id="language" aria-label="Filter by language"><option value="">All languages</option><option value="english">English</option><option value="spanish">Spanish</option><option value="bilingual">Bilingual</option><option value="japanese">Japanese</option><option value="chinese">Chinese</option><option value="unknown">Unconfirmed</option></select>
+<select id="fulfilment" aria-label="Filter by fulfilment"><option value="">All fulfilment</option><option value="domestic">Domestic</option><option value="cross_border">International</option><option value="unverified">Unverified</option></select>
 <a class="download" href="/inventory.csv?access=${encodeURIComponent(accessToken)}">Excel / CSV</a></section>
 <section id="grid" class="grid">${hunt.rows.map(row => huntCard(row,now)).join("")}${inventoryRows.map((row) => card(row, now)).join("")}</section><div id="empty" class="empty">No offers match these filters.</div>
 <p class="note"><strong>Monitoring distinction:</strong> Spawn discovers and periodically refreshes broad market listings. Catch actively hunts only the approved Amazon ASINs shown above. A persisted state is the last trustworthy observation, not a guarantee of current stock.</p>
@@ -215,7 +229,7 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <p class="note">Last inventory verification: ${escapeHtml(lastVerified ? new Intl.DateTimeFormat("en-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }).format(new Date(lastVerified)) : "Unavailable")}.</p>
 </main><script>
 const controls=[...document.querySelectorAll('input,select')],cards=[...document.querySelectorAll('.offer,.hunt-card')],empty=document.getElementById('empty');
-function filter(){const q=document.getElementById('search').value.trim().toLowerCase(),store=document.getElementById('store').value,status=document.getElementById('status').value,set=document.getElementById('set').value,language=document.getElementById('language').value;let visible=0;for(const card of cards){const show=(!q||card.dataset.search.includes(q))&&(!store||card.dataset.store===store)&&(!status||card.dataset.status===status)&&(!set||card.dataset.set===set)&&(!language||card.dataset.language===language);card.hidden=!show;if(show)visible++}empty.style.display=visible?'none':'block'}controls.forEach(control=>control.addEventListener('input',filter));
+function filter(){const q=document.getElementById('search').value.trim().toLowerCase(),store=document.getElementById('store').value,status=document.getElementById('status').value,set=document.getElementById('set').value,language=document.getElementById('language').value,fulfilment=document.getElementById('fulfilment').value;let visible=0;for(const card of cards){const show=(!q||card.dataset.search.includes(q))&&(!store||card.dataset.store===store)&&(!status||card.dataset.status===status)&&(!set||card.dataset.set===set)&&(!language||card.dataset.language===language)&&(!fulfilment||card.dataset.fulfilment===fulfilment);card.hidden=!show;if(show)visible++}empty.style.display=visible?'none':'block'}controls.forEach(control=>control.addEventListener('input',filter));
 </script></body></html>`;
 }
 

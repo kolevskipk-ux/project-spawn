@@ -15,6 +15,7 @@ import { runInventoryRevalidation } from "./revalidation";
 import { handleCustomerEvents } from "./customer-events";
 import { updatePricingReferences, validatePricingReferenceForm } from "./pricing";
 import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
+import { validateFulfilmentReview } from "./cross-border";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -96,7 +97,7 @@ const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""'
 
 async function inventoryCsv(env: Env): Promise<Response> {
   const rows = await boardRows(env);
-  const columns = ["title", "print_series", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "amazon_launch_mxn", "collectr_usd", "value_classification", "status", "availability_state", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
+  const columns = ["title", "print_series", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "original_price", "original_currency", "fulfilment_region_state", "retailer_country", "ship_from_country", "mexico_delivery_status", "shipping_mxn", "import_cost_status", "destination_checked_at", "destination_fresh_until", "amazon_launch_mxn", "collectr_usd", "value_classification", "status", "availability_state", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
   const body = [columns.join(","), ...rows.map((row) => columns.map((column) => csvCell(row[column as keyof typeof row])).join(","))].join("\r\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=spawn-inventory.csv", "cache-control": "no-store" } });
 }
@@ -202,11 +203,12 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
     env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,reason,decided_by,decided_at) VALUES(?,'REJECTED',?,?,?)").bind(match[1],reason,actor,now)
   ]);
   else {
+    const fulfilment=validateFulfilmentReview(form);if(!fulfilment.ok)return json({error:fulfilment.error},400);
     if(disposition!=="visibility_only") {
       const asin=amazonAsin(String(candidate.source_url)); if(!asin) return json({error:"monitoring_requires_amazon_asin"},400);
       const watch=await env.SPAWN_DB.prepare("SELECT lifecycle_status,verification_attempt_id,evidence_revision FROM amazon_watchlist WHERE asin=?").bind(asin).first<{lifecycle_status:string;verification_attempt_id:number;evidence_revision:string}>();
       if(!watch||watch.lifecycle_status!=="VERIFIED") return json({error:"amazon_candidate_not_verified"},409);
-      const category=String(candidate.watch_category),routingKey=category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
+      const category=String(candidate.watch_category),storedRoute=String(candidate.routing_key??""),routingKey=(["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"].includes(storedRoute)?storedRoute:category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main") as "pokemon-main"|"pokemon-30th"|"delta-reign"|"magic-hobbit";
       const approved=await reviewAmazonCandidate(env,asin,"approve",{attemptId:watch.verification_attempt_id,evidenceRevision:watch.evidence_revision,reason,lane:"normal",routingKey,alertOnInitialBuyable:false},actor);
       if(!approved.ok) return json(approved,409);
       await env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET poll_interval_minutes=? WHERE asin=? AND lifecycle_status='APPROVED'").bind(disposition==="hourly"?60:5,asin).run();
@@ -214,7 +216,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       if(!published.ok) return json(published,409);
     }
     const publicationStatements:D1PreparedStatement[]=[
-      env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='ACCEPTED',disposition=?,reviewed_by=?,review_reason=?,reviewed_at=?,published_at=? WHERE candidate_id=? AND status='PENDING'").bind(disposition,actor,reason,now,now,match[1]),
+      env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='ACCEPTED',disposition=?,reviewed_by=?,review_reason=?,reviewed_at=?,published_at=?,fulfilment_region_state=?,retailer_country=?,ship_from_country=?,original_price=?,original_currency=?,mexico_delivery_status=?,shipping_mxn=?,import_cost_status=?,destination_checked_at=?,destination_fresh_until=? WHERE candidate_id=? AND status='PENDING'").bind(disposition,actor,reason,now,now,fulfilment.value.state,fulfilment.value.retailerCountry,fulfilment.value.shipFromCountry,fulfilment.value.originalPrice,fulfilment.value.originalCurrency,fulfilment.value.mexicoDeliveryStatus,fulfilment.value.shippingMxn,fulfilment.value.importCostStatus,fulfilment.value.checkedAt,fulfilment.value.freshUntil,match[1]),
       env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('listing_publication_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
       env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) VALUES(?,'PUBLISHED',?,?,?,?)").bind(match[1],disposition,reason,actor,now)
     ];
@@ -222,9 +224,10 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       (listing_key,canonical_url,retailer,title,watch_category,retailer_sku,first_seen_at,last_seen_at,status,availability_state,price_mxn,language,language_evidence,last_change_type,print_series)
       VALUES(?,?,?,?,?,?,?,?,'unknown','unknown',NULL,?,?,'baseline',?)`)
       .bind(candidate.source_listing_key,candidate.source_url,candidate.vendor,candidate.product_name,"pokemon_tcg",candidate.retailer_sku,candidate.discovered_at,candidate.discovered_at,candidate.language,"Verified direct identity; availability requires Worker revalidation",candidate.print_series));
-    const category=String(candidate.watch_category),routingKey=category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
-    const eventPayload={schema_version:1,event_id:match[1],event_type:"LISTING_PUBLISHED",listing_key:candidate.source_listing_key,product_name:candidate.product_name,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null};
-    publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,1,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
+    publicationStatements.push(env.SPAWN_DB.prepare("UPDATE inventory SET fulfilment_region_state=?,retailer_country=?,ship_from_country=?,original_price=?,original_currency=?,mexico_delivery_status=?,shipping_mxn=?,import_cost_status=?,destination_checked_at=?,destination_fresh_until=? WHERE listing_key=?").bind(fulfilment.value.state,fulfilment.value.retailerCountry,fulfilment.value.shipFromCountry,fulfilment.value.originalPrice,fulfilment.value.originalCurrency,fulfilment.value.mexicoDeliveryStatus,fulfilment.value.shippingMxn,fulfilment.value.importCostStatus,fulfilment.value.checkedAt,fulfilment.value.freshUntil,candidate.source_listing_key));
+    const category=String(candidate.watch_category),storedRoute=String(candidate.routing_key??""),routingKey=["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"].includes(storedRoute)?storedRoute:category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
+    const eventPayload={schema_version:2,event_id:match[1],event_type:"LISTING_PUBLISHED",source_owner:"spawn",listing_key:candidate.source_listing_key,product_name:candidate.product_name,product_language:candidate.language,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null,fulfilment_region_state:fulfilment.value.state,retailer_country:fulfilment.value.retailerCountry,ship_from_country:fulfilment.value.shipFromCountry,original_price:fulfilment.value.originalPrice,original_currency:fulfilment.value.originalCurrency,mexico_delivery_status:fulfilment.value.mexicoDeliveryStatus,shipping_mxn:fulfilment.value.shippingMxn,import_cost_status:fulfilment.value.importCostStatus,destination_checked_at:fulfilment.value.checkedAt,destination_fresh_until:fulfilment.value.freshUntil};
+    publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
     await env.SPAWN_DB.batch(publicationStatements);
   }
   const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
