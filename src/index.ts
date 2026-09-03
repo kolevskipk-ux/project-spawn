@@ -14,6 +14,7 @@ import { handleSeedCampaign } from "./seed-intake";
 import { runInventoryRevalidation } from "./revalidation";
 import { handleCustomerEvents } from "./customer-events";
 import { updatePricingReferences, validatePricingReferenceForm } from "./pricing";
+import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -364,6 +365,7 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
   ctx.waitUntil(runInventoryRevalidation(env,now).catch(error=>console.error("inventory revalidation failed",error)));
+  ctx.waitUntil(runAmazonCommercialEnrichment(env,now).catch(error=>console.error("Amazon commercial enrichment failed",error)));
   ctx.waitUntil(runPendingSeedVerifications(env).catch(error=>console.error("seed verification failed",error)));
   if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
   if (isQuietWindow(now, env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;

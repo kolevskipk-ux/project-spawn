@@ -32,4 +32,9 @@ describe("decision schema alignment",()=>{
     expect(new Set(ids).size).toBe(19);
     for(const id of new Set(ids))expect(originalProducts+completion).toContain(`'${id}'`);
   });
+  it("keeps the availability/enrichment boundary migration aligned with runtime",()=>{
+    const migration=readFileSync(new URL("../migrations/0022_availability_enrichment_boundary.sql",import.meta.url),"utf8");
+    const runtime=readFileSync(new URL("../src/catch-inventory.ts",import.meta.url),"utf8")+readFileSync(new URL("../src/board.ts",import.meta.url),"utf8")+readFileSync(new URL("../src/amazon-enrichment.ts",import.meta.url),"utf8");
+    for(const token of ["amazon_enrichment_queue","transition_id","price_verification_status","availability_freshness_status"]){expect(migration).toContain(token);expect(runtime).toContain(token);}
+  });
 });
