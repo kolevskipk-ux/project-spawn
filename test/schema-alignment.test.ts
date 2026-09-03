@@ -41,5 +41,6 @@ describe("decision schema alignment",()=>{
     const migration=readFileSync(new URL("../migrations/0023_cross_border_inventory.sql",import.meta.url),"utf8");
     const runtime=readFileSync(new URL("../src/cross-border.ts",import.meta.url),"utf8")+readFileSync(new URL("../src/board.ts",import.meta.url),"utf8")+readFileSync(new URL("../src/revalidation.ts",import.meta.url),"utf8");
     for(const token of ["fulfilment_region_state","retailer_country","ship_from_country","destination_fresh_until","import_cost_status"]){expect(migration).toContain(token);expect(runtime).toContain(token);}
+    expect(runtime).toContain("fulfilment_region_state IN ('DOMESTIC','CROSS_BORDER_CONFIRMED')");
   });
 });

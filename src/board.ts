@@ -77,7 +77,8 @@ const BOARD_QUERY = `WITH ranked AS (
   FROM inventory i
   LEFT JOIN products p ON p.id = i.product_id
   LEFT JOIN inventory_revalidation_state r ON r.listing_key=i.listing_key
-  WHERE i.canonical_url NOT LIKE '%/collections/%'
+  WHERE i.fulfilment_region_state IN ('DOMESTIC','CROSS_BORDER_CONFIRMED')
+    AND i.canonical_url NOT LIKE '%/collections/%'
     AND i.canonical_url NOT LIKE '%/content/%'
     AND i.canonical_url NOT LIKE '%/undefined%'
 )
