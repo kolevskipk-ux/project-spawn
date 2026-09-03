@@ -112,7 +112,7 @@ describe("Inventory Board", () => {
     expect(html).toContain(">Stale</span>");
   });
 
-  it("shows the complete Catch Amazon hunt and removes duplicate Spawn offers", () => {
+  it("unifies the complete Catch Amazon hunt with inventory and removes duplicate offers", () => {
     const amazonRow = { ...row, retailer_sku:"B0ABC12345", canonical_url:"https://www.amazon.com.mx/dp/B0ABC12345" };
     const hunt: CatchHuntSnapshot = { available:true, mode:"NORMAL", degraded:false, rollout:"safe-hourly", rows:[
       { id:"amazon-one", name:"30th Celebration ETB", asin:"B0ABC12345", url:"https://www.amazon.com.mx/dp/B0ABC12345", cadenceClass:"hot", cadenceMinutes:60,
@@ -121,12 +121,12 @@ describe("Inventory Board", () => {
         persistedState:"SOLD_OUT", lastTrustworthyAt:"2026-08-23T11:00:00.000Z", overdue:false, overdueReason:null, lastCheck:{ observedState:"SOLD_OUT" } }
     ] };
     const html = renderBoard([amazonRow], "private-token", new Date("2026-08-23T12:00:00.000Z"), hunt);
-    expect(html).toContain("Amazon México Hunt");
+    expect(html).not.toContain("Amazon México Hunt");
     expect(html).toContain("30th Celebration ETB");
     expect(html).toContain("Delta Reign Bundle");
     expect(html).toContain("Inventory offers");
-    expect(html).toContain("2 approved ASINs");
-    expect((html.match(/B0ABC12345/g) ?? [])).toHaveLength(2);
+    expect(html).toContain('<option value="amazon méxico">Amazon México</option>');
+    expect((html.match(/<article class="hunt-card"/g) ?? [])).toHaveLength(2);
     expect(html).not.toContain('class="offer"');
   });
 

@@ -21,6 +21,8 @@ export interface Env {
   INVENTORY_REVALIDATION_BATCH_SIZE?: string;
   INVENTORY_REVALIDATION_TARGET_HOURS?: string;
   INVENTORY_FRESHNESS_HOURS?: string;
+  AMAZON_ENRICHMENT_ENABLED?: string;
+  AMAZON_ENRICHMENT_BATCH_SIZE?: string;
   SEED_VERIFICATION_ENABLED?: string;
   SEED_VERIFICATION_BATCH_SIZE?: string;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
