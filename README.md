@@ -81,7 +81,7 @@ KantoCards is evaluation-only, not Always Scan. Its Delta Reign `$1.00` + `PREVE
 
 Catch Em All can submit signed Amazon México price observations to Spawn's durable benchmark-candidate inbox. The integration is one-way and review-gated; automated observations cannot overwrite curated benchmark prices. See `CATCH_INTEGRATION.md`.
 
-Migration `0018_seed_campaigns_and_revalidation.sql` adds seed receipts/evidence, bounded revalidation state and attempts, per-domain backoff, removal review, and a dormant customer-event ledger. Apply it to the isolated development D1 before deploying code that exposes the new protected endpoints. Production defaults both execution flags to `false`; the development configuration enables manual isolated validation but has no cron. Enabling production revalidation, seed verification, event delivery, or a cron remains a separate approval gate.
+Migration `0018_seed_campaigns_and_revalidation.sql` adds seed receipts/evidence, bounded revalidation state and attempts, per-domain backoff, removal review, and a dormant customer-event ledger. Production seed verification is enabled after the 2026-09-03 isolated gate and is bounded to two `DISCOVERED` ASINs per scheduled or authenticated manual run. Verification can only create operator-review evidence; it cannot publish inventory or enroll Catch. Production inventory revalidation remains disabled, while development keeps manual isolated validation with no cron.
 
 ## Updating the watch list
 
