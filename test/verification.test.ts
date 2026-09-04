@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {assessAmazonVerification, deliverApprovalRequest, deliverDiscoveryApprovalRequest, eligibleForOperatorReview, type VerificationCandidate} from "../src/verification";
+import {assessAmazonVerification, deliverApprovalRequest, deliverDiscoveryApprovalRequest, eligibleForOperatorReview, retryDiscoveryApprovalRequests, type VerificationCandidate} from "../src/verification";
 
 const candidate=(overrides:Partial<VerificationCandidate>={}):VerificationCandidate=>({
   asin:"B0HG3MQDWP",product_name:"Delta Reign Elite Trainer Box",product_url:"https://www.amazon.com.mx/dp/B0HG3MQDWP",
@@ -7,6 +7,13 @@ const candidate=(overrides:Partial<VerificationCandidate>={}):VerificationCandid
 });
 
 describe("discovery approval notification",()=>{
+  it("keeps bulk Codex seeds in the dashboard queue without per-item Discord retries",async()=>{
+    let selection="";
+    const env={SPAWN_DB:{prepare:(sql:string)=>{selection=sql;return{bind:()=>({all:async()=>({results:[]})})};}}} as never;
+    await retryDiscoveryApprovalRequests(env);
+    expect(selection).toContain("c.source!='codex_seed'");
+  });
+
   it("delivers a backlog review request only to the operations route",async()=>{
     const updates:string[]=[],calls:string[]=[];
     const env={OPS_DISCORD_WEBHOOK_URL:"https://discord.test/ops",PUBLIC_BASE_URL:"https://spawn.test",SPAWN_DB:{prepare:(sql:string)=>({bind:(...args:unknown[])=>({
