@@ -16,8 +16,8 @@ export async function publishSeedCampaign(env:Env,campaignId:string,reason:strin
   const replay=await env.SPAWN_DB.prepare("SELECT item_count,event_id FROM seed_campaign_publications WHERE campaign_id=?").bind(campaignId).first<{item_count:number;event_id:string}>();
   if(replay)return {ok:true as const,replayed:true,count:replay.item_count,eventId:replay.event_id};
   const candidates=await env.SPAWN_DB.prepare(`SELECT DISTINCT c.candidate_id,c.source_listing_key,c.source_url,c.vendor,c.product_name,c.product_family,c.print_series,c.language,c.retailer_sku,c.discovered_at
-    FROM seed_candidate_evidence e JOIN monitoring_candidates c ON c.candidate_id=e.candidate_id JOIN amazon_watchlist w ON w.asin=upper(e.retailer_identifier)
-    WHERE e.campaign_id=? AND e.disposition='ACCEPTED' AND c.source='codex_seed' AND c.review_eligible=1 AND c.status='PENDING' AND w.lifecycle_status='VERIFIED'
+    FROM seed_candidate_evidence e JOIN monitoring_candidates c ON c.candidate_id=e.candidate_id JOIN amazon_watchlist w ON w.asin=upper(e.retailer_identifier) JOIN amazon_verification_attempts a ON a.id=w.verification_attempt_id
+    WHERE e.campaign_id=? AND e.disposition='ACCEPTED' AND c.source='codex_seed' AND c.review_eligible=1 AND c.status='PENDING' AND a.outcome='REVIEW_REQUIRED' AND a.access_outcome='VALID_PAGE' AND a.http_status=200
     ORDER BY c.candidate_id`).bind(campaignId).all<Record<string,unknown>>();
   const rows=candidates.results;
   if(rows.length!==expectedCount)return {ok:false as const,error:"campaign_count_changed",expected:expectedCount,actual:rows.length};
