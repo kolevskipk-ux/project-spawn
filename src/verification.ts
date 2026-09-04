@@ -84,7 +84,10 @@ export async function deliverDiscoveryApprovalRequest(env:Env,candidateId:string
 }
 
 export async function retryDiscoveryApprovalRequests(env:Env,limit=25){
-  const rows=await env.SPAWN_DB.prepare("SELECT candidate_id FROM discovery_approval_notifications WHERE status!='DELIVERED' ORDER BY COALESCE(last_attempt_at,created_at) ASC LIMIT ?").bind(limit).all<{candidate_id:string}>();
+  const rows=await env.SPAWN_DB.prepare(`SELECT n.candidate_id FROM discovery_approval_notifications n
+    JOIN monitoring_candidates c ON c.candidate_id=n.candidate_id
+    WHERE n.status!='DELIVERED' AND c.source!='codex_seed'
+    ORDER BY COALESCE(n.last_attempt_at,n.created_at) ASC LIMIT ?`).bind(limit).all<{candidate_id:string}>();
   for(const row of rows.results)await deliverDiscoveryApprovalRequest(env,row.candidate_id).catch(()=>undefined);
 }
 
