@@ -136,7 +136,7 @@ One trustworthy acquisition result may support several downstream views, but it 
 
 #### 3.2.2 Customer inventory event interface
 
-The normalized customer-event vocabulary is initially closed to `LISTING_PUBLISHED`, `BECAME_BUYABLE`, and `PRICE_DROP`. `LISTING_PUBLISHED` announces an operator-approved customer-visible listing and does not claim availability. `BECAME_BUYABLE` requires a trustworthy transition from a non-buyable last-known-good state. `PRICE_DROP` requires trustworthy current and prior prices plus the configured materiality threshold.
+The normalized customer-event vocabulary is closed to `LISTING_PUBLISHED`, `BECAME_BUYABLE`, `PRICE_DROP`, and schema-3 `CAMPAIGN_PUBLISHED`. `LISTING_PUBLISHED` announces one operator-approved customer-visible listing and does not claim availability. `CAMPAIGN_PUBLISHED` announces only the aggregate count from one explicitly approved seed campaign; it must not contain stock claims or enroll any identity in Catch. `BECAME_BUYABLE` requires a trustworthy transition from a non-buyable last-known-good state. `PRICE_DROP` requires trustworthy current and prior prices plus the configured materiality threshold.
 
 `SOLD_OUT`, `STALE`, `UNKNOWN`, `BLOCKED`, `ERROR`, removal-review, archive, discovery, verification, and benchmark-review changes update operational or inventory state only and never become customer purchase alerts.
 
@@ -262,6 +262,8 @@ The operator endpoint uses the existing `RUN_TOKEN` bearer boundary, accepts JSO
 The receiver must validate HTTPS and canonical host policy, direct-product URL shape, identifier syntax, campaign and batch identity, timestamps, payload bounds, and duplicate retailer identity before persistence. It returns a deterministic per-item disposition of `ACCEPTED`, `DUPLICATE`, or `REJECTED` with a stable reason. Campaign, batch, payload hash, actor, counts, and receipt time are audited without retaining credentials.
 
 Bulk intake grants no approval authority. Accepted records begin as `DISCOVERED`, cannot publish themselves, cannot enter `STAGED_SILENT`, cannot change current inventory, cannot create a customer event, and cannot overwrite curated pricing references. Existing identities receive new evidence revisions rather than unrelated duplicates. Partial item rejection must not discard valid items, and safe replay of the same batch must not create additional records.
+
+After independent review, the protected campaign action may atomically publish the campaign as `visibility_only`. It must verify an operator-supplied expected count, fail closed if the eligible set changed, create exactly one idempotent `CAMPAIGN_PUBLISHED` event, and leave every Amazon watchlist lifecycle and cadence unchanged. Individual seed notifications remain suppressed.
 
 Production verification may promote a direct Amazon México page with a matching ASIN and non-blocked HTTP evidence into the operator review queue even when language or canonical catalog identity remains unresolved. Those unresolved fields must be decided by an administrator. Robot blocks, transport failures, non-product redirects, and ASIN mismatches fail closed and do not become review eligible. Verification itself cannot publish the listing, emit a customer event, or enroll it in Catch.
 

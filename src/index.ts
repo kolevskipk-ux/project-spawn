@@ -13,6 +13,7 @@ import { amazonAsin } from "./inventory";
 import { handleSeedCampaign } from "./seed-intake";
 import { runInventoryRevalidation } from "./revalidation";
 import { handleCustomerEvents } from "./customer-events";
+import {publishSeedCampaign,validateCampaignPublicationForm} from "./seed-campaign-review";
 import { updatePricingReferences, validatePricingReferenceForm } from "./pricing";
 import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
 import { validateFulfilmentReview } from "./cross-border";
@@ -189,6 +190,17 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
+async function dashboardSeedCampaignReview(request:Request,url:URL,env:Env):Promise<Response|null>{
+  const match=url.pathname.match(/^\/dashboard\/seed-campaign\/([a-z0-9][a-z0-9-]{2,79})$/);if(!match)return null;
+  if(!boardAuthorized(url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(request.method!=="POST")return json({error:"method_not_allowed"},405);
+  const checked=validateCampaignPublicationForm(await request.formData());if(!checked.ok)return json({error:checked.error},400);
+  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard";
+  const result=await publishSeedCampaign(env,match[1],checked.value.reason,checked.value.expectedCount,actor);
+  const destination=new URL("/approvals",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set(result.ok?"notice":"error",result.ok?`campaign:${match[1]}:${result.count}`:result.error);
+  return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
+}
+
 async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<Response|null> {
   const match=url.pathname.match(/^\/dashboard\/listing\/([a-f0-9]{64})$/i); if(!match) return null;
   if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
@@ -299,6 +311,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if(!await allowedBy(env.MANUAL_RATE_LIMIT,requestRateKey(request)))return json({error:"rate_limited"},429);
     return json(await runPendingSeedVerifications(env));
   }
+  const campaignReview=await dashboardSeedCampaignReview(request,url,env);if(campaignReview)return campaignReview;
   const listingReview=await dashboardListingReview(request,url,env); if(listingReview) return listingReview;
   const verification=await dashboardVerification(request,url,env); if(verification) return verification;
   const shared=await sharedState(request,url,env); if(shared) return shared;
