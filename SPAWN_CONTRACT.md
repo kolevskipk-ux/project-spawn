@@ -251,7 +251,7 @@ Activation requires fixtures for localized-but-US storefronts, original and conv
 
 ### 3.5 Approved bulk seed-campaign intake
 
-Status: approved for implementation and isolated validation on 2026-08-31; not active until its endpoint, migration, authentication, rate limit, and production deployment receive their separate gates.
+Status: intake and bounded production verification activated after isolated validation on 2026-09-03. Verification is limited to two `DISCOVERED` ASINs per invocation and grants no publication or Catch authority.
 
 The one-off Amazon México Pokémon TCG canvass may be performed directly by Codex rather than consuming the recurring OpenAI discovery budget. Results enter Spawn through a protected bulk evidence boundary:
 
@@ -262,6 +262,8 @@ The operator endpoint uses the existing `RUN_TOKEN` bearer boundary, accepts JSO
 The receiver must validate HTTPS and canonical host policy, direct-product URL shape, identifier syntax, campaign and batch identity, timestamps, payload bounds, and duplicate retailer identity before persistence. It returns a deterministic per-item disposition of `ACCEPTED`, `DUPLICATE`, or `REJECTED` with a stable reason. Campaign, batch, payload hash, actor, counts, and receipt time are audited without retaining credentials.
 
 Bulk intake grants no approval authority. Accepted records begin as `DISCOVERED`, cannot publish themselves, cannot enter `STAGED_SILENT`, cannot change current inventory, cannot create a customer event, and cannot overwrite curated pricing references. Existing identities receive new evidence revisions rather than unrelated duplicates. Partial item rejection must not discard valid items, and safe replay of the same batch must not create additional records.
+
+Production verification may promote a direct Amazon México page with a matching ASIN and non-blocked HTTP evidence into the operator review queue even when language or canonical catalog identity remains unresolved. Those unresolved fields must be decided by an administrator. Robot blocks, transport failures, non-product redirects, and ASIN mismatches fail closed and do not become review eligible. Verification itself cannot publish the listing, emit a customer event, or enroll it in Catch.
 
 Recurring OpenAI-assisted discovery remains limited to its contracted windows. The seed campaign neither changes that schedule nor authorizes a daily intensive canvass. After an accepted listing is independently verified and approved for customer visibility, deterministic Worker revalidation—not repeated model search—maintains it at the applicable low-frequency objective. Only separately approved high-demand Amazon identities may be published to Catch monitoring.
 

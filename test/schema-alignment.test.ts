@@ -16,7 +16,8 @@ describe("decision schema alignment",()=>{
     for(const table of ["seed_campaigns","seed_batches","seed_candidate_evidence","inventory_revalidation_state","inventory_revalidation_attempts","revalidation_domain_state","inventory_removal_reviews","customer_inventory_events"]){expect(migration).toContain(table);expect(runtime).toContain(table);}
     const production=readFileSync(new URL("../wrangler.jsonc",import.meta.url),"utf8"),development=readFileSync(new URL("../wrangler.dev.jsonc",import.meta.url),"utf8");
     expect(production).toContain('"INVENTORY_REVALIDATION_ENABLED": "false"');
-    expect(production).toContain('"SEED_VERIFICATION_ENABLED": "false"');
+    expect(production).toContain('"SEED_VERIFICATION_ENABLED": "true"');
+    expect(production).toContain('"SEED_VERIFICATION_BATCH_SIZE": "2"');
     expect(development).toContain('"INVENTORY_REVALIDATION_ENABLED": "true"');
     expect(development).toContain('"crons": []');
   });
