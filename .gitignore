@@ -3,6 +3,7 @@ node_modules/
 .wrangler/
 dist/
 coverage/
+wrangler.ops-production.generated.jsonc
 .dev.vars
 .env*
 !.env.example

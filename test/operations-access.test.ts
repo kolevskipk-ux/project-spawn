@@ -31,6 +31,13 @@ beforeAll(async()=>{const pair=await generateKeyPair('RS256');privateKey=pair.pr
 beforeEach(()=>{member=null;writes=[];review.mockClear();});
 
 describe('individual operations access',()=>{
+  it('keeps machine endpoints outside browser authentication without allowing anonymous administration',async()=>{
+    for(const path of ['/healthz','/readyz','/version'])expect((await handleFetch(new Request(`https://ops.example.test${path}`),environment())).status).toBe(200);
+    for(const path of ['/admin/status','/internal/garfield/vendors'])expect((await handleFetch(new Request(`https://ops.example.test${path}`),environment())).status).toBe(401);
+    const env={...environment(),CATCH_INGEST_SECRET:'test-machine-secret'};
+    const result=await handleFetch(new Request('https://ops.example.test/internal/garfield/vendors',{headers:{authorization:'Bearer test-machine-secret'}}),env);
+    expect(result.status).toBe(200);
+  });
   it('rejects old shared links, spoofed identity headers and direct origin requests without a signed JWT',async()=>{
     for(const path of ['/ops','/dashboard','/approvals','/inventory','/inventory.csv','/dashboard/verification/B012345678']) {
       const res=await handleFetch(new Request(`https://ops.example.test${path}?access=old-shared-secret`,{headers:{'Cf-Access-Authenticated-User-Email':owner.email,authorization:'Bearer undefined'}}),environment());
