@@ -64,8 +64,8 @@ the request ID to recognize duplicates. There is no automatic delivery cron.
 Required secret: `CUSTOMER_SUPPORT_WEBHOOK_URL`, a webhook for **SUPPORT_SPAWN**.
 Configure it as a Cloudflare secret on the customer Worker and corresponding
 operations Worker. Never put it in vars, the repository, screenshots, logs or chat.
-No existing inventory webhook is reused. Secret connection and real Discord
-delivery are pending; missing secrets leave requests saved as failed delivery.
+No existing inventory webhook is reused. Customer staging delivery is verified. Production and operations retry secret
+connections remain pending; missing secrets leave requests saved as failed delivery.
 
 Staging migration 0003 applied. Browser verification saved request
 `7192a66b-8c50-4c42-8f34-bd70a01d2b2a` and confirmed it appeared in the admin queue
@@ -103,5 +103,7 @@ A local workerd reproduction confirmed the exception occurred before sending.
 Delivery now uses redirect:manual and rejects non-success responses without
 following redirects. Response-body cleanup cannot overwrite an accepted delivery.
 The fix and a redirect regression test pass; staging customer version is
-164f9f3a-43d5-449a-88dd-3bcc3f9397cf. A successful real Discord receipt is still pending.
+164f9f3a-43d5-449a-88dd-3bcc3f9397cf. Philip confirmed receipt in SUPPORT_SPAWN. Request
+49bff026-c9fd-4a0b-aae4-5cf0c65b44b4 was independently verified as SENT at
+2026-09-05T21:35:43.990Z with no delivery error.
 The operations Worker still needs the support secret for manual retries.
