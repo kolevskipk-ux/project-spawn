@@ -1,5 +1,15 @@
 # Garfield operations website
 
+## Current access configuration (2026-09-05)
+
+This section supersedes the earlier pilot setup notes below. Garfield Operations — Staging and the App Launcher now explicitly accept only One-time PIN (email codes), with instant authentication enabled. No Cloudflare user account or Cloudflare account membership is required for these two applications. The Cloudflare identity provider remains configured for other uses; its membership restriction was not changed.
+
+The shared policy was renamed Garfield staging administrators and includes only phil.kolevski@gmail.com and barohez12@gmail.com. It is attached to staging and App Launcher. The latter email has an ACTIVE admin membership in the staging database, saved through People & roles with an audit reason. No invitation email was sent.
+
+The owner reported successful Face ID enrollment and sign-in. Staging application MFA is enabled with Biometrics and Authenticator application, a 24-hour MFA verification duration, and six-hour Access sessions. App Launcher remains available for enrollment without requiring MFA at initial login. Saved staging login methods and MFA settings were inspected after the email-provider change. A fresh email-code login and the second administrator's enrollment and first login remain unverified. Never request their login codes or MFA secrets.
+
+Customer authentication remains future work: customer registration and authorization must be separate from the admin allowlist and operations roles.
+
 The private operations website extends Spawn's existing approval and inventory routes. It runs in a separate staging Worker and D1 database with no production secrets, cron, retailer acquisition credentials, Catch connection, or customer delivery bindings.
 
 ## Staging
