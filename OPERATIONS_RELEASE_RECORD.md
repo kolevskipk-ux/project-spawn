@@ -13,3 +13,9 @@ Recorded D1 recovery bookmark `00000b62-0000000e-000050dd-5c7548e4f61f1b83d0e05c
 Read-only checks passed: health, readiness and version return 200; admin pages and inventory export redirect unauthenticated users to the expected Access host; internal vendors and admin status return API 401 without sign-in redirects. The two synthetic staging candidate IDs are absent from production. Latest recorded discovery scan before cutover succeeded at 15:06 UTC; this does not prove a post-release scheduled scan has run.
 
 Production ops_members was empty at verification. Owner login, audited grant for barohez12@gmail.com, authenticated live page checks, administrator login and authenticated downstream consumer checks remain pending. A fresh owner email-code/MFA session has been requested. No live listing decisions or sample-data imports were performed.
+
+## Owner and membership verification
+
+Owner completed production email/MFA sign-in and granted barohez12@gmail.com ACTIVE admin access at 2026-09-05T17:43:51.291Z. Verified the production People & roles entry and Activity row attributed to phil.kolevski@gmail.com with reason Admin support. No duplicate grant was performed. Read-only browser checks confirmed production Overview, Approvals, Inventory and My account render successfully; My account reports the correct owner identity. A large approvals snapshot timed out, then a bounded DOM heading check confirmed the page loaded normally.
+
+The remaining human acceptance step is the second administrator signing in to production and verifying their admin identity and read-only access to the queue. Do not reuse synthetic review exercises in production. Authenticated downstream consumer verification and a post-release scheduled run remain separately unconfirmed.
