@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "garfield-customers-production",
+  "main": "src/customer.ts",
+  "compatibility_date": "2026-08-20",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "customers.aztlan-eng.com",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "CUSTOMER_ACCESS_ISSUER": "https://hidden-shadow-9100.cloudflareaccess.com",
+    "CUSTOMER_ACCESS_AUD": "968bc7bb85517fcf1f7a78da46f69b4a7f932aa688854a5c955a3c39c80c0b3d",
+    "CUSTOMER_ENVIRONMENT": "Customer pilot",
+    "CUSTOMER_INVENTORY_MODE": "source",
+    "CUSTOMER_DATA_KIND": "published"
+  },
+  "d1_databases": [
+    {
+      "binding": "CUSTOMER_DB",
+      "database_name": "garfield-customers-production",
+      "database_id": "a7730486-5f12-4d22-ad81-f4cfd1c917d3",
+      "migrations_dir": "customer-migrations"
+    }
+  ],
+  "triggers": {
+    "crons": []
+  },
+  "services": [
+    {
+      "binding": "CUSTOMER_SOURCE",
+      "service": "garfield-customer-source-production"
+    }
+  ]
+}

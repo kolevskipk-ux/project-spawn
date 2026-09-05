@@ -67,6 +67,21 @@ describe('approved customer publication feed',()=>{
  });
 });
 describe('customer access management',()=>{
+ it('lets paused customers request help while protecting the support queue and forms',async()=>{
+  db.exec("UPDATE customer_members SET status='REVOKED',updated_by='test',updated_at=CURRENT_TIMESTAMP,change_reason='Test pause'");
+  expect((await customer.fetch(await request('/app',buyer,undefined,undefined,'customers'),customers)).status).toBe(403);
+  expect((await customer.fetch(await request('/app/support',buyer,undefined,undefined,'customers'),customers)).status).toBe(200);
+  const form={kind:'account_removal',message:'<script>please remove</script>'};
+  expect((await customer.fetch(await request('/app/support',buyer,form,'https://attacker.test','customers'),customers)).status).toBe(403);
+  expect((await customer.fetch(await request('/app/support',buyer,form,undefined,'customers'),customers)).status).toBe(303);
+  expect(db.prepare('SELECT count(*) n FROM customer_support').get()?.n).toBe(1);
+  for(const who of [viewer,buyer])expect((await handleFetch(await request('/ops/customer-support',who),ops)).status).toBe(403);
+  const response=await handleFetch(await request('/ops/customer-support',admin),ops),html=await response.text();
+  expect(response.status).toBe(200);expect(html).toContain('&lt;script&gt;');expect(html).not.toContain('<script>please');
+  const ticket=String(db.prepare('SELECT id FROM customer_support').get()?.id);
+  expect((await handleFetch(await request('/ops/customer-support',admin,{id:ticket},'https://attacker.test'),ops)).status).toBe(403);
+  expect((await handleFetch(await request('/ops/customer-support',admin,{id:ticket}),ops)).status).toBe(303);
+ });
  it('allows admins to pause and restore customers with immutable audit and immediate enforcement',async()=>{
   expect(await (await handleFetch(await request('/ops/customers',admin),ops)).text()).toContain(buyer);
   const form={id,status:'REVOKED',version:'0',reason:'Pilot access paused'};
