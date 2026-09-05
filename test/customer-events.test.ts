@@ -1,5 +1,4 @@
 import {describe,expect,it} from "vitest";
-// @ts-expect-error Vitest reads the shared contract fixture in Node; Worker runtime code does not import Node builtins.
 import {readFileSync} from "node:fs";
 import {validateCustomerEventAck} from "../src/customer-events";
 

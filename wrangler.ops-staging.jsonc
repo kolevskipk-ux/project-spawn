@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "garfield-operations-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "OPS_AUTH_MODE": "access",
+    "OPS_OWNER_EMAIL": "phil.kolevski@gmail.com",
+    "OPS_ENVIRONMENT": "Staging · isolated data",
+    "OPENAI_MODEL": "gpt-5.6-terra",
+    "SPAWN_TIMEZONE": "America/Mexico_City",
+    "SPAWN_CONFIG_VERSION": "operations-staging-1",
+    "PUBLIC_BASE_URL": "https://garfield-operations-staging.phil-kolevski.workers.dev",
+    "INVENTORY_REVALIDATION_ENABLED": "false",
+    "AMAZON_ENRICHMENT_ENABLED": "false",
+    "SEED_VERIFICATION_ENABLED": "false"
+  },
+  "d1_databases": [{
+    "binding": "SPAWN_DB",
+    "database_name": "garfield-operations-staging",
+    "database_id": "9f16bc45-22bc-48ef-a186-a6ae092524e0",
+    "migrations_dir": "migrations"
+  }],
+  "triggers": {"crons": []}
+}

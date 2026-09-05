@@ -17,6 +17,8 @@ import {publishSeedCampaign,validateCampaignPublicationForm} from "./seed-campai
 import { updatePricingReferences, validatePricingReferenceForm } from "./pricing";
 import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
 import { validateFulfilmentReview } from "./cross-border";
+import {authenticateOperator, boardAuthorized, mutationAllowed, operationsPath, operatorActor} from './operations-auth';
+import {operationsError, operationsRoute, wrapExistingPage} from './operations';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -92,8 +94,8 @@ async function runScan(env: Env, triggerSource: "cron" | "manual" | "early_asin"
   }
 }
 
-const authorized = (request: Request, env: Env) => request.headers.get("authorization") === `Bearer ${env.RUN_TOKEN}`;
-const boardAuthorized = (url: URL, env: Env) => Boolean(env.BOARD_ACCESS_TOKEN) && url.searchParams.get("access") === env.BOARD_ACCESS_TOKEN;
+const authorized = (request: Request, env: Env) => Boolean(env.RUN_TOKEN) && request.headers.get("authorization") === `Bearer ${env.RUN_TOKEN}`;
+
 const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 async function inventoryCsv(env: Env): Promise<Response> {
@@ -174,10 +176,14 @@ async function adminAmazonWatchlist(request: Request, url: URL, env: Env): Promi
 
 async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Response|null> {
   const match=url.pathname.match(/^\/dashboard\/verification\/([A-Z0-9]{10})$/i); if(!match) return null;
-  if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(!boardAuthorized(request,url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=await request.formData(), action=String(form.get("action")||"");
-  const asin=match[1].toUpperCase(), actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard";
+  const asin=match[1].toUpperCase(), actor=operatorActor(request);
+  if(env.OPS_AUTH_MODE==='access' && action!=='verify') {
+    const state=await env.SPAWN_DB.prepare('SELECT lifecycle_status FROM amazon_watchlist WHERE asin=?').bind(asin).first<{lifecycle_status:string}>();
+    if(!state || state.lifecycle_status!==String(form.get('expected_state')??'')) return json({error:'review_changed_refresh_required'},409);
+  }
   let result;
   if(action==="verify") result=await runAmazonVerification(env,asin,actor);
   else if(["approve","reject","publish"].includes(action)) result=await reviewAmazonCandidate(env,asin,action as ReviewAction,{
@@ -192,10 +198,10 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
 
 async function dashboardSeedCampaignReview(request:Request,url:URL,env:Env):Promise<Response|null>{
   const match=url.pathname.match(/^\/dashboard\/seed-campaign\/([a-z0-9][a-z0-9-]{2,79})$/);if(!match)return null;
-  if(!boardAuthorized(url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(!boardAuthorized(request,url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   const checked=validateCampaignPublicationForm(await request.formData());if(!checked.ok)return json({error:checked.error},400);
-  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard";
+  const actor=operatorActor(request);
   const result=await publishSeedCampaign(env,match[1],checked.value.reason,checked.value.expectedCount,actor);
   const destination=new URL("/approvals",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set(result.ok?"notice":"error",result.ok?`campaign:${match[1]}:${result.count}`:result.error);
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
@@ -203,13 +209,13 @@ async function dashboardSeedCampaignReview(request:Request,url:URL,env:Env):Prom
 
 async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<Response|null> {
   const match=url.pathname.match(/^\/dashboard\/listing\/([a-f0-9]{64})$/i); if(!match) return null;
-  if(!boardAuthorized(url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(!boardAuthorized(request,url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
   if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
   const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
-  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",now=new Date().toISOString();
+  const actor=operatorActor(request),now=new Date().toISOString();
   if(action==="reject") await env.SPAWN_DB.batch([
     env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='REJECTED',reviewed_by=?,review_reason=?,reviewed_at=? WHERE candidate_id=? AND status='PENDING'").bind(actor,reason,now,match[1]),
     env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,reason,decided_by,decided_at) VALUES(?,'REJECTED',?,?,?)").bind(match[1],reason,actor,now)
@@ -247,10 +253,10 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
 
 async function dashboardPricingReview(request:Request,url:URL,env:Env):Promise<Response|null>{
   const match=url.pathname.match(/^\/dashboard\/pricing\/([a-z0-9][a-z0-9-]{2,119})$/);if(!match)return null;
-  if(!boardAuthorized(url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(!boardAuthorized(request,url,env))return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   const checked=validatePricingReferenceForm(await request.formData());if(!checked.ok)return json({error:checked.error},400);
-  const actor=request.headers.get("cf-access-authenticated-user-email")||"operator:dashboard",result=await updatePricingReferences(env,match[1],checked.value,actor);
+  const actor=operatorActor(request),result=await updatePricingReferences(env,match[1],checked.value,actor);
   const destination=new URL("/dashboard",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set(result.ok?"notice":"error",result.ok?`pricing:${match[1]}`:result.error);
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
@@ -292,7 +298,7 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
   return json({ ok: true, accepted: created }, 202);
 }
 
-async function handleFetch(request: Request, env: Env): Promise<Response> {
+async function handleRoutes(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
@@ -344,20 +350,20 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       benchmark_candidates: benchmarkCandidates.results });
   }
   if (request.method === "GET" && url.pathname === "/inventory") {
-    if (!boardAuthorized(url, env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+    if (!boardAuthorized(request,url,env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
     const [rows,hunt]=await Promise.all([boardRows(env),catchHuntSnapshot(env)]);
     return new Response(renderBoard(rows, env.BOARD_ACCESS_TOKEN, new Date(), hunt), { headers: boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/dashboard") {
-    if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
+    if (!boardAuthorized(request,url,env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
     return new Response(renderDashboard(await dashboardData(env), env.BOARD_ACCESS_TOKEN, {notice:url.searchParams.get("notice"),error:url.searchParams.get("error")}), { headers:boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/approvals") {
-    if (!boardAuthorized(url, env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
+    if (!boardAuthorized(request,url,env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
     return new Response(renderApprovals(await dashboardData(env), env.BOARD_ACCESS_TOKEN, {notice:url.searchParams.get("notice"),error:url.searchParams.get("error")}), { headers:boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/inventory.csv") {
-    if (!authorized(request, env) && !boardAuthorized(url, env)) return json({ error: "unauthorized" }, 401);
+    if (!authorized(request, env) && !boardAuthorized(request,url,env)) return json({ error: "unauthorized" }, 401);
     return inventoryCsv(env);
   }
   if (request.method === "POST" && url.pathname === "/run") {
@@ -370,6 +376,38 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     }
   }
   return json({ error: "not_found" }, 404);
+}
+
+async function handleFetch(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (env.OPS_AUTH_MODE !== 'access' || !operationsPath(url.pathname)) return handleRoutes(request, env);
+  const operator = await authenticateOperator(request, env);
+  if (!operator) return html('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>Garfield · Sign-in required</title><body style="font:18px system-ui;max-width:36rem;margin:15vh auto;padding:1rem"><h1>Private operations workspace</h1><p>Sign in through the protected Garfield website with an account granted access by the owner.</p><p>If you already signed in, ask the owner to check your access.</p></body></html>',403);
+  if (!mutationAllowed(request,operator)) return operationsError('Your role or request does not permit this action. Open the form on this website and try again.',403,operator,env);
+  // Renderers and redirects receive no shared secret in individual-access mode.
+  const browserEnv = {...env, BOARD_ACCESS_TOKEN: ''};
+  const resource = request.method==='POST' && url.pathname.startsWith('/dashboard/') ? url.pathname : null;
+  const lockOwner = crypto.randomUUID();
+  let locked = false;
+  try {
+    if(resource) {
+      const lock=await env.SPAWN_DB.prepare('INSERT INTO ops_review_locks(resource,owner,expires_at) VALUES(?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE ops_review_locks.expires_at<?').bind(resource,lockOwner,Date.now()+300_000,Date.now()).run();
+      if(lock.meta.changes!==1)return operationsError('Another administrator is reviewing this item. Refresh before making a decision.',409,operator,browserEnv);
+      locked=true;
+    }
+    const own = await operationsRoute(request,browserEnv,operator);
+    if (own) return own;
+    const result = await handleRoutes(request,browserEnv);
+    const location=result.headers.get('location');
+    if(location){const destination=new URL(location,url);destination.searchParams.delete('access');const headers=new Headers(result.headers);headers.set('location',destination.toString());return new Response(result.body,{status:result.status,headers});}
+    if(result.headers.get('content-type')?.includes('text/html')) return new Response(wrapExistingPage(await result.text(),operator,browserEnv,url.pathname),{status:result.status,headers:boardHeaders()});
+    if(result.status>=400){const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?.replaceAll('_',' ')??'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
+    return result;
+  } catch {
+    return operationsError('The workspace could not complete this request. Check the latest activity before retrying an action, or refresh this page in a moment.',503,operator,browserEnv);
+  } finally {
+    if(locked) await env.SPAWN_DB.prepare('DELETE FROM ops_review_locks WHERE resource=? AND owner=?').bind(resource,lockOwner).run().catch(()=>{});
+  }
 }
 
 export function isAmazonDiscoveryWindow(now: Date, timezone: string): boolean {

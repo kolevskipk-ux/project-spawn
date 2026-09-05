@@ -1,5 +1,4 @@
 import {describe,expect,it} from "vitest";
-// @ts-expect-error Vitest runs this regression in Node; Worker production code does not import Node builtins.
 import {readFileSync} from "node:fs";
 
 describe("decision schema alignment",()=>{
