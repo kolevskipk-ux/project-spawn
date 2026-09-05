@@ -5,17 +5,33 @@
   "compatibility_date": "2026-08-20",
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{"pattern":"customers-staging.aztlan-eng.com","custom_domain":true}],
+  "routes": [
+    {
+      "pattern": "customers-staging.aztlan-eng.com",
+      "custom_domain": true
+    }
+  ],
   "vars": {
-    "CUSTOMER_ACCESS_ISSUER":"https://hidden-shadow-9100.cloudflareaccess.com",
-    "CUSTOMER_ACCESS_AUD":"d3eccd90798676af182d72c87c6c1127eeda71dbcfec5314486b84f5080d01bb",
-    "CUSTOMER_ENVIRONMENT":"Staging · sample data"
+    "CUSTOMER_ACCESS_ISSUER": "https://hidden-shadow-9100.cloudflareaccess.com",
+    "CUSTOMER_ACCESS_AUD": "d3eccd90798676af182d72c87c6c1127eeda71dbcfec5314486b84f5080d01bb",
+    "CUSTOMER_ENVIRONMENT": "Staging · sample data",
+    "CUSTOMER_INVENTORY_MODE": "source"
   },
-  "d1_databases": [{
-    "binding":"CUSTOMER_DB",
-    "database_name":"garfield-customer-staging",
-    "database_id":"b0ccf310-2ac6-4e2f-9744-0df98e35193f",
-    "migrations_dir":"customer-migrations"
-  }],
-  "triggers":{"crons":[]}
+  "d1_databases": [
+    {
+      "binding": "CUSTOMER_DB",
+      "database_name": "garfield-customer-staging",
+      "database_id": "b0ccf310-2ac6-4e2f-9744-0df98e35193f",
+      "migrations_dir": "customer-migrations"
+    }
+  ],
+  "triggers": {
+    "crons": []
+  },
+  "services": [
+    {
+      "binding": "CUSTOMER_SOURCE",
+      "service": "garfield-customer-source-staging"
+    }
+  ]
 }

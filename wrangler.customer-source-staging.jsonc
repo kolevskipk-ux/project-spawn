@@ -1,0 +1,11 @@
+{
+ "$schema":"node_modules/wrangler/config-schema.json",
+ "name":"garfield-customer-source-staging",
+ "main":"src/customer-feed.ts",
+ "compatibility_date":"2026-08-20",
+ "workers_dev":false,
+ "preview_urls":false,
+ "routes":[],
+ "d1_databases":[{"binding":"SPAWN_DB","database_name":"garfield-operations-staging","database_id":"9f16bc45-22bc-48ef-a186-a6ae092524e0","migrations_dir":"migrations"}],
+ "triggers":{"crons":[]}
+}
