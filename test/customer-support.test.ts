@@ -19,7 +19,7 @@ it('retries failed delivery, prevents concurrent and already-sent duplicates, an
  const id=(await saveSupport(env,'member','general','@everyone help'))!;
  env.CUSTOMER_SUPPORT_WEBHOOK_URL='https://discord.com/api/webhooks/123/fake-token';
  const send=vi.fn(async(_url:string,options:RequestInit)=>{
-   const payload=JSON.parse(String(options.body));expect(payload.allowed_mentions).toEqual({parse:[]});expect(JSON.stringify(payload)).not.toContain('test@example.test');
+   expect(options.redirect).toBe('manual');const payload=JSON.parse(String(options.body));expect(payload.allowed_mentions).toEqual({parse:[]});expect(JSON.stringify(payload)).not.toContain('test@example.test');
    await deliverSupport(env,id,'other-admin');
    return new Response(null,{status:204});
  });vi.stubGlobal('fetch',send);
@@ -33,4 +33,11 @@ it('stores safe errors and never puts the secret in the request record',async()=
  const id=await saveSupport(env,'member','account_removal','Remove my account');
  expect(id).toBeTruthy();const row=db.prepare('SELECT * FROM customer_support').get();expect(row?.delivery_status).toBe('FAILED');expect(JSON.stringify(row)).not.toContain('secret-token');
  for(const url of ['http://discord.com/api/webhooks/123/token','https://attacker.test/api/webhooks/123/token','https://discord.com/api/webhooks/123/token?x=y','https://discord.com@attacker.test/api/webhooks/123/token'])expect(supportWebhook(url)).toBeNull();
+});
+it('rejects a redirect without following it or marking delivery successful',async()=>{
+ env.CUSTOMER_SUPPORT_WEBHOOK_URL='https://discord.com/api/webhooks/123/fake-token';
+ const send=vi.fn(async(_url:string,options:RequestInit)=>{expect(options.redirect).toBe('manual');return new Response(null,{status:302,headers:{location:'https://attacker.test'}});});
+ vi.stubGlobal('fetch',send);await saveSupport(env,'member','general','Test redirect');
+ expect(send).toHaveBeenCalledTimes(1);
+ expect(db.prepare('SELECT delivery_status,last_error FROM customer_support').get()).toEqual({delivery_status:'FAILED',last_error:'Discord delivery failed (302)'});
 });

@@ -73,7 +73,7 @@ with a safe missing-channel error. No account removal or Discord send occurred.
 
 ## Validation and release sequence
 
-TypeScript and 112 tests across 20 files passed, including durable delivery,
+TypeScript and 113 tests across 20 files passed, including durable delivery,
 quota/concurrency, failed-send retry, secret redaction, paused-customer support,
 admin/viewer boundaries, CSRF, escaping, inventory isolation and refresh writes.
 
@@ -94,3 +94,14 @@ admin/viewer boundaries, CSRF, escaping, inventory isolation and refresh writes.
 For rollback, roll back Worker versions independently and keep the additive
 customer database/migrations. Keep authentication protection in place. Do not
 delete customer accounts or rebind production to staging as a rollback shortcut.
+
+## Support staging follow-up
+
+The customer staging webhook secret was saved and its version activated. The first
+active-secret test exposed a Workers runtime incompatibility with redirect:error.
+A local workerd reproduction confirmed the exception occurred before sending.
+Delivery now uses redirect:manual and rejects non-success responses without
+following redirects. Response-body cleanup cannot overwrite an accepted delivery.
+The fix and a redirect regression test pass; staging customer version is
+164f9f3a-43d5-449a-88dd-3bcc3f9397cf. A successful real Discord receipt is still pending.
+The operations Worker still needs the support secret for manual retries.

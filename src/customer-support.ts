@@ -17,9 +17,9 @@ export async function deliverSupport(env:SupportEnv,id:string,actor:string):Prom
   if(!webhook)error='Support channel is not connected';
   else {
     try {
-      const response=await fetch(webhook+'?wait=true',{method:'POST',redirect:'error',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json'},body:JSON.stringify({allowed_mentions:{parse:[]},embeds:[{title:`Garfield support: ${supportKinds[ticket.kind]}`,description:ticket.message,fields:[{name:'Request',value:ticket.id},{name:'Customer ID',value:ticket.customer_id}],timestamp:ticket.created_at}]})});
+      const response=await fetch(webhook+'?wait=true',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json'},body:JSON.stringify({allowed_mentions:{parse:[]},embeds:[{title:`Garfield support: ${supportKinds[ticket.kind]}`,description:ticket.message,fields:[{name:'Request',value:ticket.id},{name:'Customer ID',value:ticket.customer_id}],timestamp:ticket.created_at}]})});
       if(!response.ok)error=`Discord delivery failed (${response.status})`;
-      await response.body?.cancel();
+      try {await response.body?.cancel();}catch{}
     }catch{error='Delivery could not be confirmed';}
   }
   await env.CUSTOMER_DB.prepare(`UPDATE customer_support SET delivery_status=?,delivered_at=?,last_error=?,delivery_token=NULL WHERE id=? AND delivery_token=?`).bind(error?'FAILED':'SENT',error?null:new Date().toISOString(),error,id,token).run();
