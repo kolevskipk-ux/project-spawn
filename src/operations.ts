@@ -25,7 +25,14 @@ export function wrapExistingPage(html: string, operator: Operator, env: Env, pat
 }
 
 const table = (headings: string[], rows: unknown[][], empty: string) => rows.length ? `<div class="ops-scroll"><table class="ops-table"><thead><tr>${headings.map(h=>`<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<p class="ops-empty">${esc(empty)}</p>`;
-const response = (body: string, status=200) => new Response(body,{status,headers:boardHeaders()});
+export function operationsHeaders(): Headers {
+  const headers = new Headers(boardHeaders());
+  // Native form POSTs need their Origin for CSRF validation. The legacy
+  // shared-token board keeps no-referrer; individual-access pages have no token URLs.
+  headers.set('referrer-policy', 'same-origin');
+  return headers;
+}
+const response = (body: string, status=200) => new Response(body,{status,headers:operationsHeaders()});
 export function operationsError(message: string, status: number, operator: Operator, env: Env): Response {
   return response(operationsShell('Action not completed',`<section><p>${esc(message)}</p><a href="/approvals">Return to approvals</a></section>`,operator,env,''),status);
 }

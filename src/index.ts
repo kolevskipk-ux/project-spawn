@@ -18,7 +18,7 @@ import { updatePricingReferences, validatePricingReferenceForm } from "./pricing
 import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
 import { validateFulfilmentReview } from "./cross-border";
 import {authenticateOperator, boardAuthorized, mutationAllowed, operationsPath, operatorActor} from './operations-auth';
-import {operationsError, operationsRoute, wrapExistingPage} from './operations';
+import {operationsError, operationsHeaders, operationsRoute, wrapExistingPage} from './operations';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -400,7 +400,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     const result = await handleRoutes(request,browserEnv);
     const location=result.headers.get('location');
     if(location){const destination=new URL(location,url);destination.searchParams.delete('access');const headers=new Headers(result.headers);headers.set('location',destination.toString());return new Response(result.body,{status:result.status,headers});}
-    if(result.headers.get('content-type')?.includes('text/html')) return new Response(wrapExistingPage(await result.text(),operator,browserEnv,url.pathname),{status:result.status,headers:boardHeaders()});
+    if(result.headers.get('content-type')?.includes('text/html')) return new Response(wrapExistingPage(await result.text(),operator,browserEnv,url.pathname),{status:result.status,headers:operationsHeaders()});
     if(result.status>=400){const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?.replaceAll('_',' ')??'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
     return result;
   } catch {

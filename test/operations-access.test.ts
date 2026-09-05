@@ -69,6 +69,13 @@ describe('individual operations access',()=>{
     expect(res.status).toBe(303);expect(res.headers.get('location')).not.toContain('access');
     expect(review.mock.calls[0]?.at(-1)).toBe(owner.email);
   });
+  it('keeps null and missing origins blocked for authenticated form submissions',async()=>{
+    for(const origin of [undefined,'null']) {
+      const res=await handleFetch(request('/dashboard/verification/B012345678',await token(),{method:'POST',headers:{...(origin?{origin}:{}),'sec-fetch-site':'same-origin'},body:new URLSearchParams({action:'approve',reason:'Review'})}),environment());
+      expect(res.status).toBe(403);
+    }
+    expect(review).not.toHaveBeenCalled();expect(writes).toHaveLength(0);
+  });
   it('rejects a decision made from an outdated lifecycle state',async()=>{
     const res=await handleFetch(request('/dashboard/verification/B012345678',await token(),{method:'POST',headers:{origin:'https://ops.example.test'},body:new URLSearchParams({action:'reject',reason:'Old page',expected_state:'APPROVED'})}),environment());
     expect(res.status).toBe(409);expect(review).not.toHaveBeenCalled();

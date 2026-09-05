@@ -13,9 +13,11 @@ The private operations website extends Spawn's existing approval and inventory r
 
 Cloudflare Zero Trust Free was activated by the owner on 2026-09-05. The Access application `Garfield Operations — Staging` (`f81095d5-bdf9-432a-b2a4-67243a104c3d`) protects the staging Worker's production and preview URLs. Its only allow policy is `Garfield staging owner`, restricted to the configured owner email. Application sessions last six hours. `OPS_ACCESS_ISSUER` and `OPS_ACCESS_AUD` are saved in the staging configuration and deployed.
 
-The current login method is the Cloudflare identity provider. Application-specific MFA requires biometrics or an authenticator application, with a six-hour verification duration. Global MFA enrollment for those methods is enabled; global MFA enforcement remains off so this does not change other applications. HTTP-only cookies and binding cookies are enabled. The first owner sign-in reached the MFA enrollment screen successfully; enrollment must be completed by the owner before dashboard access can be verified.
+The current login method is the Cloudflare identity provider. The owner temporarily disabled application-specific MFA for the isolated synthetic-data pilot on 2026-09-05; the setting was verified in Cloudflare. Owner sign-in and the dashboard and approvals pages were then confirmed working by the owner. Restore MFA and verify enrollment before adding another administrator or connecting live data. Global MFA enrollment methods remain biometrics and an authenticator application; global enforcement remains off. HTTP-only cookies and binding cookies are enabled.
 
 Additional members must be permitted by both Access and the application's People & roles screen. Granting membership does not send invitations or alter Cloudflare policies. A future login-provider change must preserve MFA and verified identity validation.
+
+The App Launcher is enabled with the same owner-only policy and a six-hour session so personal MFA enrollment can work. The direct enrollment URL is https://hidden-shadow-9100.cloudflareaccess.com/AddMfaDevice. The owner can choose Windows Hello biometrics or an authenticator application there. Enrollment is a user-operated credential setup; never collect its secret or recovery codes. Future invited administrators also need App Launcher access to enroll MFA.
 
 The owner identity is configured by the operator, and cannot be modified or revoked in the member form. Member roles are `admin` and `viewer`; membership is checked on every request. Access JWT signatures, issuer, audience, subject, email, expiration and token age are validated using `jose`. The unsigned email header and old board token cannot authorize protected routes in Access mode. Browser writes require same-origin form submission and a writable role. Existing machine interfaces retain their separate bearer/HMAC authentication and require a nonempty credential.
 
@@ -50,4 +52,6 @@ No production migration, deployment, domain change or activation is included. Pr
 
 ## Remaining pilot setup
 
-Complete owner MFA enrollment and verify authenticated dashboard access. Add a second person's email when provided, and complete a real two-person staging review. Connect production data only through a separately approved production release.
+Complete the sample approval exercise. A native form submission exposed a conflict between the inherited no-referrer response policy and strict Origin validation. Individual-access pages now use same-origin referrer policy, preserving the Origin needed for form POSTs while withholding referrers from external sites. Legacy shared-token pages retain no-referrer. Null, missing, and cross-origin writes remain blocked. TypeScript and all 84 tests passed; a fresh browser form submission is the remaining pilot check.
+
+Restore owner MFA and verify enrollment before adding a second person's email when provided, then complete a real two-person staging review. Connect production data only through a separately approved production release.

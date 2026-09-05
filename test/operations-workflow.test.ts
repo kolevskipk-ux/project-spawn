@@ -34,6 +34,7 @@ describe('operations workflow against the complete schema',()=>{
   it('renders every operator page with real queries and no shared secret',async()=>{
     for(const path of ['/ops','/approvals','/inventory','/dashboard','/ops/people','/ops/account','/ops/activity','/ops/vendors','/ops/health']){
       const res=await handleFetch(await request(path),env);const html=await res.text();
+      expect(res.headers.get('referrer-policy'),path).toBe('same-origin');
       expect(res.status,path).toBe(200);expect(html,path).not.toContain('never-expose-this');expect(html,path).not.toContain('?access=');expect(html,path).toContain('GARFIELD');
     }
   });
