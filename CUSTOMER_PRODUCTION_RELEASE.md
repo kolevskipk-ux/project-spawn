@@ -64,7 +64,7 @@ the request ID to recognize duplicates. There is no automatic delivery cron.
 Required secret: `CUSTOMER_SUPPORT_WEBHOOK_URL`, a webhook for **SUPPORT_SPAWN**.
 Configure it as a Cloudflare secret on the customer Worker and corresponding
 operations Worker. Never put it in vars, the repository, screenshots, logs or chat.
-No existing inventory webhook is reused. Customer staging delivery is verified. Production and operations retry secret
+No existing inventory webhook is reused. Customer staging delivery is verified. Production secret
 connections remain pending; missing secrets leave requests saved as failed delivery.
 
 Staging migration 0003 applied. Browser verification saved request
@@ -77,14 +77,14 @@ TypeScript and 113 tests across 20 files passed, including durable delivery,
 quota/concurrency, failed-send retry, secret redaction, paused-customer support,
 admin/viewer boundaries, CSRF, escaping, inventory isolation and refresh writes.
 
-1. Finish webhook connection and verify a clearly labeled support test with Philip.
+1. Staging customer delivery and administrator retry are verified with Philip.
 2. Review/merge this branch. The production customer schema is already prepared
    for the operations deployment; verify the customer/support admin pages after it.
 3. Deploy the private source separately:
    `node node_modules/wrangler/bin/wrangler.js deploy --config wrangler.customer-source-production.jsonc`.
 4. Deploy the customer Worker separately:
    `node node_modules/wrangler/bin/wrangler.js deploy --config wrangler.customer-production.jsonc`.
-5. Set its support secret securely. Check public landing/privacy, signed-out
+5. Set the support secret securely on both production customer and operations Workers, then activate those versions. Check public landing/privacy, signed-out
    `/app` and nested-path redirects, real mobile email registration, inventory
    filters/watermark, a support submission and its Discord receipt. Verify pause
    enforcement with an explicitly designated test account.
@@ -106,4 +106,8 @@ The fix and a redirect regression test pass; staging customer version is
 164f9f3a-43d5-449a-88dd-3bcc3f9397cf. Philip confirmed receipt in SUPPORT_SPAWN. Request
 49bff026-c9fd-4a0b-aae4-5cf0c65b44b4 was independently verified as SENT at
 2026-09-05T21:35:43.990Z with no delivery error.
-The operations Worker still needs the support secret for manual retries.
+The staging operations secret is active in version
+801043fa-4668-4c2a-adcf-679c32597937. Philip retried request
+0f8bbf02-3a57-4a33-bf18-571b661d511e and confirmed receipt in SUPPORT_SPAWN.
+The database independently records SENT at 2026-09-05T21:40:37.436Z, no error,
+and attribution to the authenticated administrator. Production secrets remain pending.
