@@ -9,6 +9,11 @@ export interface Env {
   SPAWN_QUIET_END?: string;
   PUBLIC_BASE_URL: string;
   BOARD_ACCESS_TOKEN: string;
+  OPS_AUTH_MODE?: string;
+  OPS_OWNER_EMAIL?: string;
+  OPS_ACCESS_ISSUER?: string;
+  OPS_ACCESS_AUD?: string;
+  OPS_ENVIRONMENT?: string;
   CATCH_INGEST_SECRET?: string;
   CATCH_MONITOR_ENDPOINT?: string;
   OPS_DISCORD_WEBHOOK_URL?: string;

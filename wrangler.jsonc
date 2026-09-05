@@ -29,7 +29,12 @@
     "INVENTORY_REVALIDATION_TARGET_HOURS": "24",
     "INVENTORY_FRESHNESS_HOURS": "36",
     "SEED_VERIFICATION_ENABLED": "true",
-    "SEED_VERIFICATION_BATCH_SIZE": "2"
+    "SEED_VERIFICATION_BATCH_SIZE": "2",
+    "OPS_AUTH_MODE": "access",
+    "OPS_ACCESS_ISSUER": "https://hidden-shadow-9100.cloudflareaccess.com",
+    "OPS_ACCESS_AUD": "410a95e04192c50101ad87418fd2c9205619f345a9f066b487efa5f4f8475f99",
+    "OPS_OWNER_EMAIL": "phil.kolevski@gmail.com",
+    "OPS_ENVIRONMENT": "Production · live data"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"

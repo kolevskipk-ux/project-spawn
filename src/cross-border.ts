@@ -13,7 +13,13 @@ export function validateFulfilmentReview(form:FormData,now=Date.now()){
   const importCostStatus=String(form.get("import_cost_status")||"UNKNOWN"),checkedAt=iso(String(form.get("destination_checked_at")||"")),freshUntil=iso(String(form.get("destination_fresh_until")||""));
   if(!FULFILMENT_STATES.includes(state)||!IMPORT_COST_STATES.includes(importCostStatus as never)||originalPrice===undefined||shippingMxn===undefined)return {ok:false as const,error:"invalid_fulfilment_evidence"};
   if(state==="DOMESTIC"&&(!retailerCountry||!shipFromCountry||retailerCountry!=="MX"||shipFromCountry!=="MX"))return {ok:false as const,error:"domestic_requires_mexico_evidence"};
-  if(state==="CROSS_BORDER_CONFIRMED"&&(!retailerCountry||!shipFromCountry||shipFromCountry==="MX"||!originalCurrency||originalPrice==null||!checkedAt||!freshUntil||Date.parse(freshUntil)<=now))return {ok:false as const,error:"cross_border_requires_fresh_destination_evidence"};
+  if(state==="CROSS_BORDER_CONFIRMED") {
+    if(!retailerCountry||!shipFromCountry||shipFromCountry==="MX")return {ok:false as const,error:"cross_border_requires_country"};
+    if(originalPrice==null)return {ok:false as const,error:"cross_border_requires_price"};
+    if(!originalCurrency)return {ok:false as const,error:"cross_border_requires_currency"};
+    if(!checkedAt||!freshUntil)return {ok:false as const,error:"cross_border_requires_dates"};
+    if(Date.parse(freshUntil)<=now)return {ok:false as const,error:"cross_border_evidence_expired"};
+  }
   if(!["DOMESTIC","CROSS_BORDER_CONFIRMED"].includes(state))return {ok:false as const,error:"fulfilment_not_publishable"};
   return {ok:true as const,value:{state,retailerCountry,shipFromCountry,originalCurrency,originalPrice,shippingMxn,importCostStatus,checkedAt,freshUntil,mexicoDeliveryStatus:"CONFIRMED" as const}};
 }
