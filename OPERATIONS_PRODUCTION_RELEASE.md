@@ -1,6 +1,6 @@
 # Operations production release
 
-Prepared 2026-09-05. Status: release preparation; production changes are not authorized or executed by this document.
+Prepared 2026-09-05. Status: production Access setup completed following owner authorization; final database/code cutover awaits approval.
 
 ## Reviewed baseline
 
@@ -90,8 +90,12 @@ Leave the additive operations tables intact. Rollback does not reverse decisions
 
 If Access routing breaks machine clients, correct only the erroneous destination coverage while keeping admin routes protected. Verify health and authenticated machine access again. Do not rotate shared service credentials or change cron as a rollback shortcut.
 
-## Still required for execution
+## Execution status after Access preparation
 
-Preparation validation passed: TypeScript, all 88 tests, a Wrangler dry-run build using the existing production configuration, and isolated config-generator checks for invalid/staging AUD rejection, preservation of all baseline settings, and overwrite refusal. The dry-run proves the code bundles; it does not validate a future production AUD or Access policy. No new staging or production deployment was performed during this preparation. Release PR creation is still pending; GitHub CLI was unavailable in this environment.
+Draft PR: https://github.com/kolevskipk-ux/project-spawn/pull/34. Production Access application 92b33fc7-3837-4443-924f-e0838e95f6de is saved with the seven browser destinations listed above. Independent policy db1ab743-b0df-4b36-9369-7adf64b2bbe2 includes only the owner and approved administrator. Email-only sign-in, six-hour sessions, independent biometrics/authenticator MFA (24-hour verification), HTTP-only and binding cookies are saved. The native production launcher tile uses the first domain, spawn.aztlan-eng.com/ops; a separate bookmark is unnecessary because this application has a public hostname. Post-login tile visibility remains user-verifiable.
 
-Production Access application/AUD and bookmark are not created. No production migration, membership grant, deployment, merge or publication has been performed. The generated config cannot be finalized until that real AUD exists. The release approval must cover Access configuration, the two migrations, code deployment and the administrator grant as separately executed steps; it does not authorize sample-data import or a live review decision.
+Production AUD: 410a95e04192c50101ad87418fd2c9205619f345a9f066b487efa5f4f8475f99. Both the generated configuration and maintained wrangler.jsonc on the release branch contain the five operations vars; all existing settings are preserved. The generated config is already present locally, so do not run the overwrite-refusing generator again without deliberately archiving that file.
+
+Verified unauthenticated GETs for /ops, /ops/account, /dashboard, a /dashboard/listing action path, /approvals, /inventory and /inventory.csv redirect to the expected Access host. /healthz, /readyz and /version remain 200; /internal/garfield/vendors and /admin/status remain API 401 responses without login redirects. This verifies routing, not authenticated consumer data access.
+
+TypeScript and all 88 tests pass. A dry-run with the actual production audience passes. No production migration, production member row, code deployment, merge or live publication has been performed. The previous production code remains behind the new browser Access boundary and may still require legacy shared links until cutover. The remaining approval is to merge the release, record the recovery point, apply the two migrations, deploy the reviewed configuration and grant the production administrator through the audited workflow, as separate operations. It does not authorize training data or live listing decisions.
