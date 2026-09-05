@@ -11,7 +11,11 @@ The private operations website extends Spawn's existing approval and inventory r
 - Database: `garfield-operations-staging`
 - Migrations: existing schema plus `0025_operations_members.sql` and `0026_operations_review_locks.sql`
 
-Individual login remains fail-closed until `OPS_ACCESS_ISSUER` and `OPS_ACCESS_AUD` are configured for an Access application protecting the entire staging hostname. Configure an 8-hour or shorter Access session. Use an identity provider with MFA for the owner and administrators; email OTP alone is not MFA. Start with an allow policy for the owner email only. Additional members must be permitted by both Access and the application's People & roles screen. Granting membership does not send invitations or alter Cloudflare policies.
+Cloudflare Zero Trust Free was activated by the owner on 2026-09-05. The Access application `Garfield Operations — Staging` (`f81095d5-bdf9-432a-b2a4-67243a104c3d`) protects the staging Worker's production and preview URLs. Its only allow policy is `Garfield staging owner`, restricted to the configured owner email. Application sessions last six hours. `OPS_ACCESS_ISSUER` and `OPS_ACCESS_AUD` are saved in the staging configuration and deployed.
+
+The current login method is the Cloudflare identity provider. Application-specific MFA requires biometrics or an authenticator application, with a six-hour verification duration. Global MFA enrollment for those methods is enabled; global MFA enforcement remains off so this does not change other applications. HTTP-only cookies and binding cookies are enabled. The first owner sign-in reached the MFA enrollment screen successfully; enrollment must be completed by the owner before dashboard access can be verified.
+
+Additional members must be permitted by both Access and the application's People & roles screen. Granting membership does not send invitations or alter Cloudflare policies. A future login-provider change must preserve MFA and verified identity validation.
 
 The owner identity is configured by the operator, and cannot be modified or revoked in the member form. Member roles are `admin` and `viewer`; membership is checked on every request. Access JWT signatures, issuer, audience, subject, email, expiration and token age are validated using `jose`. The unsigned email header and old board token cannot authorize protected routes in Access mode. Browser writes require same-origin form submission and a writable role. Existing machine interfaces retain their separate bearer/HMAC authentication and require a nonempty credential.
 
@@ -46,4 +50,4 @@ No production migration, deployment, domain change or activation is included. Pr
 
 ## Remaining pilot setup
 
-Complete Cloudflare Zero Trust activation, Access application policy and issuer/audience configuration. Verify the configured identity provider's MFA behavior. Add a second person's email when provided, and complete a real two-person staging review. Connect production data only through a separately approved production release.
+Complete owner MFA enrollment and verify authenticated dashboard access. Add a second person's email when provided, and complete a real two-person staging review. Connect production data only through a separately approved production release.
