@@ -1,7 +1,10 @@
+import type {CustomerInventoryPage} from './customer-feed';
 import {createRemoteJWKSet, jwtVerify} from 'jose';
 
 export interface CustomerEnv {
   CUSTOMER_DB: D1Database;
+  CUSTOMER_SOURCE?: Fetcher;
+  CUSTOMER_INVENTORY_MODE?: 'source' | 'samples';
   CUSTOMER_ACCESS_ISSUER: string;
   CUSTOMER_ACCESS_AUD: string;
   CUSTOMER_ENVIRONMENT: string;
@@ -18,7 +21,7 @@ const headers = {
 };
 const style = `:root{color-scheme:dark;font-family:system-ui,sans-serif;color:#eef2f5;background:#0e1218}*{box-sizing:border-box}body{margin:0;font-size:16px;line-height:1.55}a{color:#c6f369}header{border-bottom:1px solid #303844}header>div,main,footer{max-width:1200px;margin:auto;padding:24px}header>div{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}.brand{font-weight:850;letter-spacing:.15em;text-decoration:none;color:#fff}.tag{color:#f4ce77;font-size:.875rem}.hero{max-width:760px;padding:8vh 0}h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.12;letter-spacing:-.04em;margin:16px 0}h2{font-size:1.15rem;margin:0 0 12px}.muted,footer{color:#aab6c5}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:#c6f369;font-size:.875rem}.button,button{display:inline-block;background:#c6f369;border:0;border-radius:8px;padding:12px 20px;color:#18200c;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}.hero .button{margin:16px 0}.panel,article{border:1px solid #303844;background:#171d25;border-radius:12px;padding:24px}.filters{display:flex;align-items:end;flex-wrap:wrap;gap:16px;margin:24px 0}.filters label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:150px}input,select{background:#0e1218;border:1px solid #526173;color:#eef2f5;padding:12px;border-radius:6px;font:inherit;min-width:0;width:100%}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:18px}article{position:relative;overflow:hidden;min-height:260px}article h2{padding-right:10px}.price{font-size:1.65rem;font-weight:750}.available{color:#c6f369}.sold_out{color:#f4ce77}.unknown{color:#aab6c5}dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin-bottom:0}dt{color:#aab6c5}dd{margin:0}time{font-size:.875rem}.mark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}.mark span{transform:rotate(-24deg);font-size:18px;font-weight:750;letter-spacing:.06em;color:rgba(200,218,239,.14);white-space:nowrap}.identity{font-size:.875rem;overflow-wrap:anywhere}.pager{display:flex;gap:24px;margin:24px 0}.notice{border-left:3px solid #c6f369;padding:12px 18px;background:#171d25}.account{max-width:620px;margin:40px 0}.account button{margin-top:16px}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f4ce77;outline-offset:4px}@media(max-width:600px){header>div,main,footer{padding:18px}.hero{padding:28px 0}.filters button{width:100%}}@media print{header,.filters,.pager,footer{display:none}.mark span{color:#777!important}article{break-inside:avoid}.mark{display:flex!important}}`;
 function page(env: CustomerEnv, title: string, body: string, member?: Member, status = 200) {
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Garfield</title><style>${style}</style></head><body><header><div><a class="brand" href="/">GARFIELD</a><span class="tag">${escape(env.CUSTOMER_ENVIRONMENT)}</span>${member ? '<a href="/app/account">My account</a>' : '<a href="/app">Sign in</a>'}</div></header><main>${body}</main><footer>Tracked listings, not the entire market. Availability and prices can change after observation.</footer></body></html>`,{status,headers});
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Garfield</title><style>${style}</style></head><body><header><div><a class="brand" href="/">GARFIELD</a><span class="tag">${escape(env.CUSTOMER_ENVIRONMENT)}</span>${member ? '<a href="/app/account">My account</a>' : '<a href="/app">Sign in</a>'}</div></header><main>${body}</main><footer>Tracked listings, not the entire market. Availability and prices can change after observation. Observations older than 24 hours are shown as unconfirmed.</footer></body></html>`,{status,headers});
 }
 async function identity(request: Request, env: CustomerEnv): Promise<string | null> {
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(env.CUSTOMER_ACCESS_ISSUER ?? '') || !env.CUSTOMER_ACCESS_AUD) return null;
@@ -64,10 +67,21 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
   const pageNumber=Math.min(1000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
   const where="publication_state='PUBLISHED' AND (?='' OR instr(lower(title),lower(?))>0) AND (?='' OR set_name=?) AND (?='' OR retailer=?) AND (?='' OR availability=?)";
   const params=[q,q,set,set,store,store,availability,availability];
-  const [result, facets]=await Promise.all([
+  let result: {results: Listing[]}, facets: {results: {set_name:string;retailer:string}[]};
+  if(env.CUSTOMER_INVENTORY_MODE==='source') {
+    if(!env.CUSTOMER_SOURCE) throw new Error('Customer source unavailable');
+    const feedUrl=new URL('https://customer-source/inventory');feedUrl.search=url.search;
+    const feed=await env.CUSTOMER_SOURCE.fetch(feedUrl.toString(),{signal:AbortSignal.timeout(5000)});
+    if(!feed.ok) throw new Error('Customer source unavailable');
+    const inventory=await feed.json() as CustomerInventoryPage;
+    if(!Array.isArray(inventory.rows)||inventory.rows.length>25||!Array.isArray(inventory.facets)||inventory.facets.length>1000)throw new Error('Invalid inventory page');
+    result={results:inventory.rows};facets={results:inventory.facets};
+  } else {
+  [result, facets]=await Promise.all([
     env.CUSTOMER_DB.prepare(`SELECT id,title,set_name,retailer,language,price_mxn,availability,observed_at FROM customer_listings WHERE ${where} ORDER BY title,id LIMIT 25 OFFSET ?`).bind(...params,(pageNumber-1)*24).all<Listing>(),
     env.CUSTOMER_DB.prepare("SELECT DISTINCT set_name,retailer FROM customer_listings WHERE publication_state='PUBLISHED' LIMIT 1000").all<{set_name:string;retailer:string}>()
   ]);
+  }
   const options=(values:string[],selected:string)=>[...new Set(values)].sort().map(value=>`<option value="${escape(value)}" ${value===selected?'selected':''}>${escape(value)}</option>`).join('');
   const labels:Record<string,string>={available:'Observed available',sold_out:'Observed sold out',unknown:'Availability unconfirmed'};
   const cards=result.results.slice(0,24).map(row=>`<article><div class="eyebrow">${escape(row.set_name)}</div><h2>${escape(row.title)}</h2><p class="price">${row.price_mxn==null?'Price unconfirmed':escape(new Intl.NumberFormat('en-MX',{style:'currency',currency:'MXN'}).format(row.price_mxn))}</p><p class="${escape(row.availability)}">${escape(labels[row.availability]??'Availability unconfirmed')}</p><dl><dt>Store</dt><dd>${escape(row.retailer)}</dd><dt>Language</dt><dd>${escape(row.language)}</dd><dt>Observed</dt><dd><time>${escape(row.observed_at.replace('T',' ').replace('Z',' UTC'))}</time></dd></dl><div class="mark" aria-hidden="true"><span>${escape(watermark(member!))}</span></div></article>`).join('');

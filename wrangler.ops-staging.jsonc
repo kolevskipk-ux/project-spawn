@@ -19,11 +19,21 @@
     "AMAZON_ENRICHMENT_ENABLED": "false",
     "SEED_VERIFICATION_ENABLED": "false"
   },
-  "d1_databases": [{
-    "binding": "SPAWN_DB",
-    "database_name": "garfield-operations-staging",
-    "database_id": "9f16bc45-22bc-48ef-a186-a6ae092524e0",
-    "migrations_dir": "migrations"
-  }],
-  "triggers": {"crons": []}
+  "d1_databases": [
+    {
+      "binding": "SPAWN_DB",
+      "database_name": "garfield-operations-staging",
+      "database_id": "9f16bc45-22bc-48ef-a186-a6ae092524e0",
+      "migrations_dir": "migrations"
+    },
+    {
+      "binding": "CUSTOMER_DB",
+      "database_name": "garfield-customer-staging",
+      "database_id": "b0ccf310-2ac6-4e2f-9744-0df98e35193f",
+      "migrations_dir": "customer-migrations"
+    }
+  ],
+  "triggers": {
+    "crons": []
+  }
 }
