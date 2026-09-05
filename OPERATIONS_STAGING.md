@@ -67,3 +67,11 @@ Complete the sample approval exercise. A native form submission exposed a confli
 Restore owner MFA and verify enrollment before adding a second person's email when provided, then complete a real two-person staging review. Connect production data only through a separately approved production release.
 
 Approval form follow-up: international evidence fields are explicitly required before native form submission; optional shipping/import fields are labeled, dates are explicitly UTC, missing evidence receives field-specific server errors, and success notices omit internal IDs. TypeScript and all 87 tests passed. Staging deployment: 924ad4cc-bdb0-4ab2-8470-960df2ef99d3.
+
+## Onboarding follow-up
+
+The second administrator successfully rejected the remaining sample; the owner supplied the Activity screenshot showing barohez12@gmail.com and the saved rejection. The two-person review pilot is complete.
+
+Added bookmark application Open Garfield Admin — Staging (5390ecdf-3862-4809-9835-b59a58b72a08), pointing to the protected /ops URL and visible only under Garfield staging administrators. The Worker-based application had no valid default launcher URL. The original protected application, policies and MFA settings were preserved. Saved bookmark configuration was verified; the launcher presents Welcome and then an email-code login form. The post-login tile still needs user confirmation because the current launcher session requires a fresh email code.
+
+My account now includes email sign-in, MFA setup/recovery, and first-review guidance. ADMIN_QUICK_START.md is the shareable onboarding guide. All 87 tests and TypeScript passed. Deployed staging version 65b0e0a3-d0e9-4bb0-8ec6-14809d52f51b. No production changes.
