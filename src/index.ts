@@ -1,3 +1,4 @@
+import {reviewErrorMessage} from './review-feedback';
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
 import { boardHeaders, boardRows, catchHuntSnapshot, renderBoard } from "./board";
 import { updateInventory } from "./inventory";
@@ -401,7 +402,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     const location=result.headers.get('location');
     if(location){const destination=new URL(location,url);destination.searchParams.delete('access');const headers=new Headers(result.headers);headers.set('location',destination.toString());return new Response(result.body,{status:result.status,headers});}
     if(result.headers.get('content-type')?.includes('text/html')) return new Response(wrapExistingPage(await result.text(),operator,browserEnv,url.pathname),{status:result.status,headers:operationsHeaders()});
-    if(result.status>=400){const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?.replaceAll('_',' ')??'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
+    if(result.status>=400){const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?reviewErrorMessage(payload.error):'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
     return result;
   } catch {
     return operationsError('The workspace could not complete this request. Check the latest activity before retrying an action, or refresh this page in a moment.',503,operator,browserEnv);

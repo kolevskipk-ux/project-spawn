@@ -163,7 +163,7 @@ describe("cross-border publication gate",()=>{
   it("accepts only fresh confirmed Mexico delivery evidence",()=>{
     const valid={fulfilment_region_state:"CROSS_BORDER_CONFIRMED",retailer_country:"US",ship_from_country:"US",original_price:"219.99",original_currency:"USD",shipping_mxn:"",import_cost_status:"UNKNOWN",destination_checked_at:"2026-09-03T12:00:00Z",destination_fresh_until:"2026-09-05T12:00:00Z"};
     expect(validateFulfilmentReview(form(valid),Date.parse("2026-09-03T13:00:00Z")).ok).toBe(true);
-    expect(validateFulfilmentReview(form({...valid,destination_fresh_until:"2026-09-03T12:30:00Z"}),Date.parse("2026-09-03T13:00:00Z"))).toMatchObject({ok:false,error:"cross_border_requires_fresh_destination_evidence"});
+    expect(validateFulfilmentReview(form({...valid,destination_fresh_until:"2026-09-03T12:30:00Z"}),Date.parse("2026-09-03T13:00:00Z"))).toMatchObject({ok:false,error:"cross_border_evidence_expired"});
     expect(validateFulfilmentReview(form({...valid,fulfilment_region_state:"CROSS_BORDER_UNVERIFIED"}),Date.parse("2026-09-03T13:00:00Z"))).toMatchObject({ok:false,error:"fulfilment_not_publishable"});
   });
 });

@@ -52,6 +52,8 @@ No production migration, deployment, domain change or activation is included. Pr
 
 ## Remaining pilot setup
 
-Complete the sample approval exercise. A native form submission exposed a conflict between the inherited no-referrer response policy and strict Origin validation. Individual-access pages now use same-origin referrer policy, preserving the Origin needed for form POSTs while withholding referrers from external sites. Legacy shared-token pages retain no-referrer. Null, missing, and cross-origin writes remain blocked. TypeScript and all 84 tests passed; a fresh browser form submission is the remaining pilot check.
+Complete the sample approval exercise. A native form submission exposed a conflict between the inherited no-referrer response policy and strict Origin validation. Individual-access pages now use same-origin referrer policy, preserving the Origin needed for form POSTs while withholding referrers from external sites. Legacy shared-token pages retain no-referrer. Null, missing, and cross-origin writes remain blocked. TypeScript and all 84 tests passed; the owner subsequently completed a sample publication and confirmed both Inventory and Activity.
 
 Restore owner MFA and verify enrollment before adding a second person's email when provided, then complete a real two-person staging review. Connect production data only through a separately approved production release.
+
+Approval form follow-up: international evidence fields are explicitly required before native form submission; optional shipping/import fields are labeled, dates are explicitly UTC, missing evidence receives field-specific server errors, and success notices omit internal IDs. TypeScript and all 87 tests passed. Staging deployment: 924ad4cc-bdb0-4ab2-8470-960df2ef99d3.
