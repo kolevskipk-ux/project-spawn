@@ -29,7 +29,7 @@ afterEach(()=>db.close());
 describe('approved customer publication feed',()=>{
  it('exposes only published projection fields and supports combined filters',async()=>{
   db.exec("UPDATE monitoring_candidates SET status='PENDING' WHERE source_listing_key='customer-pilot-demo-4'");
-  const result=await list();expect(result.rows).toHaveLength(3);expect(Object.keys(result.rows[0]).sort()).toEqual(['id','title','set_name','retailer','language','price_mxn','availability','observed_at'].sort());
+  const result=await list();expect(result.rows).toHaveLength(3);expect(Object.keys(result.rows[0]).sort()).toEqual(['id','title','set_name','retailer','language','price_mxn','availability','observed_at','references'].sort());
   const filtered=await list('?store=Demo+Cards&availability=available');expect(filtered.rows.map(r=>r.title)).toEqual(['Sample Elite Trainer Box']);
   expect((await list('?q=%27+OR+1%3D1--')).rows).toHaveLength(0);
  });
@@ -39,6 +39,21 @@ describe('approved customer publication feed',()=>{
   expect((await list('?q=Elite')).rows[0].price_mxn).toBe(1199);
   db.exec("INSERT INTO listing_publication_decisions(candidate_id,decision,reason,decided_by,decided_at) VALUES('"+'c1'.repeat(32)+"','REJECTED','Withdrawn for test','test',CURRENT_TIMESTAMP)");
   expect((await list('?q=Elite')).rows).toHaveLength(0);
+ });
+ it('shares checked references while keeping private catalog fields out of the customer feed',async()=>{
+  db.exec("UPDATE inventory SET title='30th Celebration Elite Trainer Box',watch_category='30th_celebration',language='english',product_id='30-en-etb' WHERE listing_key='customer-pilot-demo-1'; UPDATE products SET amazon_launch_mxn=1000,amazon_source_url='https://www.amazon.com.mx/dp/B012345678',amazon_confidence='exact',amazon_captured_at='2026-01-01',collectr_usd=NULL WHERE id='30-en-etb'");
+  const row=(await list('?q=Elite')).rows[0];
+  expect(row.references?.[0]).toMatchObject({source:'Amazon México',referenceMxn:1000,deltaPercent:29.9});
+  expect(row).not.toHaveProperty('_reference');expect(row).not.toHaveProperty('product_id');
+  const html=await (await customer.fetch(await request('/app?q=Elite',buyer,undefined,undefined,'customers'),customers)).text();
+  expect(html).toContain('+29.9%');expect(html).toContain('Historical price references');expect(html).toContain('class="mark"');
+  db.exec("UPDATE inventory SET availability_state='preorder_placeholder' WHERE listing_key='customer-pilot-demo-1'");
+  expect((await list('?q=Elite')).rows[0].references?.[0].deltaPercent).toBeNull();
+  db.exec("UPDATE inventory SET availability_state='available' WHERE listing_key='customer-pilot-demo-1'");
+  db.exec("UPDATE inventory SET pricing_observed_at='2000-01-01' WHERE listing_key='customer-pilot-demo-1'");
+  expect((await list('?q=Elite')).rows[0].references?.[0].deltaPercent).toBeNull();
+  db.exec("UPDATE inventory SET title='30th Celebration Pokemon Center Elite Trainer Box' WHERE listing_key='customer-pilot-demo-1'");
+  expect((await list('?q=Elite')).rows[0].references).toEqual([]);
  });
  it('suppresses archived inventory, unconfirmed shipping and expired destination evidence',async()=>{
   db.exec("INSERT INTO inventory_revalidation_state(listing_key,lifecycle_state,due_at,next_eligible_at,updated_at) VALUES('customer-pilot-demo-1','ARCHIVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
