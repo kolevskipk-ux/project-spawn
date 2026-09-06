@@ -1,5 +1,5 @@
 import type { Env } from "./types";
-import { benchmarkContext } from "./garfield";
+import { benchmarkContext, printSeries } from "./garfield";
 
 export interface BoardRow {
   listing_key: string;
@@ -157,12 +157,14 @@ const boardAsin = (row: BoardRow) => {
   try { return new URL(row.canonical_url).pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i)?.[1]?.toUpperCase() ?? null; } catch { return null; }
 };
 
-function huntCard(row: CatchHuntRow, now: Date): string {
+const inventorySet = (row: BoardRow) => row.print_series?.trim() || printSeries(row.watch_category).trim() || 'Unconfirmed set';
+const setKey = (name: string) => name.toLowerCase();
+function huntCard(row: CatchHuntRow, now: Date, setName = 'Unconfirmed set'): string {
   const fresh = row.lastTrustworthyAt ? freshness(row.lastTrustworthyAt, now) : { text:"No trustworthy check yet", stale:true };
   const currentEvidence = row.lastCheck && !["ERROR","BLOCKED","UNKNOWN"].includes(String(row.lastCheck.observedState ?? ""));
   const offer = currentEvidence && row.lastCheck?.price ? `${row.lastCheck.price}${row.lastCheck.seller ? ` · Sold by ${row.lastCheck.seller}` : ""}` : "Price unavailable from the last trustworthy check";
   const status=catchStateClass(row.persistedState),searchable=[row.name,"Amazon México",row.asin,"Catch Em All"].join(" ").toLowerCase();
-  return `<article class="hunt-card" data-search="${escapeHtml(searchable)}" data-status="${status}" data-set="" data-language="unknown" data-store="amazon méxico" data-fulfilment="domestic"><div class="offer-top"><span class="status ${status}">${escapeHtml(catchStateLabel(row.persistedState))}</span><span class="change">${escapeHtml(row.cadenceClass)} · ${escapeHtml(row.cadenceMinutes)} min</span></div>
+  return `<article class="hunt-card" data-search="${escapeHtml(searchable)}" data-status="${status}" data-set="${escapeHtml(setKey(setName))}" data-language="unknown" data-store="amazon méxico" data-fulfilment="domestic"><div class="offer-top"><span class="status ${status}">${escapeHtml(catchStateLabel(row.persistedState))}</span><span class="change">${escapeHtml(row.cadenceClass)} · ${escapeHtml(row.cadenceMinutes)} min</span></div>
     <p class="set">Amazon México hunt</p><h3>${escapeHtml(row.name)}</h3><p class="retailer"><code>${escapeHtml(row.asin)}</code></p>
     <p>${escapeHtml(offer)}</p><div class="meta"><span>Live monitored</span><span class="${fresh.stale || row.overdue ? "stale" : ""}">${escapeHtml(row.overdue ? `Overdue: ${row.overdueReason ?? "monitoring delayed"}` : fresh.text)}</span></div>
     <a class="buy" href="${escapeHtml(row.url)}" target="_blank" rel="noopener noreferrer">View on Amazon <span aria-hidden="true">↗</span></a></article>`;
@@ -178,7 +180,7 @@ function card(row: BoardRow, now: Date): string {
   const crossBorder=row.fulfilment_region_state==="CROSS_BORDER_CONFIRMED";
   const fulfilment=crossBorder?"cross_border":row.fulfilment_region_state==="DOMESTIC"?"domestic":"unverified";
   const searchable = [row.title, row.retailer, row.retailer_sku, row.print_series, label(row.language), valueClassification,row.retailer_country,row.ship_from_country,fulfilment].join(" ").toLowerCase();
-  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(effectiveStatus)}" data-set="${escapeHtml(row.watch_category)}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}" data-fulfilment="${fulfilment}">
+  return `<article class="offer" data-search="${escapeHtml(searchable)}" data-status="${escapeHtml(effectiveStatus)}" data-set="${escapeHtml(setKey(inventorySet(row)))}" data-language="${escapeHtml(row.language)}" data-store="${escapeHtml(row.retailer.toLowerCase())}" data-fulfilment="${fulfilment}">
     <div class="offer-top"><span class="status ${escapeHtml(effectiveStatus)}">${escapeHtml(fresh.stale?"Stale":row.revalidation_state==="BLOCKED"?"Access blocked":row.revalidation_state==="UNKNOWN"?"Unconfirmed":label(effectiveStatus))}</span>${crossBorder?`<span class="change">🌎 International offer</span>`:""}${row.last_change_type !== "unchanged" ? `<span class="change">${escapeHtml(label(row.last_change_type))}</span>` : ""}</div>
     <p class="set">${escapeHtml(row.print_series || label(row.watch_category))}</p>
     <h2>${escapeHtml(row.title)}</h2>
@@ -197,6 +199,9 @@ function card(row: BoardRow, now: Date): string {
 export function renderBoard(rows: BoardRow[], accessToken: string, now = new Date(), hunt: CatchHuntSnapshot = {available:false,mode:null,degraded:false,rollout:null,rows:[]}): string {
   const huntedAsins = new Set(hunt.rows.map(row => row.asin));
   const inventoryRows = rows.filter(row => !(row.retailer.toLowerCase().includes("amazon") && huntedAsins.has(boardAsin(row) ?? "")));
+  const knownSets = [...new Set(rows.map(inventorySet))].filter(name=>name!=='Unconfirmed set').sort((a,b)=>b.length-a.length);
+  const huntSets = new Map(hunt.rows.map(item=>[item.asin,knownSets.find(name=>item.name.toLowerCase().includes(name.toLowerCase())) ?? 'Unconfirmed set']));
+  const sets = [...new Map([...inventoryRows.map(inventorySet),...huntSets.values()].map(name=>[setKey(name),name])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
   const available = inventoryRows.filter((row) => row.status === "available" && !freshness(row.revalidation_last_success_at ?? row.last_seen_at,now).stale && !["STALE","UNKNOWN","BLOCKED"].includes(row.revalidation_state ?? "")).length + hunt.rows.filter(row => ["BUYABLE","PREORDER_BUYABLE"].includes(row.persistedState ?? "") && !row.overdue).length;
   const retailers = new Set([...inventoryRows.map((row) => row.retailer.toLowerCase()), ...(hunt.rows.length ? ["amazon méxico"] : [])]).size;
   const lastVerified = inventoryRows.reduce((latest, row) => (row.revalidation_last_success_at ?? row.last_seen_at) > latest ? (row.revalidation_last_success_at ?? row.last_seen_at) : latest, "");
@@ -220,12 +225,12 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <section class="controls" aria-label="Inventory filters"><input id="search" type="search" placeholder="Search product, store or SKU…" aria-label="Search inventory">
 <select id="store" aria-label="Filter by store"><option value="">All stores</option>${stores.map(([value, name]) => `<option value="${escapeHtml(value)}">${escapeHtml(name)}</option>`).join("")}</select>
 <select id="status" aria-label="Filter by status"><option value="">All statuses</option><option value="available">Available</option><option value="sold_out">Sold out</option><option value="unknown">Unknown</option></select>
-<select id="set" aria-label="Filter by set"><option value="">All sets</option><option value="30th_celebration">30th Celebration</option><option value="ascended_heroes">Ascended Heroes</option><option value="delta_reign">Delta Reign</option></select>
+<select id="set" aria-label="Filter by set"><option value="">All sets</option>${sets.map(([value,name])=>`<option value="${escapeHtml(value)}">${escapeHtml(name)}</option>`).join('')}</select>
 <select id="language" aria-label="Filter by language"><option value="">All languages</option><option value="english">English</option><option value="spanish">Spanish</option><option value="bilingual">Bilingual</option><option value="japanese">Japanese</option><option value="chinese">Chinese</option><option value="unknown">Unconfirmed</option></select>
 <select id="fulfilment" aria-label="Filter by fulfilment"><option value="">All fulfilment</option><option value="domestic">Domestic</option><option value="cross_border">International</option><option value="unverified">Unverified</option></select>
 <a class="download" href="/inventory.csv?access=${encodeURIComponent(accessToken)}">Excel / CSV</a></section>
 ${!hunt.available?'<p class="note" role="status"><strong>Amazon monitoring feed is temporarily unavailable.</strong> Amazon hunt listings could not be loaded. Reload this page to retry; the inventory shown below may be incomplete.</p>':''}
-<section id="grid" class="grid">${hunt.rows.map(row => huntCard(row,now)).join("")}${inventoryRows.map((row) => card(row, now)).join("")}</section><div id="empty" class="empty">No offers match these filters.</div>
+<section id="grid" class="grid">${hunt.rows.map(row => huntCard(row,now,huntSets.get(row.asin))).join("")}${inventoryRows.map((row) => card(row, now)).join("")}</section><div id="empty" class="empty">No offers match these filters.</div>
 <p class="note"><strong>Monitoring distinction:</strong> Spawn discovers and periodically refreshes broad market listings. Catch actively hunts only the approved Amazon ASINs shown above. A persisted state is the last trustworthy observation, not a guarantee of current stock.</p>
 <p class="note"><strong>How pricing works:</strong> negative percentages are below the reference; positive percentages are above it. Amazon represents a launch-price reference. Collectr represents an estimated secondary-market benchmark converted to MXN. References may be unavailable until an exact or comparable product is verified. Market values exclude shipping, taxes, fees, and liquidity.</p>
 <p class="note">Last inventory verification: ${escapeHtml(lastVerified ? new Intl.DateTimeFormat("en-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }).format(new Date(lastVerified)) : "Unavailable")}.</p>
