@@ -21,7 +21,11 @@ export function operationsShell(title: string, content: string, operator: Operat
 export function wrapExistingPage(html: string, operator: Operator, env: Env, path: string): string {
   const styles = [...html.matchAll(/<style[^>]*>[\s\S]*?<\/style>/gi)].map(m => m[0]).join('');
   let content = html.includes('<body') ? html.replace(/^[\s\S]*?<body[^>]*>/i,'').replace(/<\/body>[\s\S]*$/i,'') : html.replace(/^[\s\S]*?<\/style>/i,'');
-  content = content.replace(/^\s*<header[\s\S]*?<\/header>/i,'').replace(/\?access=(?=["&])/g,'?').replace(/\?(["'])/g,'$1');
+  content = content.replace(/^\s*<header[\s\S]*?<\/header>/i,'');
+  // Clean empty legacy access parameters only in navigation/form URLs. Applying
+  // this to the whole document also removes JavaScript ternary operators.
+  content = content.replace(/\b(href|action)=(['"])([^'"]*)\2/gi,(_match,attribute,quote,value)=>
+    `${attribute}=${quote}${value.replace(/\?access=(?=&|$)/g,'?').replace(/\?(?:&amp;|&)/g,'?').replace(/\?$/,'')}${quote}`);
   if (operator.role === 'viewer') content = content.replace(/<form\b[\s\S]*?<\/form>/gi,'<p class="ops-muted">Administrator access is required to take action.</p>').replace(/<script\b[\s\S]*?<\/script>/gi, path==='/inventory' ? '$&' : '');
   return operationsShell(path==='/approvals'?'Approvals':path==='/inventory'?'Inventory':'Detailed diagnostics',content,operator,env,path,styles);
 }
