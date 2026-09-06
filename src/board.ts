@@ -95,7 +95,7 @@ export async function boardRows(env: Env): Promise<BoardRow[]> {
 export async function catchHuntSnapshot(env: Env, fetchFn: typeof fetch = fetch): Promise<CatchHuntSnapshot> {
   if (!env.CATCH_MONITOR_ENDPOINT) return { available:false, mode:null, degraded:false, rollout:null, rows:[], error:"not_configured" };
   try {
-    const response = await fetchFn(env.CATCH_MONITOR_ENDPOINT, { headers:{ accept:"application/json" }, signal:AbortSignal.timeout(3000) });
+    const response = await fetchFn(env.CATCH_MONITOR_ENDPOINT, { headers:{ accept:"application/json" }, signal:AbortSignal.timeout(10000) });
     if (!response.ok) return { available:false, mode:null, degraded:false, rollout:null, rows:[], error:`http_${response.status}` };
     const body = await response.json() as Record<string,unknown>;
     const architecture = body.architecture && typeof body.architecture === "object" ? body.architecture as Record<string,unknown> : {};
@@ -224,6 +224,7 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <select id="language" aria-label="Filter by language"><option value="">All languages</option><option value="english">English</option><option value="spanish">Spanish</option><option value="bilingual">Bilingual</option><option value="japanese">Japanese</option><option value="chinese">Chinese</option><option value="unknown">Unconfirmed</option></select>
 <select id="fulfilment" aria-label="Filter by fulfilment"><option value="">All fulfilment</option><option value="domestic">Domestic</option><option value="cross_border">International</option><option value="unverified">Unverified</option></select>
 <a class="download" href="/inventory.csv?access=${encodeURIComponent(accessToken)}">Excel / CSV</a></section>
+${!hunt.available?'<p class="note" role="status"><strong>Amazon monitoring feed is temporarily unavailable.</strong> Amazon hunt listings could not be loaded. Reload this page to retry; the inventory shown below may be incomplete.</p>':''}
 <section id="grid" class="grid">${hunt.rows.map(row => huntCard(row,now)).join("")}${inventoryRows.map((row) => card(row, now)).join("")}</section><div id="empty" class="empty">No offers match these filters.</div>
 <p class="note"><strong>Monitoring distinction:</strong> Spawn discovers and periodically refreshes broad market listings. Catch actively hunts only the approved Amazon ASINs shown above. A persisted state is the last trustworthy observation, not a guarantee of current stock.</p>
 <p class="note"><strong>How pricing works:</strong> negative percentages are below the reference; positive percentages are above it. Amazon represents a launch-price reference. Collectr represents an estimated secondary-market benchmark converted to MXN. References may be unavailable until an exact or comparable product is verified. Market values exclude shipping, taxes, fees, and liquidity.</p>

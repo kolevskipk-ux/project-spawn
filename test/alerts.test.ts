@@ -146,6 +146,18 @@ describe("Inventory Board", () => {
     expect(snapshot.rollout).toBe("safe-hourly");
     const failed = await catchHuntSnapshot(env, (async () => new Response("no", { status:503 })) as typeof fetch);
     expect(failed).toMatchObject({ available:false, rows:[], error:"http_503" });
+    expect(renderBoard([], '', new Date(), failed)).toContain('Amazon monitoring feed is temporarily unavailable.');
+  });
+
+  it('loads Amazon listings when the healthy feed takes longer than three seconds',async()=>{
+    const slowFetch=async(_input:unknown,init?:RequestInit)=>new Promise<Response>((resolve,reject)=>{
+      const abort=()=>{clearTimeout(timer);reject(new Error('aborted'));};
+      const timer=setTimeout(()=>{init?.signal?.removeEventListener('abort',abort);resolve(new Response(JSON.stringify({rows:[{group:'amazon',asin:'B0ABC12345',name:'Amazon test item'}]})));},3500);
+      init?.signal?.addEventListener('abort',abort,{once:true});
+    });
+    const snapshot=await catchHuntSnapshot({CATCH_MONITOR_ENDPOINT:'https://catch.example/status'} as Env,slowFetch as typeof fetch);
+    expect(snapshot.available).toBe(true);expect(snapshot.rows).toHaveLength(1);
+    expect(renderBoard([], '', new Date(), snapshot)).toContain('amazon méxico');
   });
 
   it("renders and filters a confirmed international offer with checkout disclosure",()=>{
