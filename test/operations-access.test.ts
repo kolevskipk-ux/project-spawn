@@ -5,6 +5,23 @@ import {authenticateOperator, mutationAllowed} from '../src/operations-auth';
 import {operationsRoute, wrapExistingPage} from '../src/operations';
 import {renderApprovals} from '../src/dashboard';
 import {handleFetch} from '../src/index';
+import {Script} from 'node:vm';
+import {renderBoard} from '../src/board';
+
+it('preserves executable inventory filtering while cleaning empty legacy URL tokens',()=>{
+  for(const role of ['owner','viewer'] as const){
+    const html=wrapExistingPage(renderBoard([],''),{email:'test@example.test',subject:'test',role},{} as Env,'/inventory');
+    const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    expect(()=>new Script(script!)).not.toThrow();
+    expect(html).toContain('href="/inventory.csv"');
+    expect(script).toContain("visible?'none':'block'");
+  }
+  const html=wrapExistingPage(`<a href="/inventory?access=&amp;store=demo">Why?</a><form action='/save?access='></form><script>const answer=true?'yes':'no';</script>`,{email:'test@example.test',subject:'test',role:'owner'},{} as Env,'/inventory');
+  expect(html).toContain('href="/inventory?store=demo"');
+  expect(html).toContain("action='/save'");
+  expect(html).toContain("true?'yes':'no'");
+});
 
 const keys = vi.hoisted(()=>({publicKey: undefined as unknown}));
 vi.mock('jose', async original => ({...await original<typeof import('jose')>(),createRemoteJWKSet:()=>async()=>keys.publicKey}));
