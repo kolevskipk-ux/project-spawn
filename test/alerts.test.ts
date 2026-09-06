@@ -146,6 +146,33 @@ describe("Inventory Board", () => {
     expect(snapshot.rollout).toBe("safe-hourly");
     const failed = await catchHuntSnapshot(env, (async () => new Response("no", { status:503 })) as typeof fetch);
     expect(failed).toMatchObject({ available:false, rows:[], error:"http_503" });
+    expect(renderBoard([], '', new Date(), failed)).toContain('Amazon monitoring feed is temporarily unavailable.');
+  });
+
+  it('builds set filters from inventory labels and gives cards matching values',()=>{
+    const html=renderBoard([
+      {...row,retailer:'Demo',print_series:'The Hobbit'},
+      {...row,listing_key:'two',print_series:'New & Future Set'},
+      {...row,listing_key:'three',print_series:'the hobbit'}
+    ],'');
+    const dropdown=html.match(/<select id="set"[\s\S]*?<\/select>/)![0];
+    expect(dropdown).toContain('value="new &amp; future set">New &amp; Future Set');
+    expect((dropdown.match(/value="the hobbit"/g)||[])).toHaveLength(1);
+    expect(html).toContain('data-set="new &amp; future set"');
+    expect(dropdown).not.toContain('Delta Reign');
+    const hunt:CatchHuntSnapshot={available:true,mode:null,degraded:false,rollout:null,rows:[{id:'one',name:'The Hobbit Booster Box',asin:'B0ABC12345',url:'https://www.amazon.com.mx/dp/B0ABC12345',cadenceClass:'hot',cadenceMinutes:5,persistedState:'SOLD_OUT',lastTrustworthyAt:null,overdue:false,overdueReason:null}]};
+    expect(renderBoard([{...row,print_series:'The Hobbit'}],'',new Date(),hunt)).toMatch(/class="hunt-card"[^>]*data-set="the hobbit"/);
+  });
+
+  it('loads Amazon listings when the healthy feed takes longer than three seconds',async()=>{
+    const slowFetch=async(_input:unknown,init?:RequestInit)=>new Promise<Response>((resolve,reject)=>{
+      const abort=()=>{clearTimeout(timer);reject(new Error('aborted'));};
+      const timer=setTimeout(()=>{init?.signal?.removeEventListener('abort',abort);resolve(new Response(JSON.stringify({rows:[{group:'amazon',asin:'B0ABC12345',name:'Amazon test item'}]})));},3500);
+      init?.signal?.addEventListener('abort',abort,{once:true});
+    });
+    const snapshot=await catchHuntSnapshot({CATCH_MONITOR_ENDPOINT:'https://catch.example/status'} as Env,slowFetch as typeof fetch);
+    expect(snapshot.available).toBe(true);expect(snapshot.rows).toHaveLength(1);
+    expect(renderBoard([], '', new Date(), snapshot)).toContain('amazon méxico');
   });
 
   it("renders and filters a confirmed international offer with checkout disclosure",()=>{
