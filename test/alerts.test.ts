@@ -91,7 +91,8 @@ describe("Inventory Board", () => {
     const html = renderBoard([row], "private-token", new Date("2026-08-23T12:00:00.000Z"));
     expect(html).toContain("Spawn Live Inventory");
     expect(html).toContain("Night &amp; Day &lt;UPC&gt;");
-    expect(html).toContain("+45%");
+    expect(html).toContain("Product mapping missing");
+    expect(html).not.toContain("+45%");
     expect(html).toContain("inventory.csv?access=private-token");
     expect(html).toContain('id="store"');
     expect(html).toContain('<option value="amazon méxico">Amazon México</option>');
@@ -99,11 +100,12 @@ describe("Inventory Board", () => {
     expect(html).not.toContain("Night & Day <UPC>");
   });
 
-  it("renders the reviewed Collectr conversion with the captured Banxico rate",()=>{
-    const html=renderBoard([{...row,title:"30th Celebration Booster Bundle",retailer:"Juguetibici",price_mxn:979,amazon_launch_mxn:null,amazon_confidence:null,collectr_usd:89.90,usd_mxn_rate:17.0427}],"token",new Date("2026-08-23T12:00:00.000Z"));
+  it("renders dated Collectr context without claiming current FX or a deal rating",()=>{
+    const html=renderBoard([{...row,title:"30th Celebration Booster Bundle",retailer:"Juguetibici",price_mxn:979,product_id:"30-en-booster-bundle",price_verification_status:"VERIFIED",pricing_observed_at:"2026-08-23T11:00:00.000Z",reference:{id:"30-en-booster-bundle",canonical_name:"30th Celebration Booster Bundle",watch_category:"30th_celebration",language:"english",amazon_launch_mxn:null,amazon_confidence:null,amazon_source_url:null,amazon_captured_at:null,collectr_usd:89.90,usd_mxn_rate:17.0427,collectr_source_url:"https://app.getcollectr.com/explore/product/test",collectr_captured_at:"2026-08-20T12:00:00.000Z"},amazon_launch_mxn:null,amazon_confidence:null,collectr_usd:89.90,usd_mxn_rate:17.0427}],"token",new Date("2026-08-23T12:00:00.000Z"));
     expect(percentDifference(979,89.90*17.0427)).toBe(-36);
-    expect(html).toContain("≈ −36%");
-    expect(html).toContain("Strong Value");
+    expect(html).toContain("-36.1% vs");
+    expect(html).toContain("exchange-rate date not recorded");
+    expect(html).not.toContain("Strong Value");
   });
 
   it("does not count evidence older than 36 hours as confirmed available",()=>{

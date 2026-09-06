@@ -1,4 +1,4 @@
-import type {CustomerInventoryPage} from './customer-feed';
+import type {CustomerInventoryPage,CustomerListing} from './customer-feed';
 import {saveSupport,supportKinds} from './customer-support';
 import {createRemoteJWKSet, jwtVerify} from 'jose';
 
@@ -13,9 +13,14 @@ export interface CustomerEnv {
   CUSTOMER_SUPPORT_WEBHOOK_URL?: string;
 }
 type Member = {id: string; email: string; status: string};
-type Listing = {id: string; title: string; set_name: string; retailer: string; language: string; price_mxn: number | null; availability: string; observed_at: string};
+type Listing = CustomerListing;
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
+export function customerReferences(row:Listing):string {
+  if(!row.references?.length)return '<p class="muted">Price reference unavailable for this product.</p>';
+  const money=(value:number)=>new Intl.NumberFormat('en-MX',{style:'currency',currency:'MXN'}).format(value);
+  return `<section class="references" aria-label="Historical price references"><h3>Historical price references</h3>${row.references.map(r=>`<p><strong>${escape(r.source)} · ${escape(money(r.referenceMxn!))}</strong><br>${r.deltaPercent==null?'Offer comparison unavailable':`${r.deltaPercent>0?'+':''}${escape(r.deltaPercent)}% compared with this reference`}<br><span class="muted">Observed ${escape(r.capturedAt)}<br>${escape(r.note)}</span>${r.sourceUrl?`<br><a href="${escape(r.sourceUrl)}" target="_blank" rel="noopener noreferrer">Reference source</a>`:''}</p>`).join('')}<p class="muted">Historical context only; not a purchase recommendation.</p></section>`;
+}
 const headers = {
   'content-type':'text/html; charset=utf-8', 'cache-control':'private, no-store',
   'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
@@ -104,7 +109,7 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
   }
   const options=(values:string[],selected:string)=>[...new Set(values)].sort().map(value=>`<option value="${escape(value)}" ${value===selected?'selected':''}>${escape(value)}</option>`).join('');
   const labels:Record<string,string>={available:'Observed available',sold_out:'Observed sold out',unknown:'Availability unconfirmed'};
-  const cards=result.results.slice(0,24).map(row=>`<article><div class="eyebrow">${escape(row.set_name)}</div><h2>${escape(row.title)}</h2><p class="price">${row.price_mxn==null?'Price unconfirmed':escape(new Intl.NumberFormat('en-MX',{style:'currency',currency:'MXN'}).format(row.price_mxn))}</p><p class="${escape(row.availability)}">${escape(labels[row.availability]??'Availability unconfirmed')}</p><dl><dt>Store</dt><dd>${escape(row.retailer)}</dd><dt>Language</dt><dd>${escape(row.language)}</dd><dt>Observed</dt><dd><time>${escape(row.observed_at.replace('T',' ').replace('Z',' UTC'))}</time></dd></dl><div class="mark" aria-hidden="true"><span>${escape(watermark(member!))}</span></div></article>`).join('');
+  const cards=result.results.slice(0,24).map(row=>`<article><div class="eyebrow">${escape(row.set_name)}</div><h2>${escape(row.title)}</h2><p class="price">${row.price_mxn==null?'Price unconfirmed':escape(new Intl.NumberFormat('en-MX',{style:'currency',currency:'MXN'}).format(row.price_mxn))}</p><p class="${escape(row.availability)}">${escape(labels[row.availability]??'Availability unconfirmed')}</p><dl><dt>Store</dt><dd>${escape(row.retailer)}</dd><dt>Language</dt><dd>${escape(row.language)}</dd><dt>Observed</dt><dd><time>${escape(row.observed_at.replace('T',' ').replace('Z',' UTC'))}</time></dd></dl>${customerReferences(row)}<div class="mark" aria-hidden="true"><span>${escape(watermark(member!))}</span></div></article>`).join('');
   const pageLink=(number:number,label:string)=>{const next=new URLSearchParams({q,set,store,availability,page:String(number)});return `<a href="/app?${escape(next.toString())}">${label}</a>`;};
   return page(env,'Inventory',`<div class="eyebrow">Explore the listings</div><h1>Tracked inventory</h1><p class="muted">Filter the inventory by set, store, or observed availability.</p>${env.CUSTOMER_DATA_KIND==='published'?'':'<p class="notice">Sample listings for testing · No live purchasing information</p>'}<form class="filters" method="get" action="/app"><label>Search<input name="q" value="${escape(q)}" maxlength="100" placeholder="Product name"></label><label>Set<select name="set"><option value="">All sets</option>${options(facets.results.map(r=>r.set_name),set)}</select></label><label>Store<select name="store"><option value="">All stores</option>${options(facets.results.map(r=>r.retailer),store)}</select></label><label>Availability<select name="availability"><option value="">Any availability</option>${Object.entries(labels).map(([key,label])=>`<option value="${key}" ${availability===key?'selected':''}>${label}</option>`).join('')}</select></label><button>Apply filters</button><a href="/app">Clear</a></form><div class="grid">${cards||'<p>No listings match these filters. <a href="/app">Clear filters</a></p>'}</div><nav class="pager" aria-label="Inventory pages">${pageNumber>1?pageLink(pageNumber-1,'Previous'):''}<span>Page ${pageNumber}</span>${result.results.length>24?pageLink(pageNumber+1,'Next'):''}</nav><p class="identity muted">Viewing as customer ${escape(member.id)} · Downloads unavailable</p>`,member);
 }
