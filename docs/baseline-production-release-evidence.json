@@ -1,0 +1,34 @@
+{
+  "verified_at": "2026-09-07T23:23:17.111Z",
+  "spawn_ready": true,
+  "catalog": {
+    "schemaVersion": 2,
+    "version": "4",
+    "publishedAt": "2026-08-29 15:53:42",
+    "fetchedAt": "2026-09-07T23:23:15.836Z",
+    "hash": "c87fd12a3ddf8ccec097c15cbd7689f3cc87a0904e595be40e1ec18bef7944c1",
+    "publishedCount": 19,
+    "stagedCount": 0,
+    "source": "spawn-published-catalog"
+  },
+  "target_count": 19,
+  "targets_unchanged": true,
+  "delivery_mode": "deliver",
+  "last_catalog_error": null,
+  "versions": [
+    {
+      "component": "Catch",
+      "version_id": "4e41dcaf-815e-46de-8424-4d86a1fab3cd",
+      "deployment_id": "3149bf01-de46-465b-b3ac-cc79116ddfb9",
+      "created_on": "2026-09-07T23:17:36.755791Z",
+      "percentage": 100
+    },
+    {
+      "component": "Spawn",
+      "version_id": "10fd3201-efaf-496e-a673-9415b34d350e",
+      "deployment_id": "b0e808b7-0abe-493d-b807-5c22e7826b88",
+      "created_on": "2026-09-07T23:20:30.775083Z",
+      "percentage": 100
+    }
+  ]
+}

@@ -33,5 +33,6 @@ for(const [repo,configName,environment] of [['project-spawn','wrangler.jsonc','p
   report.workers.push(worker);
   console.log(JSON.stringify({name:worker.name,environment,deployment_id:worker.deployment_id,versions:versions.map(v=>({id:v.id,bindings:v.bindings,resource_keys:v.resource_keys})),migration_count:migrations?.[0]?.results?.length}));
 }
-writeFileSync(resolve(root,'docs/deployment-audit.json'),JSON.stringify(report,null,2)+'\n');
-console.log('Sanitized audit saved to docs/deployment-audit.json');
+const output=process.argv[2]??'docs/deployment-audit.json';
+writeFileSync(resolve(root,output),JSON.stringify(report,null,2)+'\n');
+console.log(`Sanitized audit saved to ${output}`);
