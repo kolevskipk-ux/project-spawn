@@ -141,7 +141,7 @@ export function assessAmazonVerification(candidate: VerificationCandidate, respo
   return { outcome:"VERIFIED", confidence:"HIGH", canonicalProductId, gateResults:gates, unresolvedQuestions:[], accessOutcome:"VALID_PAGE", observedAvailability };
 }
 
-export async function runAmazonVerification(env: Env, asin: string, actor: string, fetchFn: typeof fetch = fetch) {
+export async function runAmazonVerification(env: Env, asin: string, actor: string, fetchFn: typeof fetch = fetch, options:{requestApproval?:boolean}={}) {
   const candidate = await env.SPAWN_DB.prepare(`SELECT asin,product_name,product_url,watch_category,language,evidence,lifecycle_status
     FROM amazon_watchlist WHERE asin=? AND lifecycle_status!='PUBLISHED'`).bind(asin).first<VerificationCandidate>();
   if (!candidate) return { ok:false as const, error:"not_found_or_published" };
@@ -162,7 +162,7 @@ export async function runAmazonVerification(env: Env, asin: string, actor: strin
   const silentStage=assessment.outcome==="VERIFIED"&&["30th_celebration","delta_reign"].includes(candidate.watch_category);
   await env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status=?,verification_attempt_id=?,evidence_revision=?,verified_at=?,staging_enabled=?,staged_at=?,routing_key_v2=?,updated_at=? WHERE asin=? AND lifecycle_status!='PUBLISHED'`)
     .bind(assessment.outcome==="VERIFIED"?"VERIFIED":assessment.outcome==="REJECTED"?"REJECTED":"DISCOVERED",attemptId,evidenceRevision,assessment.outcome==="VERIFIED"?completed:null,Number(silentStage),silentStage?completed:null,candidate.watch_category==="30th_celebration"?"pokemon-30th":candidate.watch_category==="delta_reign"?"delta-reign":candidate.watch_category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main",completed,candidate.asin).run();
-  if(assessment.outcome==="VERIFIED") {
+  if(assessment.outcome==="VERIFIED"&&options.requestApproval!==false) {
     await env.SPAWN_DB.prepare("INSERT OR IGNORE INTO approval_notifications(evidence_revision,asin,verification_attempt_id,status,created_at) VALUES(?,?,?,'PENDING',?)").bind(evidenceRevision,candidate.asin,attemptId,completed).run();
     if(actor!=="verifier:early-asin")await deliverApprovalRequest(env,evidenceRevision,fetchFn).catch(()=>undefined);
   }

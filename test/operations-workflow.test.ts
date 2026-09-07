@@ -3,6 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import {generateKeyPair,SignJWT} from 'jose';
 import {handleFetch} from '../src/index';
+import {runAmazonVerification} from '../src/verification';
 import type {Env} from '../src/types';
 
 const keys=vi.hoisted(()=>({publicKey:undefined as unknown}));
@@ -31,6 +32,22 @@ beforeEach(()=>{
 afterEach(()=>sqlite.close());
 
 describe('operations workflow against the complete schema',()=>{
+  it('preserves administrator identity through combined publication and returns field errors as JSON',async()=>{
+    const asin='B0H27L3TKW',now=new Date().toISOString();
+    sqlite.prepare("INSERT INTO amazon_watchlist(asin,product_name,product_url,watch_category,language,source,first_discovered_at,last_discovered_at,updated_at) VALUES(?,?,?,'pokemon_tcg','unknown','test',?,?,?)")
+      .run(asin,'Mega Evolution sleeve booster',`https://www.amazon.com.mx/dp/${asin}`,now,now,now);
+    await runAmazonVerification(env,asin,owner,async()=>new Response(`Amazon ${asin}`));
+    // This adapter does not expose last_row_id; bind the fixture's immutable attempt explicitly.
+    sqlite.prepare('UPDATE amazon_watchlist SET verification_attempt_id=(SELECT MAX(id) FROM amazon_verification_attempts WHERE asin=?) WHERE asin=?').run(asin,asin);
+    const revision=String(sqlite.prepare('SELECT evidence_revision FROM amazon_watchlist WHERE asin=?').get(asin)!.evidence_revision);
+    const form={action:'approve_product',evidence_revision:revision,product_name:'Mega Evolution sleeve booster',set_name:'Mega Evolution',format:'Sleeved booster',language:'unknown',destination:'monitor',fulfilment_region_state:'DOMESTIC',retailer_country:'MX',ship_from_country:'MX'};
+    const invalid=await request(`/dashboard/verification/${asin}`,owner,{...form,set_name:''});invalid.headers.set('accept','application/json');
+    expect(await (await handleFetch(invalid,env)).json()).toMatchObject({ok:false,fields:{set_name:expect.any(String)}});
+    const valid=await request(`/dashboard/verification/${asin}`,owner,form);valid.headers.set('accept','application/json');
+    const result=await handleFetch(valid,env);expect(await result.json()).toMatchObject({ok:true});
+    expect(sqlite.prepare('SELECT decided_by FROM listing_publication_decisions ORDER BY id DESC LIMIT 1').get()).toMatchObject({decided_by:owner});
+    expect(sqlite.prepare("SELECT COUNT(*) n FROM amazon_catalog_decisions WHERE asin=? AND decided_by=?").get(asin,owner)!.n).toBe(2);
+  });
   it('renders every operator page with real queries and no shared secret',async()=>{
     for(const path of ['/ops','/approvals','/inventory','/dashboard','/ops/people','/ops/account','/ops/activity','/ops/vendors','/ops/health']){
       const res=await handleFetch(await request(path),env);const html=await res.text();

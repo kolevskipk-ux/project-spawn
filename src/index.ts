@@ -1,4 +1,5 @@
 import {resolveAmazonIdentity} from "./identity-review";
+import {prepareProductApproval,publishProductMonitoring} from './product-approval';
 import {AMAZON_CATALOG_SCHEMA_VERSION} from "./contracts/amazon-catalog.mjs";
 import {reviewErrorMessage} from './review-feedback';
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
@@ -183,6 +184,53 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=await request.formData(), action=String(form.get("action")||"");
   const asin=match[1].toUpperCase(), actor=operatorActor(request);
+  if(action==='approve_product'){
+    const owner=crypto.randomUUID(),resource=`product:${asin}`;
+    const lease=await env.SPAWN_DB.prepare('INSERT INTO ops_review_locks(resource,owner,expires_at) VALUES(?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE ops_review_locks.expires_at<?').bind(resource,owner,Date.now()+300_000,Date.now()).run();
+    if(lease.meta.changes!==1)return json({ok:false,error:'This product is being approved. Wait briefly and refresh.'},409);
+    try{
+    let candidate=await env.SPAWN_DB.prepare("SELECT c.* FROM monitoring_candidates c JOIN amazon_watchlist w ON w.asin=c.retailer_sku AND w.product_url=c.source_url WHERE w.asin=? AND c.status!='REJECTED' ORDER BY c.status,c.discovered_at LIMIT 1").bind(asin).first<Record<string,unknown>>();
+    // Validate delivery before recording identity or starting publication.
+    if(candidate?.status!=='ACCEPTED'){
+      const delivery=validateFulfilmentReview(form);
+      if(!delivery.ok)return json({ok:false,error:reviewErrorMessage(delivery.error)},400);
+    }
+    const prepared=await prepareProductApproval(env,asin,form,actor);
+    if(!prepared.ok)return json({...prepared,error:reviewErrorMessage(prepared.error),evidenceRevision:form.get('evidence_revision')},409);
+    if(!candidate){
+      const row=prepared.row,id=await sha256(`approval:${asin}`);
+      const existing=await env.SPAWN_DB.prepare('SELECT listing_key FROM inventory WHERE canonical_url=? LIMIT 1').bind(row.product_url).first<{listing_key:string}>();
+      await env.SPAWN_DB.prepare(`INSERT INTO monitoring_candidates(candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,language,retailer_sku,status,discovered_at,review_eligible,routing_key)
+        VALUES(?,'operator_review',?,?, 'Amazon México','amazon-mexico',?,?,'unknown',?,?,'PENDING',?,1,?) ON CONFLICT DO NOTHING`)
+        .bind(id,row.product_url,existing?.listing_key??id,row.product_name,row.watch_category,row.language,asin,row.first_discovered_at,row.routing_key_v2??row.routing_key).run();
+      candidate=await env.SPAWN_DB.prepare('SELECT * FROM monitoring_candidates WHERE candidate_id=?').bind(id).first<Record<string,unknown>>();
+    }
+    if(!candidate)return json({ok:false,error:'Listing changed. Refresh and try again.'},409);
+    if(candidate.status==='ACCEPTED'&&(candidate.language!==prepared.row.language||candidate.product_name!==prepared.row.product_name)){
+      await env.SPAWN_DB.batch([
+        env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET language=?,product_name=? WHERE candidate_id=? AND status='ACCEPTED'").bind(prepared.row.language,prepared.row.product_name,candidate.candidate_id),
+        env.SPAWN_DB.prepare('UPDATE inventory SET language=?,title=? WHERE listing_key=?').bind(prepared.row.language,prepared.row.product_name,candidate.source_listing_key)
+      ]);
+    }
+    if(candidate.status!=='ACCEPTED'){
+      await env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET product_name=?,language=?,review_eligible=1 WHERE candidate_id=? AND status='PENDING'")
+        .bind(prepared.row.product_name,prepared.row.language,candidate.candidate_id).run();
+      const publicationForm=new FormData();form.forEach((value,key)=>publicationForm.set(key,value));
+      publicationForm.set('action','publish');publicationForm.set('disposition','visibility_only');
+      const publicationUrl=new URL(`/dashboard/listing/${candidate.candidate_id}`,url);publicationUrl.searchParams.set('access',env.BOARD_ACCESS_TOKEN);
+      const published=await dashboardListingReview(request,publicationUrl,env,{form:publicationForm,actor});
+      if(!published||published.status!==303)return published??json({ok:false,error:'Inventory publication failed.'},409);
+    }
+    if(form.get('destination')==='monitor'){
+      const monitored=await publishProductMonitoring(env,asin,form,actor);
+      if(!monitored.ok)return json({ok:false,error:`Published to inventory. Catch still needs attention: ${reviewErrorMessage(monitored.error)}`,evidenceRevision:form.get('evidence_revision')},409);
+      await env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET disposition=? WHERE candidate_id=? AND status='ACCEPTED'").bind(form.get('cadence')==='5'?'five_minute':'hourly',candidate.candidate_id).run();
+    }else{
+      await env.SPAWN_DB.prepare('UPDATE amazon_watchlist SET staging_enabled=0 WHERE asin=? AND lifecycle_status!=\'PUBLISHED\'').bind(asin).run();
+    }
+    return json({ok:true,message:form.get('destination')==='monitor'?'Published to inventory · Catch acknowledgement pending.':prepared.row.lifecycle_status==='PUBLISHED'?'Published to inventory · Existing Catch monitoring retained.':'Published to inventory · Catch monitoring not requested.'});
+    }finally{await env.SPAWN_DB.prepare('DELETE FROM ops_review_locks WHERE resource=? AND owner=?').bind(resource,owner).run();}
+  }
   if(env.OPS_AUTH_MODE==='access' && action!=='verify') {
     const state=await env.SPAWN_DB.prepare('SELECT lifecycle_status FROM amazon_watchlist WHERE asin=?').bind(asin).first<{lifecycle_status:string}>();
     if(!state || state.lifecycle_status!==String(form.get('expected_state')??'')) return json({error:'review_changed_refresh_required'},409);
@@ -211,15 +259,15 @@ async function dashboardSeedCampaignReview(request:Request,url:URL,env:Env):Prom
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
-async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<Response|null> {
+async function dashboardListingReview(request:Request,url:URL,env:Env,review?:{form:FormData;actor:string}):Promise<Response|null> {
   const match=url.pathname.match(/^\/dashboard\/listing\/([a-f0-9]{64})$/i); if(!match) return null;
   if(!boardAuthorized(request,url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
-  const form=await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
+  const form=review?.form??await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
   if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
   const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
-  const actor=operatorActor(request),now=new Date().toISOString();
+  const actor=review?.actor??operatorActor(request),now=new Date().toISOString();
   if(action==="reject") await env.SPAWN_DB.batch([
     env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='REJECTED',reviewed_by=?,review_reason=?,reviewed_at=? WHERE candidate_id=? AND status='PENDING'").bind(actor,reason,now,match[1]),
     env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,reason,decided_by,decided_at) VALUES(?,'REJECTED',?,?,?)").bind(match[1],reason,actor,now)
@@ -246,6 +294,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env):Promise<R
       (listing_key,canonical_url,retailer,title,watch_category,retailer_sku,first_seen_at,last_seen_at,status,availability_state,price_mxn,language,language_evidence,last_change_type,print_series)
       VALUES(?,?,?,?,?,?,?,?,'unknown','unknown',NULL,?,?,'baseline',?)`)
       .bind(candidate.source_listing_key,candidate.source_url,candidate.vendor,candidate.product_name,"pokemon_tcg",candidate.retailer_sku,candidate.discovered_at,candidate.discovered_at,candidate.language,"Verified direct identity; availability requires Worker revalidation",candidate.print_series));
+    if(review)publicationStatements.push(env.SPAWN_DB.prepare('UPDATE inventory SET language=?,title=? WHERE listing_key=?').bind(candidate.language,candidate.product_name,candidate.source_listing_key));
     publicationStatements.push(env.SPAWN_DB.prepare("UPDATE inventory SET fulfilment_region_state=?,retailer_country=?,ship_from_country=?,original_price=?,original_currency=?,mexico_delivery_status=?,shipping_mxn=?,import_cost_status=?,destination_checked_at=?,destination_fresh_until=? WHERE listing_key=?").bind(fulfilment.value.state,fulfilment.value.retailerCountry,fulfilment.value.shipFromCountry,fulfilment.value.originalPrice,fulfilment.value.originalCurrency,fulfilment.value.mexicoDeliveryStatus,fulfilment.value.shippingMxn,fulfilment.value.importCostStatus,fulfilment.value.checkedAt,fulfilment.value.freshUntil,candidate.source_listing_key));
     const category=String(candidate.watch_category),storedRoute=String(candidate.routing_key??""),routingKey=["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"].includes(storedRoute)?storedRoute:category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
     const eventPayload={schema_version:2,event_id:match[1],event_type:"LISTING_PUBLISHED",source_owner:"spawn",listing_key:candidate.source_listing_key,product_name:candidate.product_name,product_language:candidate.language,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null,fulfilment_region_state:fulfilment.value.state,retailer_country:fulfilment.value.retailerCountry,ship_from_country:fulfilment.value.shipFromCountry,original_price:fulfilment.value.originalPrice,original_currency:fulfilment.value.originalCurrency,mexico_delivery_status:fulfilment.value.mexicoDeliveryStatus,shipping_mxn:fulfilment.value.shippingMxn,import_cost_status:fulfilment.value.importCostStatus,destination_checked_at:fulfilment.value.checkedAt,destination_fresh_until:fulfilment.value.freshUntil};
@@ -405,7 +454,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     const location=result.headers.get('location');
     if(location){const destination=new URL(location,url);destination.searchParams.delete('access');const headers=new Headers(result.headers);headers.set('location',destination.toString());return new Response(result.body,{status:result.status,headers});}
     if(result.headers.get('content-type')?.includes('text/html')) return new Response(wrapExistingPage(await result.text(),operator,browserEnv,url.pathname),{status:result.status,headers:operationsHeaders()});
-    if(result.status>=400){const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?reviewErrorMessage(payload.error):'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
+    if(result.status>=400){if(request.headers.get('accept')==='application/json'&&result.headers.get('content-type')?.includes('application/json'))return result;const payload=await result.json().catch(()=>({})) as {error?:string};return operationsError(payload.error?reviewErrorMessage(payload.error):'The request could not be completed. Refresh and check the latest record before trying again.',result.status,operator,browserEnv);}
     return result;
   } catch {
     return operationsError('The workspace could not complete this request. Check the latest activity before retrying an action, or refresh this page in a moment.',503,operator,browserEnv);

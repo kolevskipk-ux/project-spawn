@@ -3,9 +3,24 @@ import {runInNewContext} from 'node:vm';
 import {validateFulfilmentReview} from '../src/cross-border';
 import {renderApprovals} from '../src/dashboard';
 import {reviewErrorMessage} from '../src/review-feedback';
+import {productApprovalScript} from '../src/product-approval-card';
 
 const data={verification_queue:[],listing_queue:[{candidate_id:'a'.repeat(64),product_name:'Sample',source_url:'https://example.test'}],spawn:{}};
 describe('approval feedback',()=>{
+  it('retains entries and permits retry after an inline error',async()=>{
+    const feedback={textContent:''},button={disabled:false,textContent:'Approve product'},error={textContent:''};
+    let submit=async(_event:unknown)=>{};
+    const form={action:'/dashboard/verification/B0H27L3TKW',dataset:{} as Record<string,string>,elements:{evidence_revision:{value:'old'},product_name:{value:'My corrected product'}},
+      addEventListener:(_event:string,handler:typeof submit)=>{submit=handler;},querySelectorAll:()=>[error],
+      querySelector:(selector:string)=>({'button[type=submit]':button,'[data-product-feedback]':feedback,'[data-error-for="set_name"]':error}[selector]??null)};
+    let result:Record<string,unknown>={ok:false,error:'Confirm the set.',fields:{set_name:'Set is required'},evidenceRevision:'new'};
+    runInNewContext(productApprovalScript,{document:{querySelectorAll:()=>[form]},FormData:class {},fetch:async()=>({json:async()=>result})});
+    await submit({preventDefault(){}});
+    expect(form.elements.product_name.value).toBe('My corrected product');expect(form.elements.evidence_revision.value).toBe('new');
+    expect(error.textContent).toBe('Set is required');expect(button.disabled).toBe(false);
+    result={ok:true,message:'Published to inventory · Catch acknowledgement pending.'};await submit({preventDefault(){}});
+    expect(button.disabled).toBe(true);expect(feedback.textContent).toContain('acknowledgement pending');
+  });
   it.each([
     ['DISCOVERED','REVIEW_REQUIRED',1,false,false],
     ['DISCOVERED',null,null,false,false],
@@ -14,11 +29,11 @@ describe('approval feedback',()=>{
     ['APPROVED','VERIFIED',1,false,true],
   ])('offers valid Amazon actions for %s / %s', (state,outcome,attempt,approve,publish)=>{
     const html=renderApprovals({...data,listing_queue:[],verification_queue:[{asin:'B0H27L3TKW',product_name:'Pokemon TCG',lifecycle_status:state,verification_outcome:outcome,verification_attempt_id:attempt,unresolved_questions:'language evidence missing'}]} as never,'');
-    expect(html.includes('name="action" value="approve"')).toBe(approve);
-    expect(html.includes('name="action" value="publish"')).toBe(publish);
-    expect(html.includes('name="action" value="reject"')).toBe(Boolean(attempt));
-    if(state==='DISCOVERED')expect(html).toContain('Approval requires a successful independent verification.');
-    if(state==='APPROVED')expect(html).toContain('Use Publish to Catch');
+    expect(html).toContain('name="action" value="approve_product"');
+    expect(html).toContain('Approve product');
+    expect(html).not.toContain('Save identity review');
+    expect(html).not.toContain('Publish to Catch');
+    expect(html).toContain('name="destination"');
   });
   it('requires international fields only when international delivery is selected',()=>{
     const html=renderApprovals(data as never,'');
@@ -27,7 +42,7 @@ describe('approval feedback',()=>{
     const retailer={value:'MX'},ship={value:'MX'},approve={disabled:false},note={hidden:false};
     let change=()=>{};
     const card={querySelector:(selector:string)=>({'[data-fulfilment-select]':select,'[data-approve]':approve,'[data-blocking-note]':note,'[name=retailer_country]':retailer,'[name=ship_from_country]':ship}[selector]),querySelectorAll:(selector:string)=>selector==='[data-international-required]'?inputs:[]};
-    runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)![1],{document:{querySelectorAll:()=>[card]}});
+    runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)![1],{document:{querySelectorAll:(selector:string)=>selector==='[data-approval-card]'?[card]:[]}});
     expect(approve.disabled).toBe(true);
     select.value='CROSS_BORDER_CONFIRMED';change();
     expect(inputs.every(input=>input.required&&!input.disabled)).toBe(true);

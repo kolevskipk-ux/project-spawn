@@ -41,6 +41,49 @@ function resolution(language='spanish'){
 async function reviewInput(){const row=db.prepare('SELECT verification_attempt_id,evidence_revision FROM amazon_watchlist WHERE asin=?').get(asin)!;return {attemptId:Number(row.verification_attempt_id),evidenceRevision:String(row.evidence_revision),reason:'Approved monitoring in isolated rehearsal',lane:'normal' as const,routingKey:'pokemon-main' as const};}
 
 describe('baseline rehearsal: real schema, Spawn decisions, Catch contract and fake Discord',()=>{
+  async function approveProduct(destination='monitor',overrides:Record<string,string>={}){
+    env.BOARD_ACCESS_TOKEN='test-board';
+    const row=db.prepare('SELECT evidence_revision FROM amazon_watchlist WHERE asin=?').get(asin)!;
+    const form=new FormData();
+    for(const [key,value] of Object.entries({action:'approve_product',evidence_revision:String(row.evidence_revision??''),destination,product_name:'Mega Evolution sleeve booster',set_name:'Mega Evolution',format:'Sleeved booster',language:'unknown',fulfilment_region_state:'DOMESTIC',retailer_country:'MX',ship_from_country:'MX',...overrides}))form.set(key,value);
+    return handleFetch(new Request(`https://spawn.test/dashboard/verification/${asin}?access=test-board`,{method:'POST',body:form,headers:{accept:'application/json'}}),env);
+  }
+  it.each(['visibility_only','monitor'])('approves %s in one action with one inventory event',async(destination)=>{
+    await verify();
+    const response=await approveProduct(destination);expect(await response.json()).toMatchObject({ok:true});
+    expect(db.prepare('SELECT status,language FROM monitoring_candidates WHERE retailer_sku=?').get(asin)).toMatchObject({status:'ACCEPTED',language:'unknown'});
+    expect(db.prepare('SELECT lifecycle_status FROM amazon_watchlist WHERE asin=?').get(asin)?.lifecycle_status).toBe(destination==='monitor'?'PUBLISHED':'VERIFIED');
+    const count=db.prepare('SELECT COUNT(*) n FROM customer_inventory_events').get()!.n;
+    expect(await (await approveProduct(destination)).json()).toMatchObject({ok:true});
+    expect(db.prepare('SELECT COUNT(*) n FROM customer_inventory_events').get()!.n).toBe(count);
+  });
+  it('blocks bad delivery, identity and stale evidence without publishing',async()=>{
+    await verify();
+    expect((await approveProduct('monitor',{ship_from_country:''})).status).toBe(400);
+    expect(await (await approveProduct('monitor',{set_name:''})).json()).toMatchObject({ok:false,fields:{set_name:expect.any(String)}});
+    expect(await (await approveProduct('monitor',{evidence_revision:'old'})).json()).toMatchObject({ok:false,error:expect.stringContaining('changed')});
+    expect(db.prepare('SELECT COUNT(*) n FROM monitoring_candidates WHERE retailer_sku=?').get(asin)!.n).toBe(0);
+  });
+  it('does not approve a robot-blocked listing',async()=>{
+    await verify(`Amazon Robot Check ${asin}`);
+    expect(await (await approveProduct()).json()).toMatchObject({ok:false});
+    expect(db.prepare('SELECT COUNT(*) n FROM amazon_catalog_decisions WHERE asin=?').get(asin)!.n).toBe(0);
+  });
+  it('refreshes stale verification without sending or queueing an approval request',async()=>{
+    await verify();
+    db.prepare('UPDATE amazon_verification_attempts SET completed_at=? WHERE asin=?').run(new Date(Date.now()-40*3_600_000).toISOString(),asin);
+    const network=vi.fn(async()=>new Response(`Amazon ${asin}`));vi.stubGlobal('fetch',network);
+    expect(await (await approveProduct()).json()).toMatchObject({ok:true});
+    expect(network).toHaveBeenCalledTimes(1);
+    expect(db.prepare('SELECT COUNT(*) n FROM amazon_verification_attempts WHERE asin=?').get(asin)!.n).toBe(3);
+    expect(db.prepare('SELECT COUNT(*) n FROM approval_notifications WHERE asin=?').get(asin)!.n).toBe(0);
+  });
+  it('serializes simultaneous combined submissions',async()=>{
+    await verify();
+    const responses=await Promise.all([approveProduct(),approveProduct()]);
+    expect(responses.filter(response=>response.status===200)).toHaveLength(1);
+    expect(db.prepare('SELECT COUNT(*) n FROM listing_publication_decisions').get()!.n).toBe(1);
+  });
   it.each(['spanish','japanese','unknown'])('preserves %s through resolution, approval, publication and delivery',async(language)=>{
     const before=db.prepare("SELECT asin,canonical_product_id FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY asin").all();
     await verify();
