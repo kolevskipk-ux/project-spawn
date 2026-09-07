@@ -1,0 +1,173 @@
+{
+  "generated_at": "2026-09-07T23:04:27.312Z",
+  "scope": "Local source and isolated tests; deployed production state is NOT verified",
+  "contract": {
+    "schema_version": 2,
+    "sha256": "29024e0560a65261926d84a70e39bd1025160210e79e4c42d9aa673493b8c5b3"
+  },
+  "spawn": {
+    "commit": "a5e3328347f6e1c639c024a8a71c6e65b90f966e",
+    "working_tree_dirty": true,
+    "name": "project-spawn",
+    "entrypoint": "src/index.ts",
+    "crons": [
+      "5 * * * *"
+    ],
+    "flags": {
+      "INVENTORY_REVALIDATION_ENABLED": "false",
+      "AMAZON_ENRICHMENT_ENABLED": "false",
+      "AMAZON_ENRICHMENT_BATCH_SIZE": "1",
+      "INVENTORY_REVALIDATION_BATCH_SIZE": "2",
+      "INVENTORY_REVALIDATION_TARGET_HOURS": "24",
+      "INVENTORY_FRESHNESS_HOURS": "36",
+      "SEED_VERIFICATION_ENABLED": "true",
+      "SEED_VERIFICATION_BATCH_SIZE": "2"
+    },
+    "keep_vars": false,
+    "binding_names": [
+      "SPAWN_DB",
+      "CUSTOMER_DB"
+    ],
+    "config_sha256": "baafc290fab58d017a1411a111754a682e6664d199b2fe1ce86252d7ef99500c"
+  },
+  "catch": {
+    "commit": "3052a8a7ad8ff238f92ba2fd5bf7da05e6744be3",
+    "working_tree_dirty": true,
+    "name": "pokemon30th-discord-monitor",
+    "entrypoint": "src/worker.js",
+    "crons": [
+      "0-2 * * * *",
+      "* * * * *",
+      "0 * * * *"
+    ],
+    "flags": {
+      "AMAZON_CADENCE_ROLLOUT_MODE": "full",
+      "CUSTOMER_EVENT_DELIVERY_ENABLED": "true",
+      "DAILY_HUNT_DIGEST_ENABLED": "true"
+    },
+    "keep_vars": true,
+    "binding_names": [
+      "STATE"
+    ],
+    "config_sha256": "b39f610773dee2777a461bc6bc9b53b2a99a631ac493d005e0ecd5deee471dab"
+  },
+  "migrations": [
+    {
+      "name": "0001_initial.sql",
+      "sha256": "11b6fb3e8911c561bc1fa3ed4b3587fec140f335ce847e7968000bdcb611b4c1"
+    },
+    {
+      "name": "0002_inventory_feedback.sql",
+      "sha256": "4ebca346faa5c3bfe91db265199570c2cee601277e1a348267ee8acffb907ffe"
+    },
+    {
+      "name": "0003_product_catalog.sql",
+      "sha256": "6b5d101a8951f53c3c77d18804cf8c2097f1090edcb8c053c7a5e3a70bdb9ed8"
+    },
+    {
+      "name": "0004_security_framework.sql",
+      "sha256": "610ca212acadb1c63c7ce32d5cfd2a44185ecf1dde2f406b6906e8e38455d129"
+    },
+    {
+      "name": "0005_benchmark_candidates.sql",
+      "sha256": "fef665e70841360b1aff01266d3cbadf66f82e54e0f565eef2491f03adddc4e3"
+    },
+    {
+      "name": "0006_garfield_shared_state.sql",
+      "sha256": "7f13ac59d1b76222a67f3d00d209cf5fb7ff5375de54f3e66309d3a3a8eafd19"
+    },
+    {
+      "name": "0007_product_identity.sql",
+      "sha256": "1cf49d2f19d8cb63067edc4e80ea8191f07e7ae6f067da6d929d039ec3fb09d8"
+    },
+    {
+      "name": "0008_amazon_watchlist.sql",
+      "sha256": "e58b1ffb346e10fef97f39d3cc1b0868dd316dedfca86d25584bc525681be64a"
+    },
+    {
+      "name": "0009_release_feedback_and_availability.sql",
+      "sha256": "8f53ab3fe533c2d776af23d1bb41741d0a1540db2fe8736a9d8c0f95e96dc315"
+    },
+    {
+      "name": "0010_mtg_hobbit_pilot.sql",
+      "sha256": "bde7406cae7323228ba8ca324a3cd1c274ef2694ad8235a0d5af0012bc6e1799"
+    },
+    {
+      "name": "0011_magic_hobbit_amazon_watch.sql",
+      "sha256": "0e0d631cfe0bf2a23e36a619b1bebb4ccd998282c9aa317b4950accd8e8da393"
+    },
+    {
+      "name": "0012_published_amazon_catalog.sql",
+      "sha256": "9d3fef532fe2e60ba9e27dd3098660327e71df7b3d397d16a5b8a75eea9e3ce6"
+    },
+    {
+      "name": "0013_amazon_verification_bridge.sql",
+      "sha256": "cc661f765d6fa6e41b1c7353a5c9f74948babdf03aaab0009a74e115f1bd2d2c"
+    },
+    {
+      "name": "0014_approval_notifications.sql",
+      "sha256": "03f30a74124f65cdf49036692a364c362296b86af437c84b53ec98c8c3f46dbb"
+    },
+    {
+      "name": "0015_customer_discovery_publication.sql",
+      "sha256": "401f4296fbe620727547989ba8dbec1f4b674d61460c179d0c9eb41d24d3d66b"
+    },
+    {
+      "name": "0016_discovery_approval_notifications.sql",
+      "sha256": "7cae5f059f9df07f1a0f1ec99acbdd137272296e9d01d84f6e73b61552aca473"
+    },
+    {
+      "name": "0017_explicit_routing_and_staging.sql",
+      "sha256": "74795e23dcc128733947d8dde16d4b9238617df1a7111229f300308f4dbb23df"
+    },
+    {
+      "name": "0018_seed_campaigns_and_revalidation.sql",
+      "sha256": "5309a89ff30a07aa1172b8c245c138143dd05c50ba9976294ce3158e4bf838c3"
+    },
+    {
+      "name": "0019_pricing_reference_audit.sql",
+      "sha256": "8510f6e96bfa9fa6fc6a0796ba4a4b7d4770ee6f6e22ad382864bf67aab62277"
+    },
+    {
+      "name": "0020_complete_pricing_catalog.sql",
+      "sha256": "585ca63099bee81ea54140a90b3bfcebef174b3f7c00668fb6bd1b761099ed2a"
+    },
+    {
+      "name": "0021_catch_inventory_observations.sql",
+      "sha256": "50d872dd964626d13ef233ba3c8831dc611b96b5abbd1873488890d5589a3b59"
+    },
+    {
+      "name": "0022_availability_enrichment_boundary.sql",
+      "sha256": "9b39275807ae08f17b21d9760ae02ba9943dc83134d232348a8dd8a6d3f2355d"
+    },
+    {
+      "name": "0023_cross_border_inventory.sql",
+      "sha256": "5ea6ecaa463281699efdf14e8291ae772a097a3b79b83c6454b22b31c85a070e"
+    },
+    {
+      "name": "0024_seed_campaign_publication.sql",
+      "sha256": "45ee76c6ba9fdc1772e8e54159383a1a7c125fe48b789215e77b98a87fb31fd8"
+    },
+    {
+      "name": "0025_operations_members.sql",
+      "sha256": "5623c23f3c04ed4ed6d62459dc8e77f8741c5aae5bb8233f6f6d2cfc18e983bf"
+    },
+    {
+      "name": "0026_operations_review_locks.sql",
+      "sha256": "f921a93dad5f2ec128d2fe9289d0ce8e5f3d7f4d4aaa2181266cc415f3b261de"
+    }
+  ],
+  "tests": "passed: Spawn typecheck and complete suite, Catch suites, shared contract parity, isolated cross-Worker rehearsal",
+  "production_approval_required": [
+    "Worker deployment",
+    "Any database migration",
+    "Any schedule or delivery activation"
+  ],
+  "production_checks_pending": [
+    "Exact deployed revisions and effective vars (Catch uses keep_vars)",
+    "Applied migration list",
+    "Required binding presence without secret values",
+    "Freshness and capacity telemetry",
+    "Duplicate-delivery behavior under concurrent invocations"
+  ]
+}

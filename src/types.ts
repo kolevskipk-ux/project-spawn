@@ -44,7 +44,7 @@ export interface Listing {
   status: "available" | "sold_out" | "unknown";
   availability_state?: "available" | "sold_out" | "unknown" | "preorder_placeholder";
   price_mxn: number | null;
-  language: "english" | "spanish" | "bilingual" | "japanese" | "chinese" | "unknown";
+  language: "english" | "spanish" | "bilingual" | "japanese" | "chinese" | "korean" | "french" | "german" | "italian" | "portuguese" | "other" | "unknown";
   language_evidence: string;
   msrp_mxn: number | null;
   msrp_source_url: string | null;

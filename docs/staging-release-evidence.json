@@ -1,0 +1,62 @@
+{
+  "recorded_at": "2026-09-07T23:13:46.129Z",
+  "production_configuration_unchanged": true,
+  "source_digests": {
+    "spawn": {
+      "file_count": 36,
+      "sha256": "fc3846dcdeaec14c3f1b6858b67b2c74d67c4425a6cca3f3366acdabe9387110"
+    },
+    "catch": {
+      "file_count": 3,
+      "sha256": "d02935cbfd8c66bd5ae1bdd5c051cb2f6d8bc760efb5549addf5c0453b357a2d"
+    }
+  },
+  "development_versions": [
+    {
+      "name": "project-spawn-dev",
+      "version_id": "28bc4f22-3b51-4de9-a21d-2165a38add26"
+    },
+    {
+      "name": "catch-em-all",
+      "version_id": "1b90922c-0fa8-4768-87fc-7fa4374aa47f"
+    }
+  ],
+  "temporary_resources_deleted": {
+    "worker": "garfield-baseline-rehearsal-20260907",
+    "database_id": "9bbb7b48-03e2-4a4e-a6d6-9e24a9f579dd"
+  },
+  "runtime_rehearsal": {
+    "ok": true,
+    "executed_at": "2026-09-07T23:12:12.011Z",
+    "runtime": "Deployed Cloudflare Worker with isolated remote D1",
+    "results": [
+      {
+        "language": "spanish",
+        "approval_winners": 1,
+        "publication_winners": 1,
+        "catalog_version_increment": 1,
+        "inventory_language": "spanish",
+        "fake_delivery_count": 1
+      },
+      {
+        "language": "japanese",
+        "approval_winners": 1,
+        "publication_winners": 1,
+        "catalog_version_increment": 1,
+        "inventory_language": "japanese",
+        "fake_delivery_count": 1
+      },
+      {
+        "language": "unknown",
+        "approval_winners": 1,
+        "publication_winners": 1,
+        "catalog_version_increment": 1,
+        "inventory_language": "unknown",
+        "fake_delivery_count": 1
+      }
+    ],
+    "baseline_preserved": true,
+    "real_retailer_requests": 0,
+    "real_discord_requests": 0
+  }
+}

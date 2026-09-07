@@ -1,3 +1,5 @@
+import {resolveAmazonIdentity} from "./identity-review";
+import {AMAZON_CATALOG_SCHEMA_VERSION} from "./contracts/amazon-catalog.mjs";
 import {reviewErrorMessage} from './review-feedback';
 import { RESPONSE_SCHEMA, SCAN_INSTRUCTIONS } from "./config";
 import { boardHeaders, boardRows, catchHuntSnapshot, renderBoard } from "./board";
@@ -134,13 +136,13 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
       env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,COALESCE(routing_key_v2,routing_key) routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
     ]);
-    return json({schema_version:1,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
+    return json({schema_version:AMAZON_CATALOG_SCHEMA_VERSION,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
   }
   if(request.method==="GET"&&url.pathname==="/internal/garfield/amazon-staging"){
     const rows=await env.SPAWN_DB.prepare(`SELECT w.asin,a.canonical_product_id,w.product_name,w.product_url,w.watch_category,w.language,'HIGH' priority,'normal' lane,60 poll_interval_minutes,COALESCE(w.routing_key_v2,w.routing_key) routing_key,0 alert_on_initial_buyable,w.staged_at,w.evidence_revision
       FROM amazon_watchlist w JOIN amazon_verification_attempts a ON a.id=w.verification_attempt_id
       WHERE w.lifecycle_status='VERIFIED' AND w.staging_enabled=1 AND a.outcome='VERIFIED' AND w.watch_category IN ('30th_celebration','delta_reign') ORDER BY w.staged_at,w.asin`).all();
-    return json({schema_version:1,generated_at:new Date().toISOString(),watchlist:rows.results});
+    return json({schema_version:AMAZON_CATALOG_SCHEMA_VERSION,generated_at:new Date().toISOString(),watchlist:rows.results});
   }
   if (request.method === "GET" && url.pathname === "/internal/garfield/listing-publications") {
     const [version,rows]=await Promise.all([
@@ -187,6 +189,7 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
   }
   let result;
   if(action==="verify") result=await runAmazonVerification(env,asin,actor);
+  else if(action==="resolve") result=await resolveAmazonIdentity(env,asin,{attemptId:Number(form.get("attempt_id")),evidenceRevision:String(form.get("evidence_revision")||""),productName:String(form.get("product_name")||""),setName:String(form.get("set_name")||""),format:String(form.get("format")||""),language:String(form.get("language")||""),evidenceUrl:String(form.get("evidence_url")||""),reason:String(form.get("reason")||""),acknowledgeUnknown:form.get("acknowledge_unknown")==="on"},actor);
   else if(["approve","reject","publish"].includes(action)) result=await reviewAmazonCandidate(env,asin,action as ReviewAction,{
     attemptId:Number(form.get("attempt_id")), evidenceRevision:String(form.get("evidence_revision")||""), reason:String(form.get("reason")||""),
     lane:String(form.get("lane")||"") as "priority"|"normal", routingKey:String(form.get("routing_key")||"") as "pokemon-main"|"pokemon-30th"|"delta-reign"|"magic-hobbit",

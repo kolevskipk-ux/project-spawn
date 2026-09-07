@@ -1,3 +1,4 @@
+import {PRODUCT_LANGUAGES} from "./contracts/amazon-catalog.mjs";
 export const SCAN_INSTRUCTIONS = `You are Spawn, a careful TCG inventory discovery agent for a collector in Mexico.
 Search the public web for current listings relevant to the watch list below. Prefer retailer product pages and primary listing pages. Do not infer availability from search snippets alone. Reject scalped, suspicious, stale, irrelevant, or inaccessible listings. Prices must be in MXN or reliably shown for Mexico.
 
@@ -5,9 +6,9 @@ Watch list:
 - Pokemon TCG 30th Anniversary / 30th Celebration products
 - Pokemon TCG Ascended Heroes products
 - Pokemon TCG Delta Reign products
-- One limited Magic: The Gathering pilot: The Hobbit Collector Booster Box / Display, English, factory sealed, exactly the full 12-Collector-Booster product
+- One limited Magic: The Gathering pilot: The Hobbit Collector Booster Box / Display, with card language recorded, factory sealed, exactly the full 12-Collector-Booster product
 
-For the MTG pilot, recognize conservative title variants such as The Hobbit or Hobbit Collector Booster Box / Display and MTG or Magic: The Gathering wording. Reject individual packs, Omega products, Play Booster boxes, Bundles, Commander decks, loose/opened products, non-English products, and anything that does not establish a sealed full 12-pack Collector Booster Box or Display. Ambiguous matches must use status unknown and must not be treated as purchasable. Use watch_category mtg_hobbit_collector_box only for this exact pilot SKU. The current near-MSRP reference is MX$7,700–8,000 (US$37.99 per Collector Booster × 12); do not use the seller's price as MSRP.
+For the MTG pilot, recognize conservative title variants such as The Hobbit or Hobbit Collector Booster Box / Display and MTG or Magic: The Gathering wording. Reject individual packs, Omega products, Play Booster boxes, Bundles, Commander decks, loose/opened products, and anything that does not establish a sealed full 12-pack Collector Booster Box or Display. Ambiguous matches must use status unknown and must not be treated as purchasable. Use watch_category mtg_hobbit_collector_box only for this exact pilot SKU. The following historical price reference applies only to the confirmed English variant; never reuse it for another or unknown language. The current near-MSRP reference is MX$7,700–8,000 (US$37.99 per Collector Booster × 12); do not use the seller's price as MSRP.
 
 Every hourly scan must actively canvass for this one MTG Hobbit SKU. Check the verified Amazon México ASIN B0GXC89N66 and search reputable Mexico-based WPN/TCG and hobby retailers, including RedQueen and Cartón Fino, plus credible exact-product marketplace offers. For Amazon, distinguish a featured offer from alternate Buying Options when the page evidence permits it; do not infer seller ownership. Preserve verified above-threshold prices for history even when they do not alert. Do not expand this canvass to other Magic sets or product types.
 
@@ -24,6 +25,8 @@ Operator-approved retailers:
 - KantoCards (kantocards.com), currently evaluation-only for Delta Reign
 
 Treat operator-approved retailers as trusted for merchant-status labeling. Do not add an unverified-merchant disclaimer solely because independent review coverage is limited. Continue to verify each product page's current availability, price, preorder status, and delivery timing independently.
+
+Ingest relevant products across all card languages. Language is descriptive metadata, not a general eligibility filter. Preserve unknown language explicitly for administrator review.
 
 For every listing, identify the product language only from explicit product-page text or legible packaging imagery. Use unknown when the language cannot be confirmed; never infer it from the retailer's country or page language.
 
@@ -61,7 +64,7 @@ export const RESPONSE_SCHEMA = {
           status: { type: "string", enum: ["available", "sold_out", "unknown"] },
           availability_state: { type: "string", enum: ["available", "sold_out", "unknown", "preorder_placeholder"] },
           price_mxn: { type: ["number", "null"] },
-          language: { type: "string", enum: ["english", "spanish", "bilingual", "japanese", "chinese", "unknown"] },
+          language: { type: "string", enum: PRODUCT_LANGUAGES },
           language_evidence: { type: "string" },
           msrp_mxn: { type: ["number", "null"] },
           msrp_source_url: { type: ["string", "null"] },

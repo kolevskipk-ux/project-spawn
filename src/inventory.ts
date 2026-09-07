@@ -114,7 +114,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
 
   const statements: D1PreparedStatement[] = [];
   for (const group of chunks(prepared, D1_MULTI_ROW_BATCHES.inventory.rowsPerStatement)) {
-    const values = group.map(() => `(${INVENTORY_COLUMNS.map(() => "?").join(", ")})`).join(",");
+    const values = group.map(() => `(${INVENTORY_COLUMNS.map(column => column === "product_id" ? "(SELECT id FROM products WHERE id=?)" : "?").join(", ")})`).join(",");
     const bindings = group.flatMap((item) => {
       const change = changes.find((candidate) => candidate.listingKey === item.listingKey)!;
       const old = previous.get(item.listingKey);
@@ -131,7 +131,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
       price_mxn=CASE WHEN excluded.availability_state='preorder_placeholder' THEN inventory.price_mxn ELSE COALESCE(excluded.price_mxn, inventory.price_mxn) END,
       language=excluded.language, language_evidence=excluded.language_evidence, msrp_mxn=excluded.msrp_mxn,
       msrp_source_url=excluded.msrp_source_url, last_change_type=excluded.last_change_type, print_series=excluded.print_series,
-      product_id=COALESCE(excluded.product_id, inventory.product_id)`).bind(...bindings));
+      product_id=CASE WHEN excluded.language=inventory.language THEN COALESCE(excluded.product_id, inventory.product_id) ELSE excluded.product_id END`).bind(...bindings));
   }
   for (const group of chunks(changes, D1_MULTI_ROW_BATCHES.inventoryObservations.rowsPerStatement)) {
     const values = group.map(() => `(${OBSERVATION_COLUMNS.map(() => "?").join(", ")})`).join(",");
@@ -142,7 +142,7 @@ export async function updateInventory(env: Env, scanId: string, listings: Listin
   }
   statements.push(env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('inventory_initialized', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
     .bind(JSON.stringify({ scan_id: scanId, listings: prepared.length }), observedAt));
-  statements.push(env.SPAWN_DB.prepare(`UPDATE inventory SET product_id=(SELECT p.id FROM products p WHERE lower(trim(p.canonical_name))=lower(trim(inventory.title)) AND p.watch_category=inventory.watch_category LIMIT 1) WHERE product_id IS NULL`));
+  statements.push(env.SPAWN_DB.prepare(`UPDATE inventory SET product_id=(SELECT p.id FROM products p WHERE lower(trim(p.canonical_name))=lower(trim(inventory.title)) AND p.watch_category=inventory.watch_category AND p.language=inventory.language AND inventory.language NOT IN ('unknown','other') LIMIT 1) WHERE product_id IS NULL`));
   for (const item of prepared) {
     const asin = amazonAsin(item.canonicalUrl);
     if (!asin) continue;

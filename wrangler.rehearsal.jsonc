@@ -1,0 +1,14 @@
+{
+  "name": "garfield-baseline-rehearsal-20260907",
+  "main": "test/remote-rehearsal-worker.ts",
+  "compatibility_date": "2026-08-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "triggers": {"crons": []},
+  "d1_databases": [{
+    "binding": "SPAWN_DB",
+    "database_name": "garfield-baseline-rehearsal-20260907",
+    "database_id": "9bbb7b48-03e2-4a4e-a6d6-9e24a9f579dd",
+    "migrations_dir": "migrations"
+  }]
+}

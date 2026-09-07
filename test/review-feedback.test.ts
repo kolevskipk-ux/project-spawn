@@ -6,6 +6,20 @@ import {reviewErrorMessage} from '../src/review-feedback';
 
 const data={verification_queue:[],listing_queue:[{candidate_id:'a'.repeat(64),product_name:'Sample',source_url:'https://example.test'}],spawn:{}};
 describe('approval feedback',()=>{
+  it.each([
+    ['DISCOVERED','REVIEW_REQUIRED',1,false,false],
+    ['DISCOVERED',null,null,false,false],
+    ['VERIFIED','REVIEW_REQUIRED',1,false,false],
+    ['VERIFIED','VERIFIED',1,true,false],
+    ['APPROVED','VERIFIED',1,false,true],
+  ])('offers valid Amazon actions for %s / %s', (state,outcome,attempt,approve,publish)=>{
+    const html=renderApprovals({...data,listing_queue:[],verification_queue:[{asin:'B0H27L3TKW',product_name:'Pokemon TCG',lifecycle_status:state,verification_outcome:outcome,verification_attempt_id:attempt,unresolved_questions:'language evidence missing'}]} as never,'');
+    expect(html.includes('name="action" value="approve"')).toBe(approve);
+    expect(html.includes('name="action" value="publish"')).toBe(publish);
+    expect(html.includes('name="action" value="reject"')).toBe(Boolean(attempt));
+    if(state==='DISCOVERED')expect(html).toContain('Approval requires a successful independent verification.');
+    if(state==='APPROVED')expect(html).toContain('Use Publish to Catch');
+  });
   it('requires international fields only when international delivery is selected',()=>{
     const html=renderApprovals(data as never,'');
     const inputs=Array.from({length:4},()=>({required:false,disabled:false}));

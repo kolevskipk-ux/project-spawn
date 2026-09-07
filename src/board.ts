@@ -1,3 +1,4 @@
+import {PRODUCT_LANGUAGES,languageLabel} from "./contracts/amazon-catalog.mjs";
 import type { Env } from "./types";
 import { printSeries } from "./garfield";
 import {compareReferences,type ReferenceProduct} from './reference-comparison';
@@ -140,7 +141,7 @@ const label = (value: string) => ({
   "30th_celebration": "30th Celebration", ascended_heroes: "Ascended Heroes",
   english: "English", spanish: "Spanish", bilingual: "Bilingual", japanese: "Japanese", chinese: "Chinese", unknown: "Unconfirmed",
   available: "Available", sold_out: "Sold out", baseline: "Baseline", new: "New", restock: "Restock", price_drop: "Price drop", unchanged: "Unchanged"
-})[value] ?? value;
+})[value] ?? (PRODUCT_LANGUAGES.includes(value)?languageLabel(value):value);
 
 const money = (value: number | null) => value == null ? "Price unavailable" : `$${Math.round(value).toLocaleString("en-US")} MXN`;
 
@@ -227,7 +228,7 @@ body{margin:0;background:radial-gradient(circle at 80% -10%,#30421b 0,transparen
 <select id="store" aria-label="Filter by store"><option value="">All stores</option>${stores.map(([value, name]) => `<option value="${escapeHtml(value)}">${escapeHtml(name)}</option>`).join("")}</select>
 <select id="status" aria-label="Filter by status"><option value="">All statuses</option><option value="available">Available</option><option value="sold_out">Sold out</option><option value="unknown">Unknown</option></select>
 <select id="set" aria-label="Filter by set"><option value="">All sets</option>${sets.map(([value,name])=>`<option value="${escapeHtml(value)}">${escapeHtml(name)}</option>`).join('')}</select>
-<select id="language" aria-label="Filter by language"><option value="">All languages</option><option value="english">English</option><option value="spanish">Spanish</option><option value="bilingual">Bilingual</option><option value="japanese">Japanese</option><option value="chinese">Chinese</option><option value="unknown">Unconfirmed</option></select>
+<select id="language" aria-label="Filter by language"><option value="">All languages</option>${PRODUCT_LANGUAGES.map(language=>`<option value="${language}">${languageLabel(language)}</option>`).join("")}</select>
 <select id="fulfilment" aria-label="Filter by fulfilment"><option value="">All fulfilment</option><option value="domestic">Domestic</option><option value="cross_border">International</option><option value="unverified">Unverified</option></select>
 <a class="download" href="/inventory.csv?access=${encodeURIComponent(accessToken)}">Excel / CSV</a></section>
 ${!hunt.available?'<p class="note" role="status"><strong>Amazon monitoring feed is temporarily unavailable.</strong> Amazon hunt listings could not be loaded. Reload this page to retry; the inventory shown below may be incomplete.</p>':''}

@@ -1,0 +1,704 @@
+{
+  "audited_at": "2026-09-07T23:13:03.530Z",
+  "operation": "Read-only Worker deployment and D1 schema inventory",
+  "workers": [
+    {
+      "name": "project-spawn",
+      "environment": "production",
+      "deployment_id": "68225fb8-cf73-4b33-844a-6f3fa89bd2af",
+      "created_on": "2026-09-06T19:07:38.975394Z",
+      "versions": [
+        {
+          "id": "e9a94f8e-6390-4944-903d-209bbfa61015",
+          "percentage": 100,
+          "created_on": "2026-09-06T19:07:38.495406Z",
+          "annotations": {
+            "workers/triggered_by": "version_upload"
+          },
+          "resource_keys": [
+            "script",
+            "script_runtime",
+            "bindings"
+          ],
+          "bindings": [
+            {
+              "name": "AMAZON_ENRICHMENT_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "1"
+            },
+            {
+              "name": "AMAZON_ENRICHMENT_ENABLED",
+              "type": "plain_text",
+              "value": "false"
+            },
+            {
+              "name": "BOARD_ACCESS_TOKEN",
+              "type": "secret_text"
+            },
+            {
+              "name": "CATCH_INGEST_SECRET",
+              "type": "secret_text"
+            },
+            {
+              "name": "CATCH_MONITOR_ENDPOINT",
+              "type": "plain_text"
+            },
+            {
+              "name": "CF_VERSION_METADATA",
+              "type": "version_metadata"
+            },
+            {
+              "name": "CUSTOMER_DB",
+              "type": "d1",
+              "resource": "a7730486-5f12-4d22-ad81-f4cfd1c917d3"
+            },
+            {
+              "name": "DISCORD_WEBHOOK_URL",
+              "type": "secret_text"
+            },
+            {
+              "name": "FEEDBACK_RATE_LIMIT",
+              "type": "ratelimit"
+            },
+            {
+              "name": "INGEST_RATE_LIMIT",
+              "type": "ratelimit"
+            },
+            {
+              "name": "INVENTORY_FRESHNESS_HOURS",
+              "type": "plain_text",
+              "value": "36"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "2"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_ENABLED",
+              "type": "plain_text",
+              "value": "false"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_TARGET_HOURS",
+              "type": "plain_text",
+              "value": "24"
+            },
+            {
+              "name": "MANUAL_RATE_LIMIT",
+              "type": "ratelimit"
+            },
+            {
+              "name": "OPENAI_API_KEY",
+              "type": "secret_text"
+            },
+            {
+              "name": "OPENAI_MODEL",
+              "type": "plain_text"
+            },
+            {
+              "name": "OPS_ACCESS_AUD",
+              "type": "plain_text"
+            },
+            {
+              "name": "OPS_ACCESS_ISSUER",
+              "type": "plain_text"
+            },
+            {
+              "name": "OPS_AUTH_MODE",
+              "type": "plain_text",
+              "value": "access"
+            },
+            {
+              "name": "OPS_DISCORD_WEBHOOK_URL",
+              "type": "secret_text"
+            },
+            {
+              "name": "OPS_ENVIRONMENT",
+              "type": "plain_text"
+            },
+            {
+              "name": "OPS_OWNER_EMAIL",
+              "type": "plain_text"
+            },
+            {
+              "name": "PUBLIC_BASE_URL",
+              "type": "plain_text"
+            },
+            {
+              "name": "PUBLIC_RATE_LIMIT",
+              "type": "ratelimit"
+            },
+            {
+              "name": "RUN_TOKEN",
+              "type": "secret_text"
+            },
+            {
+              "name": "SEED_VERIFICATION_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "2"
+            },
+            {
+              "name": "SEED_VERIFICATION_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "SPAWN_CONFIG_VERSION",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_DB",
+              "type": "d1",
+              "resource": "8fd44e8d-9ffc-4f9b-8c2c-f6ba1a9827aa"
+            },
+            {
+              "name": "SPAWN_QUIET_END",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_QUIET_START",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_TIMEZONE",
+              "type": "plain_text"
+            }
+          ]
+        }
+      ],
+      "migrations": [
+        {
+          "results": [
+            {
+              "name": "0001_initial.sql",
+              "applied_at": "2026-08-21 00:58:14"
+            },
+            {
+              "name": "0002_inventory_feedback.sql",
+              "applied_at": "2026-08-21 17:16:37"
+            },
+            {
+              "name": "0003_product_catalog.sql",
+              "applied_at": "2026-08-23 14:22:41"
+            },
+            {
+              "name": "0004_security_framework.sql",
+              "applied_at": "2026-08-23 14:53:17"
+            },
+            {
+              "name": "0005_benchmark_candidates.sql",
+              "applied_at": "2026-08-23 17:13:06"
+            },
+            {
+              "name": "0006_garfield_shared_state.sql",
+              "applied_at": "2026-08-26 13:10:09"
+            },
+            {
+              "name": "0007_product_identity.sql",
+              "applied_at": "2026-08-26 13:37:48"
+            },
+            {
+              "name": "0008_amazon_watchlist.sql",
+              "applied_at": "2026-08-26 14:06:46"
+            },
+            {
+              "name": "0009_release_feedback_and_availability.sql",
+              "applied_at": "2026-08-26 23:25:06"
+            },
+            {
+              "name": "0010_mtg_hobbit_pilot.sql",
+              "applied_at": "2026-08-27 14:16:14"
+            },
+            {
+              "name": "0011_magic_hobbit_amazon_watch.sql",
+              "applied_at": "2026-08-27 14:37:24"
+            },
+            {
+              "name": "0012_published_amazon_catalog.sql",
+              "applied_at": "2026-08-28 00:12:24"
+            },
+            {
+              "name": "0013_amazon_verification_bridge.sql",
+              "applied_at": "2026-08-28 18:14:29"
+            },
+            {
+              "name": "0014_approval_notifications.sql",
+              "applied_at": "2026-08-28 18:14:29"
+            },
+            {
+              "name": "0015_customer_discovery_publication.sql",
+              "applied_at": "2026-08-29 01:40:11"
+            },
+            {
+              "name": "0016_discovery_approval_notifications.sql",
+              "applied_at": "2026-08-29 14:19:15"
+            },
+            {
+              "name": "0017_explicit_routing_and_staging.sql",
+              "applied_at": "2026-08-29 15:53:42"
+            },
+            {
+              "name": "0018_seed_campaigns_and_revalidation.sql",
+              "applied_at": "2026-08-31 16:37:22"
+            },
+            {
+              "name": "0019_pricing_reference_audit.sql",
+              "applied_at": "2026-08-31 18:20:55"
+            },
+            {
+              "name": "0020_complete_pricing_catalog.sql",
+              "applied_at": "2026-08-31 20:54:03"
+            },
+            {
+              "name": "0021_catch_inventory_observations.sql",
+              "applied_at": "2026-08-31 21:26:54"
+            },
+            {
+              "name": "0022_availability_enrichment_boundary.sql",
+              "applied_at": "2026-09-03 00:58:09"
+            },
+            {
+              "name": "0023_cross_border_inventory.sql",
+              "applied_at": "2026-09-03 14:20:17"
+            },
+            {
+              "name": "0024_seed_campaign_publication.sql",
+              "applied_at": "2026-09-04 22:43:11"
+            },
+            {
+              "name": "0025_operations_members.sql",
+              "applied_at": "2026-09-05 17:37:35"
+            },
+            {
+              "name": "0026_operations_review_locks.sql",
+              "applied_at": "2026-09-05 17:37:35"
+            }
+          ],
+          "success": true,
+          "meta": {
+            "served_by": "v3-prod",
+            "served_by_region": "WNAM",
+            "served_by_colo": "DFW",
+            "served_by_primary": true,
+            "timings": {
+              "sql_duration_ms": 0.3602
+            },
+            "duration": 0.3602,
+            "changes": 0,
+            "last_row_id": 0,
+            "changed_db": false,
+            "size_after": 4440064,
+            "rows_read": 26,
+            "rows_written": 0,
+            "total_attempts": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "pokemon30th-discord-monitor",
+      "environment": "production",
+      "deployment_id": "1e2b41d8-1ed3-4cc6-b69b-c640550f2b80",
+      "created_on": "2026-09-04T22:45:44.228037Z",
+      "versions": [
+        {
+          "id": "04855d87-178e-4a0f-b273-21c1e838787d",
+          "percentage": 100,
+          "created_on": "2026-09-04T22:45:43.512021Z",
+          "annotations": {
+            "workers/triggered_by": "version_upload"
+          },
+          "resource_keys": [
+            "script",
+            "script_runtime",
+            "bindings"
+          ],
+          "bindings": [
+            {
+              "name": "AMAZON_CADENCE_ROLLOUT_MODE",
+              "type": "plain_text",
+              "value": "full"
+            },
+            {
+              "name": "BROWSER",
+              "type": "browser"
+            },
+            {
+              "name": "CATCH_INGEST_SECRET",
+              "type": "secret_text"
+            },
+            {
+              "name": "CUSTOMER_EVENT_DELIVERY_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "DAILY_HUNT_DIGEST_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "DAILY_HUNT_DIGEST_HOUR_MX",
+              "type": "plain_text"
+            },
+            {
+              "name": "DELTA_REIGN_DIRECT",
+              "type": "secret_text"
+            },
+            {
+              "name": "DISCORD_WEBHOOK_URL",
+              "type": "secret_text"
+            },
+            {
+              "name": "MAGIC_HOBBIT_HUNT",
+              "type": "secret_text"
+            },
+            {
+              "name": "MERCADOLIBRE_CLIENT_ID",
+              "type": "plain_text"
+            },
+            {
+              "name": "MERCADOLIBRE_CLIENT_SECRET",
+              "type": "secret_text"
+            },
+            {
+              "name": "OPS_DISCORD_WEBHOOK_URL",
+              "type": "secret_text"
+            },
+            {
+              "name": "POKEMON_30TH_HUNT",
+              "type": "secret_text"
+            },
+            {
+              "name": "SPAWN_BENCHMARK_ENDPOINT",
+              "type": "plain_text"
+            },
+            {
+              "name": "STATE",
+              "type": "kv_namespace",
+              "resource": "a5b6b858cc9a45829fa61bbfe53a7fa0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "project-spawn-dev",
+      "environment": "development",
+      "deployment_id": "7d4b3a35-9394-4c4e-a717-aad79365009a",
+      "created_on": "2026-09-07T23:09:40.376752Z",
+      "versions": [
+        {
+          "id": "28bc4f22-3b51-4de9-a21d-2165a38add26",
+          "percentage": 100,
+          "created_on": "2026-09-07T23:09:39.80109Z",
+          "annotations": {
+            "workers/triggered_by": "version_upload"
+          },
+          "resource_keys": [
+            "script",
+            "script_runtime",
+            "bindings"
+          ],
+          "bindings": [
+            {
+              "name": "AMAZON_ENRICHMENT_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "1"
+            },
+            {
+              "name": "AMAZON_ENRICHMENT_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "BOARD_ACCESS_TOKEN",
+              "type": "secret_text"
+            },
+            {
+              "name": "CATCH_INGEST_SECRET",
+              "type": "secret_text"
+            },
+            {
+              "name": "CF_VERSION_METADATA",
+              "type": "version_metadata"
+            },
+            {
+              "name": "INVENTORY_FRESHNESS_HOURS",
+              "type": "plain_text",
+              "value": "36"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "2"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "INVENTORY_REVALIDATION_TARGET_HOURS",
+              "type": "plain_text",
+              "value": "24"
+            },
+            {
+              "name": "OPENAI_MODEL",
+              "type": "plain_text"
+            },
+            {
+              "name": "PUBLIC_BASE_URL",
+              "type": "plain_text"
+            },
+            {
+              "name": "RUN_TOKEN",
+              "type": "secret_text"
+            },
+            {
+              "name": "SEED_VERIFICATION_BATCH_SIZE",
+              "type": "plain_text",
+              "value": "2"
+            },
+            {
+              "name": "SEED_VERIFICATION_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "SPAWN_CONFIG_VERSION",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_DB",
+              "type": "d1",
+              "resource": "d2223ce6-cece-4268-9c98-f8801b9027eb"
+            },
+            {
+              "name": "SPAWN_QUIET_END",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_QUIET_START",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_TIMEZONE",
+              "type": "plain_text"
+            }
+          ]
+        }
+      ],
+      "migrations": [
+        {
+          "results": [
+            {
+              "name": "0001_initial.sql",
+              "applied_at": "2026-08-27 23:57:59"
+            },
+            {
+              "name": "0002_inventory_feedback.sql",
+              "applied_at": "2026-08-27 23:57:59"
+            },
+            {
+              "name": "0003_product_catalog.sql",
+              "applied_at": "2026-08-27 23:58:00"
+            },
+            {
+              "name": "0004_security_framework.sql",
+              "applied_at": "2026-08-27 23:58:00"
+            },
+            {
+              "name": "0005_benchmark_candidates.sql",
+              "applied_at": "2026-08-27 23:58:00"
+            },
+            {
+              "name": "0006_garfield_shared_state.sql",
+              "applied_at": "2026-08-27 23:58:00"
+            },
+            {
+              "name": "0007_product_identity.sql",
+              "applied_at": "2026-08-27 23:58:01"
+            },
+            {
+              "name": "0008_amazon_watchlist.sql",
+              "applied_at": "2026-08-27 23:58:01"
+            },
+            {
+              "name": "0009_release_feedback_and_availability.sql",
+              "applied_at": "2026-08-27 23:58:01"
+            },
+            {
+              "name": "0010_mtg_hobbit_pilot.sql",
+              "applied_at": "2026-08-27 23:58:01"
+            },
+            {
+              "name": "0011_magic_hobbit_amazon_watch.sql",
+              "applied_at": "2026-08-27 23:58:02"
+            },
+            {
+              "name": "0012_published_amazon_catalog.sql",
+              "applied_at": "2026-08-27 23:58:02"
+            },
+            {
+              "name": "0013_amazon_verification_bridge.sql",
+              "applied_at": "2026-08-28 17:55:04"
+            },
+            {
+              "name": "0014_approval_notifications.sql",
+              "applied_at": "2026-08-28 18:03:48"
+            },
+            {
+              "name": "0015_customer_discovery_publication.sql",
+              "applied_at": "2026-08-29 01:38:07"
+            },
+            {
+              "name": "0016_discovery_approval_notifications.sql",
+              "applied_at": "2026-08-29 14:16:15"
+            },
+            {
+              "name": "0017_explicit_routing_and_staging.sql",
+              "applied_at": "2026-08-29 15:34:52"
+            },
+            {
+              "name": "0018_seed_campaigns_and_revalidation.sql",
+              "applied_at": "2026-08-31 16:40:50"
+            },
+            {
+              "name": "0019_pricing_reference_audit.sql",
+              "applied_at": "2026-08-31 17:53:14"
+            },
+            {
+              "name": "0020_complete_pricing_catalog.sql",
+              "applied_at": "2026-08-31 19:24:19"
+            },
+            {
+              "name": "0021_catch_inventory_observations.sql",
+              "applied_at": "2026-09-03 14:16:01"
+            },
+            {
+              "name": "0022_availability_enrichment_boundary.sql",
+              "applied_at": "2026-09-03 14:16:01"
+            },
+            {
+              "name": "0023_cross_border_inventory.sql",
+              "applied_at": "2026-09-03 14:16:02"
+            },
+            {
+              "name": "0024_seed_campaign_publication.sql",
+              "applied_at": "2026-09-07 23:09:11"
+            },
+            {
+              "name": "0025_operations_members.sql",
+              "applied_at": "2026-09-07 23:09:12"
+            },
+            {
+              "name": "0026_operations_review_locks.sql",
+              "applied_at": "2026-09-07 23:09:12"
+            }
+          ],
+          "success": true,
+          "meta": {
+            "served_by": "v3-prod",
+            "served_by_region": "WNAM",
+            "served_by_colo": "DFW",
+            "served_by_primary": true,
+            "timings": {
+              "sql_duration_ms": 0.1876
+            },
+            "duration": 0.1876,
+            "changes": 0,
+            "last_row_id": 0,
+            "changed_db": false,
+            "size_after": 811008,
+            "rows_read": 26,
+            "rows_written": 0,
+            "total_attempts": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "catch-em-all",
+      "environment": "development",
+      "deployment_id": "d61b290b-419b-459d-8917-c7d16743b176",
+      "created_on": "2026-09-07T23:09:28.688521Z",
+      "versions": [
+        {
+          "id": "1b90922c-0fa8-4768-87fc-7fa4374aa47f",
+          "percentage": 100,
+          "created_on": "2026-09-07T23:09:28.077194Z",
+          "annotations": {
+            "workers/triggered_by": "version_upload"
+          },
+          "resource_keys": [
+            "script",
+            "script_runtime",
+            "bindings"
+          ],
+          "bindings": [
+            {
+              "name": "AMAZON_CADENCE_ROLLOUT_MODE",
+              "type": "plain_text",
+              "value": "safe-hourly"
+            },
+            {
+              "name": "BROWSER",
+              "type": "browser"
+            },
+            {
+              "name": "CATCH_INGEST_SECRET",
+              "type": "secret_text"
+            },
+            {
+              "name": "CUSTOMER_ALERT_DELIVERY_MODE",
+              "type": "plain_text",
+              "value": "suppress"
+            },
+            {
+              "name": "CUSTOMER_EVENT_DELIVERY_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "DAILY_HUNT_DIGEST_ENABLED",
+              "type": "plain_text",
+              "value": "true"
+            },
+            {
+              "name": "DAILY_HUNT_DIGEST_HOUR_MX",
+              "type": "plain_text"
+            },
+            {
+              "name": "MERCADOLIBRE_CLIENT_ID",
+              "type": "plain_text"
+            },
+            {
+              "name": "MERCADOLIBRE_REDIRECT_URI",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_BENCHMARK_ENDPOINT",
+              "type": "plain_text"
+            },
+            {
+              "name": "SPAWN_SERVICE",
+              "type": "service",
+              "resource": "project-spawn-dev"
+            },
+            {
+              "name": "STATE",
+              "type": "kv_namespace",
+              "resource": "4b6787c3173d421cb3629ffc808794bb"
+            },
+            {
+              "name": "VALIDATION_WINDOW_END",
+              "type": "plain_text"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

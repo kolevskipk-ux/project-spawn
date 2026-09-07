@@ -10,7 +10,8 @@
     "db:migrate:local": "wrangler d1 migrations apply SPAWN_DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply SPAWN_DB --remote",
     "test": "vitest run",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "baseline:check": "node scripts/baseline-check.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",

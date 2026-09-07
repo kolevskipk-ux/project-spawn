@@ -8,7 +8,7 @@ describe("catalogProductId", () => {
   });
 
   it("does not cross language variants", () => {
-    expect(catalogProductId({ title:"Ascended Heroes Elite Trainer Box (ESPAÑOL)", watch_category:"ascended_heroes", language:"spanish" })).toBeNull();
+    expect(catalogProductId({ title:"Ascended Heroes Elite Trainer Box (ESPAÑOL)", watch_category:"ascended_heroes", language:"spanish" })).toBe("ah-es-etb");
   });
 
   it("keeps Day and Night UPC variants separate", () => {

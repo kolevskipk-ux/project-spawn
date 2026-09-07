@@ -1,5 +1,6 @@
 import { catalogProductId } from "./catalog";
 import type { Env, Listing } from "./types";
+import {catalogLanguageAllowed, catalogRoute, validatePublishedAmazonCatalog} from './contracts/amazon-catalog.mjs';
 
 export interface VerificationCandidate {
   asin: string;
@@ -126,7 +127,7 @@ export function assessAmazonVerification(candidate: VerificationCandidate, respo
     amazonPage:html.includes("amazon"),
     expectedAsin:html.toUpperCase().includes(expectedAsin),
     notRobotBlocked:!/(robot check|captcha|automated access|introduce los caracteres)/i.test(response.html || ""),
-    englishLanguage:candidate.language === "english",
+    languageRecorded:catalogLanguageAllowed(candidate.language) && candidate.language !== "unknown",
     canonicalIdentity:Boolean(canonicalProductId)
   };
   const hardFailure = !gates.directAmazonMxUrl || (response.status >= 400 && response.status < 500 && response.status !== 429);
@@ -136,7 +137,7 @@ export function assessAmazonVerification(candidate: VerificationCandidate, respo
     : /(add to cart|agregar al carrito|comprar ahora|pre-order|preventa)/i.test(response.html || "") ? "possible_buyable" : "unknown";
   if (hardFailure) return { outcome:"REJECTED", confidence:"HIGH", canonicalProductId, gateResults:gates, unresolvedQuestions:unresolved, accessOutcome:`HTTP_${response.status || 0}`, observedAvailability };
   if (accessFailure) return { outcome:response.error ? "ERROR" : "REVIEW_REQUIRED", confidence:"LOW", canonicalProductId, gateResults:gates, unresolvedQuestions:unresolved, accessOutcome:response.error ? "TRANSPORT_ERROR" : gates.notRobotBlocked ? `HTTP_${response.status}` : "ROBOT_BLOCKED", observedAvailability };
-  if (!gates.englishLanguage || !gates.canonicalIdentity) return { outcome:"REVIEW_REQUIRED", confidence:"MEDIUM", canonicalProductId, gateResults:gates, unresolvedQuestions:unresolved, accessOutcome:"VALID_PAGE", observedAvailability };
+  if (!gates.languageRecorded || !gates.canonicalIdentity) return { outcome:"REVIEW_REQUIRED", confidence:"MEDIUM", canonicalProductId, gateResults:gates, unresolvedQuestions:unresolved, accessOutcome:"VALID_PAGE", observedAvailability };
   return { outcome:"VERIFIED", confidence:"HIGH", canonicalProductId, gateResults:gates, unresolvedQuestions:[], accessOutcome:"VALID_PAGE", observedAvailability };
 }
 
@@ -198,20 +199,26 @@ export async function reviewAmazonCandidate(env: Env, asin: string, action: Revi
   }
   if (action==="approve") {
     if (row.lifecycle_status!=="VERIFIED" || row.attempt_outcome!=="VERIFIED") return {ok:false as const,error:"candidate_not_verified"};
-    if (!row.verified_product_id || row.verified_language!=="english" || !input.lane || !input.routingKey) return {ok:false as const,error:"incomplete_approval"};
-    await env.SPAWN_DB.batch([
-      env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status='APPROVED',canonical_product_id=?,language='english',lane=?,routing_key=?,routing_key_v2=?,alert_on_initial_buyable=?,approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=? AND lifecycle_status='VERIFIED' AND evidence_revision=?`)
-        .bind(row.verified_product_id,input.lane,input.routingKey==="pokemon-30th"?"pokemon-main":input.routingKey,input.routingKey,Number(Boolean(input.alertOnInitialBuyable)),actor,reason,now,now,asin,input.evidenceRevision),
-      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'APPROVED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
+    if (!row.verified_product_id || !catalogLanguageAllowed(row.verified_language) || !["normal","priority"].includes(input.lane??"") || input.routingKey!==catalogRoute(row.watch_category)) return {ok:false as const,error:"incomplete_approval"};
+    const results=await env.SPAWN_DB.batch([
+      env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET lifecycle_status='APPROVED',canonical_product_id=?,language=?,lane=?,routing_key=?,routing_key_v2=?,alert_on_initial_buyable=?,approved_by=?,approval_reason=?,approved_at=?,updated_at=? WHERE asin=? AND lifecycle_status='VERIFIED' AND evidence_revision=?`)
+        .bind(row.verified_product_id,row.verified_language,input.lane,input.routingKey==="pokemon-30th"?"pokemon-main":input.routingKey,input.routingKey,Number(Boolean(input.alertOnInitialBuyable)),actor,reason,now,now,asin,input.evidenceRevision),
+      env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) SELECT ?,?,?,'APPROVED',?,?,? WHERE changes()=1").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
     ]);
+    if(results[0].meta.changes!==1)return {ok:false as const,error:"stale_evidence"};
     return {ok:true as const,asin,lifecycleStatus:"APPROVED",catalogVersion:null};
   }
   if (row.lifecycle_status!=="APPROVED") return {ok:false as const,error:"candidate_not_approved"};
-  await env.SPAWN_DB.batch([
-    env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET lifecycle_status='PUBLISHED',updated_at=? WHERE asin=? AND lifecycle_status='APPROVED' AND evidence_revision=?").bind(now,asin,input.evidenceRevision),
-    env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('amazon_catalog_version','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(worker_state.value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now),
-    env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) VALUES(?,?,?,'PUBLISHED',?,?,?)").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now)
+  const published=await env.SPAWN_DB.prepare("SELECT *,COALESCE(routing_key_v2,routing_key) routing_key FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED'").all<Record<string,unknown>>();
+  const proposed={...row,routing_key:row.routing_key_v2??row.routing_key};
+  if(!validatePublishedAmazonCatalog({schema_version:2,catalog_version:'1',watchlist:[...published.results,proposed]}))
+    return {ok:false as const,error:'invalid_publication_catalog'};
+  const results=await env.SPAWN_DB.batch([
+    env.SPAWN_DB.prepare("UPDATE amazon_watchlist SET lifecycle_status='PUBLISHED',updated_at=? WHERE asin=? AND lifecycle_status='APPROVED' AND evidence_revision=? AND (SELECT COUNT(*) FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED')<200 AND NOT EXISTS(SELECT 1 FROM amazon_watchlist other WHERE other.lifecycle_status='PUBLISHED' AND other.canonical_product_id=amazon_watchlist.canonical_product_id)").bind(now,asin,input.evidenceRevision),
+    env.SPAWN_DB.prepare("INSERT INTO amazon_catalog_decisions(asin,verification_attempt_id,evidence_revision,decision,reason,decided_by,decided_at) SELECT ?,?,?,'PUBLISHED',?,?,? WHERE changes()=1").bind(asin,input.attemptId,input.evidenceRevision,reason,actor,now),
+    env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) SELECT 'amazon_catalog_version','1',? WHERE changes()=1 ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(worker_state.value AS INTEGER)+1 AS TEXT),updated_at=excluded.updated_at").bind(now)
   ]);
+  if(results[0].meta.changes!==1)return {ok:false as const,error:'stale_evidence'};
   const versionRow=await env.SPAWN_DB.prepare("SELECT value FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string}>(), nextVersion=versionRow?.value??"0";
   await env.SPAWN_DB.prepare("UPDATE amazon_catalog_decisions SET resulting_catalog_version=? WHERE asin=? AND verification_attempt_id=? AND decision='PUBLISHED' AND decided_at=?").bind(nextVersion,asin,input.attemptId,now).run();
   return {ok:true as const,asin,lifecycleStatus:"PUBLISHED",catalogVersion:nextVersion};
