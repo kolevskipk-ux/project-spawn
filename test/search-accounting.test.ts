@@ -1,3 +1,4 @@
+import {recordSearchAudit,searchResponseEvidence} from '../src/search-audit';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
@@ -33,6 +34,51 @@ async function completed(id:string,count:number,stamp:string,status='succeeded')
  db.prepare('UPDATE search_accounting SET new_listings=?,yield_recorded_at=? WHERE scan_id=?').run(count,stamp,id);
 }
 describe('search spend and discovery review',()=>{
+ it('records request settings, provider queries and sources, and the inventory outcome without credentials or reasoning',async()=>{
+  opening();db.prepare("INSERT INTO worker_state VALUES('inventory_initialized','true',?)").run(new Date().toISOString());
+  const output=[{type:'web_search_call',id:'tool1',status:'completed',action:{type:'search',queries:['Pokemon preventa Mexico'],sources:[{type:'url',url:'https://retailer.example/product'}]}},{type:'reasoning',summary:'PRIVATE_REASONING'}];
+  mockResponse({...payload(),output,output_text:JSON.stringify(result())});
+  const run=await runScan(env,'cron');
+  const events=db.prepare('SELECT event_type,details_json FROM search_audit_events WHERE scan_id=? ORDER BY id').all(run.id);
+  expect(events.map(e=>e.event_type)).toEqual(['attempt_started','request_prepared','dispatch_started','http_response','provider_response','inventory_committed']);
+  const evidence=JSON.parse(String(events.find(e=>e.event_type==='provider_response')?.details_json));
+  expect(evidence.searches[0].action.queries).toEqual(['Pokemon preventa Mexico']);
+  expect(evidence.searches[0].action.sources[0].url).toBe('https://retailer.example/product');
+  expect(JSON.stringify(events)).not.toContain('PRIVATE_REASONING');
+  expect(JSON.stringify(events)).not.toContain('Bearer');
+  const prepared=JSON.parse(String(events.find(e=>e.event_type==='request_prepared')?.details_json));
+  expect(prepared.request.include).toEqual(['web_search_call.action.sources']);
+  expect(prepared.request.instructions).toContain('Watch list');
+  expect(prepared.request).not.toHaveProperty('OPENAI_API_KEY');
+ });
+ it('retains budget skips and early job-start failures independently of scan rows',async()=>{
+  await expect(runScan(env,'cron')).rejects.toThrow();
+  expect(db.prepare("SELECT event_type FROM search_audit_events ORDER BY id DESC LIMIT 1").get()?.event_type).toBe('skipped');
+  await expect(runScan(env,'early_asin')).rejects.toThrow();
+  expect(db.prepare("SELECT event_type FROM search_audit_events ORDER BY id DESC LIMIT 1").get()?.event_type).toBe('failed');
+  expect(db.prepare("SELECT COUNT(DISTINCT scan_id) n FROM search_audit_events").get()?.n).toBe(2);
+  expect(fetch).not.toHaveBeenCalled();
+ });
+ it('prevents audit updates and deletions and labels truncated evidence with its full hash',async()=>{
+  await recordSearchAudit(env,'audit-test','fixture',{text:'x'.repeat(110000)});
+  const row=db.prepare('SELECT * FROM search_audit_events').get()!;
+  expect(row.truncated).toBe(1);expect(String(row.details_sha256)).toHaveLength(64);
+  expect(JSON.parse(String(row.details_json))).toMatchObject({truncated:true,original_characters:110011});
+  expect(()=>db.exec("UPDATE search_audit_events SET event_type='changed'")).toThrow('append-only');
+  expect(()=>db.exec('DELETE FROM search_audit_events')).toThrow('append-only');
+ });
+ it('provides a read-only audit detail and JSON export, safely escaping provider content',async()=>{
+  await recordSearchAudit(env,'audit-test','fixture',{query:'<script>alert(1)</script>'});
+  const owner={email:'owner@example.test',subject:'test',role:'owner' as const};
+  const page=await operationsRoute(new Request('https://spawn.test/ops/search/audit?scan_id=audit-test'),env,owner);
+  const body=await page!.text();expect(body).toContain('&lt;script&gt;');expect(body).not.toContain('<script>alert');
+  const exported=await operationsRoute(new Request('https://spawn.test/ops/search/audit?scan_id=audit-test&format=json'),env,owner);
+  expect(exported!.headers.get('content-type')).toContain('application/json');
+  expect((await exported!.json() as {events:unknown[]}).events).toHaveLength(1);
+  expect((await operationsRoute(new Request('https://spawn.test/ops/search/audit',{method:'POST'}),env,owner))?.status).toBe(405);
+  expect(searchResponseEvidence(null)).toMatchObject({searches:[]});
+ });
+
  it('requires a reconciled opening balance and makes no paid request',async()=>{
   await expect(runScan(env,'cron')).rejects.toMatchObject({code:'search_budget_review_required'});
   expect(fetch).not.toHaveBeenCalled();expect(db.prepare('SELECT status FROM scan_runs').get()?.status).toBe('failed');

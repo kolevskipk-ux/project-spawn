@@ -108,6 +108,39 @@ reactivation. Leave the additive tables and inventory baselines intact.
 
 ## Local validation
 
+### Search audit trail (migration 0028)
+
+`/ops/search/audit` provides a paginated, authenticated attempt history and a
+per-attempt JSON download. Each attempt receives an ID before the legacy scan
+row is created, so lock skips, budget skips and the known early-ASIN insertion
+failure remain visible. The trail does not repair or activate that early job.
+
+Events preserve the requested trigger/configuration/Worker version, exact search
+instructions and request settings, dispatch intent, HTTP status and provider
+request ID, returned response ID, provider search actions/queries/sources, usage,
+returned listing text, and inventory commit details. The download also includes
+the current scan, accounting record and scan-linked inventory observations.
+Future assignment and known-listing context supplied in the request will therefore
+be retained with that request. This release does not yet implement those search
+strategy changes.
+
+Provider source inclusion is not proof of retailer access or independently
+verified availability. No API credentials, authorization headers or hidden
+reasoning are deliberately retained. Event payloads retain up to 100,000
+characters; larger payloads are explicitly marked as truncated and retain their
+prefix plus a hash of the full original serialization. No automatic expiry is
+configured. Database triggers reject event updates and deletes; this is an
+append-only operational history, not protection against a database administrator
+changing the schema. Hashes are content fingerprints, not signed attestations.
+
+Prepared-request audit writes must succeed before paid dispatch. Missing terminal
+events indicate an incomplete trail, not proof of an empty successful scan.
+Committed scan/inventory state remains authoritative if writing its supplemental
+completion event fails. Historical scans are not retroactively reconstructed.
+
+Apply additive migration `0028_search_audit.sql` after 0027 and before activating
+this Worker release, with the same separate production approval requirements.
+
 The full-migration SQLite tests cover concurrent budget reservations, missing
 opening balance/no external request, usage pricing, idempotent settlement,
 network failure, malformed/incomplete output, first-seen unavailable listings,
