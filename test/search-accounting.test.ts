@@ -1,3 +1,4 @@
+import {buildSearchPlan} from '../src/search-plan';
 import {recordSearchAudit,searchResponseEvidence} from '../src/search-audit';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
@@ -51,11 +52,11 @@ describe('search spend and discovery review',()=>{
   expect(prepared.request.instructions).toContain('Watch list');
   expect(prepared.request).not.toHaveProperty('OPENAI_API_KEY');
  });
- it('retains budget skips and early job-start failures independently of scan rows',async()=>{
+ it('retains budget skips for regular and repaired early jobs',async()=>{
   await expect(runScan(env,'cron')).rejects.toThrow();
   expect(db.prepare("SELECT event_type FROM search_audit_events ORDER BY id DESC LIMIT 1").get()?.event_type).toBe('skipped');
   await expect(runScan(env,'early_asin')).rejects.toThrow();
-  expect(db.prepare("SELECT event_type FROM search_audit_events ORDER BY id DESC LIMIT 1").get()?.event_type).toBe('failed');
+  expect(db.prepare("SELECT event_type FROM search_audit_events ORDER BY id DESC LIMIT 1").get()?.event_type).toBe('skipped');
   expect(db.prepare("SELECT COUNT(DISTINCT scan_id) n FROM search_audit_events").get()?.n).toBe(2);
   expect(fetch).not.toHaveBeenCalled();
  });
@@ -79,6 +80,28 @@ describe('search spend and discovery review',()=>{
   expect(searchResponseEvidence(null)).toMatchObject({searches:[]});
  });
 
+ it('rotates the paid search assignment and preserves an Amazon-only early scope',async()=>{
+  opening();expect(await buildSearchPlan(env,'market')).toMatchObject({focus:['30th_celebration'],retailer_focus:'Amazon Mexico discovery',known_urls_complete:false});
+  await completed('rotation',0,new Date().toISOString());
+  expect(await buildSearchPlan(env,'market')).toMatchObject({focus:['ascended_heroes']});
+  mockResponse({...payload(),output_text:JSON.stringify(result())});await runScan(env,'early_asin');
+  expect(db.prepare("SELECT status FROM scan_runs WHERE trigger_source='early_asin'").get()?.status).toBe('succeeded');
+  const body=JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+  expect(body.input).toContain('early-ASIN intelligence');expect(body.input).toContain('coverage-rotation-v1');
+  expect(body.tools[0].user_location.country).toBe('MX');
+ });
+ it('preserves existing scans, child records and observations through the repair migration',()=>{
+  const previous=new DatabaseSync(':memory:');previous.exec('PRAGMA foreign_keys=ON');
+  for(const name of readdirSync('migrations').filter(n=>n.endsWith('.sql')&&!n.startsWith('0029')).sort())previous.exec(readFileSync('migrations/'+name,'utf8'));
+  previous.exec("INSERT INTO scan_runs VALUES('old','2026-09-01',NULL,'cron','succeeded','test','test',NULL,NULL,NULL,NULL); INSERT INTO search_budget_months VALUES('2026-09',0,'now','test','test'); INSERT INTO search_accounting(scan_id,month,reserved_microusd,pricing_version) VALUES('old','2026-09',100,'test'); INSERT INTO search_reviews(scan_id,triggered_at,consecutive_empty) VALUES('old','now',100);");
+  previous.exec("INSERT INTO catch_inventory_observations(observation_id,listing_key,asin,observed_state,evidence_type,observed_at,received_at) VALUES('old','key','B0H27L3TKW','BUYABLE','direct_page','now','now')");
+  previous.exec('BEGIN');previous.exec(readFileSync('migrations/0029_discovery_and_observation_repairs.sql','utf8'));previous.exec('COMMIT');
+  expect(previous.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  expect(previous.prepare('SELECT COUNT(*) n FROM search_accounting').get()?.n).toBe(1);
+  expect(previous.prepare('SELECT observed_state FROM catch_inventory_observations').get()?.observed_state).toBe('BUYABLE');
+  for(const state of ['BUYABLE_FEATURED','BUYABLE_VIA_OPTIONS','NO_FEATURED_OFFER'])previous.prepare("INSERT INTO catch_inventory_observations(observation_id,listing_key,asin,observed_state,evidence_type,observed_at,received_at,transition_id) VALUES(?,'key','B0H27L3TKW',?,'direct_page','now','now','same-transition')").run(state,state);
+  expect(previous.prepare('SELECT COUNT(*) n FROM catch_inventory_observations').get()?.n).toBe(4);previous.close();
+ });
  it('requires a reconciled opening balance and makes no paid request',async()=>{
   await expect(runScan(env,'cron')).rejects.toMatchObject({code:'search_budget_review_required'});
   expect(fetch).not.toHaveBeenCalled();expect(db.prepare('SELECT status FROM scan_runs').get()?.status).toBe('failed');

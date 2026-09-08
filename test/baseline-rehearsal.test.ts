@@ -116,7 +116,9 @@ describe('baseline rehearsal: real schema, Spawn decisions, Catch contract and f
     const body=JSON.stringify(observation),timestamp=String(Math.floor(Date.now()/1000));
     const signature=await hmacSha256Hex('test-only-secret-for-local-rehearsal-1234',`${timestamp}.${body}`);
     const received=await handleCatchInventoryObservation(new Request('https://spawn.test/internal/catch-inventory-observations',{method:'POST',body,headers:{'x-spawn-timestamp':timestamp,'x-spawn-signature':`sha256=${signature}`}}),env);
-    expect(received.status,await received.text()).toBe(202);
+    expect(received.status).toBe(202);
+    expect(await received.json()).toMatchObject({accepted:true,persisted:true,observation_id:observation!.observation_id});
+    expect(db.prepare('SELECT observed_state FROM catch_inventory_observations WHERE observation_id=?').get(observation!.observation_id)).toMatchObject({observed_state:'BUYABLE_FEATURED'});
     expect(db.prepare('SELECT language,product_id FROM inventory WHERE retailer_sku=?').get(asin)).toMatchObject({language,product_id:null});
   });
   it('cannot resolve a blocked page or stale revision and requires explicit unknown-language acknowledgement',async()=>{

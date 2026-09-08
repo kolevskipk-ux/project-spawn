@@ -40,7 +40,7 @@ const report={generated_at:new Date().toISOString(),scope:'Local source and isol
 if(!process.argv.includes('--report-only')){
   run(spawnRoot,['node_modules/typescript/bin/tsc','--noEmit']);
   run(spawnRoot,['node_modules/vitest/vitest.mjs','run','--maxWorkers=2']);
-  for(const test of ['worker-smoke.mjs','spawn-sender.mjs','mercadolibre.mjs','customer-communications.mjs','catalog-contract.mjs'])run(catchRoot,[`tests/${test}`]);
+  for(const test of ['worker-smoke.mjs','monitoring-audit.mjs','spawn-sender.mjs','mercadolibre.mjs','customer-communications.mjs','catalog-contract.mjs'])run(catchRoot,[`tests/${test}`]);
   report.tests='passed: Spawn typecheck and complete suite, Catch suites, shared contract parity, isolated cross-Worker rehearsal';
 }
 const outputIndex=process.argv.indexOf('--output');

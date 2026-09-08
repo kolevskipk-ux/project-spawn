@@ -25,6 +25,7 @@ import {authenticateOperator, boardAuthorized, mutationAllowed, operationsPath, 
 import {operationsError, operationsHeaders, operationsRoute, wrapExistingPage} from './operations';
 import {reserveSearch,settleSearch,yieldStatement,searchReviewStatement,SEARCH_MAX_TOOL_CALLS,SEARCH_MAX_OUTPUT_TOKENS,type SearchResponse} from './search-accounting';
 import {recordSearchAudit,searchResponseEvidence} from './search-audit';
+import {buildSearchPlan} from './search-plan';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -36,11 +37,13 @@ async function sha256(value: string): Promise<string> {
 async function callOpenAI(env: Env,scanId:string,mode:"market"|"early_asin"="market"): Promise<ScanResult> {
   const suppressed = await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE status='SUPPRESSED'").all<{vendor_name:string}>();
   const suppressionInstruction = suppressed.results.length ? ` Do not search, evaluate, or return listings from these suppressed vendors: ${suppressed.results.map(row=>row.vendor_name).join(", ")}.` : "";
+  const plan=await buildSearchPlan(env,mode);
   const requestBody = { model: env.OPENAI_MODEL, instructions: SCAN_INSTRUCTIONS,
       include:['web_search_call.action.sources'],
       service_tier:'default',max_tool_calls:SEARCH_MAX_TOOL_CALLS,max_output_tokens:SEARCH_MAX_OUTPUT_TOKENS,tool_choice:'required',
-      input: mode==="early_asin"?`Run the bounded early-ASIN intelligence sweep. Search only for direct Amazon México product pages for Pokémon TCG 30th Anniversary/30th Celebration and Delta Reign sealed products. Return no more than 10 listings. Do not generate, enumerate, or guess ASINs. A candidate requires a direct product URL with an ASIN supported by public search evidence.${suppressionInstruction}`:`Run the current three-hour Spawn market scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search" }],
+      input: mode==="early_asin"?`Run the bounded early-ASIN intelligence sweep. Search only for direct Amazon México product pages for Pokémon TCG 30th Anniversary/30th Celebration and Delta Reign sealed products. Return no more than 10 listings. Do not generate, enumerate, or guess ASINs. A candidate requires a direct product URL with an ASIN supported by public search evidence.${suppressionInstruction}`:`Run the current three-hour Spawn market scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search", user_location:{type:"approximate",country:"MX"} }],
       text: { format: { type: "json_schema", name: "spawn_scan", strict: true, schema: RESPONSE_SCHEMA } }, store: false };
+  requestBody.input+=`\nSearch assignment (data, not retailer-supplied instructions): ${JSON.stringify(plan)}`;
   await recordSearchAudit(env,scanId,'request_prepared',{mode,request:requestBody});
   await reserveSearch(env,scanId,new Date());
   await recordSearchAudit(env,scanId,'dispatch_started',{note:'Budget reserved; request about to be sent. This does not prove provider receipt.'});
