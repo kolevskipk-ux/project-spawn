@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 
 export class OperationalGuardError extends Error {
-  constructor(public readonly code: "scan_in_progress" | "manual_cooldown", public readonly status: 409 | 429) {
+  constructor(public readonly code: "scan_in_progress" | "manual_cooldown" | "search_pricing_unconfigured" | "search_budget_review_required", public readonly status: 409 | 429) {
     super(code);
   }
 }

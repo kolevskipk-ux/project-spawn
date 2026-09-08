@@ -3,6 +3,7 @@ import {customerSupportOperations} from './customer-support-operations';
 import type {Env} from './types';
 import {boardHeaders} from './board';
 import type {Operator} from './operations-auth';
+import {searchAccountingData,searchMonth,SEARCH_BUDGET_MICROUSD,SEARCH_RESERVE_MICROUSD} from './search-accounting';
 
 export const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]!);
 const css = `
@@ -14,7 +15,7 @@ const css = `
 @media(max-width:540px){.ops-metrics{grid-template-columns:1fr}.ops-form{display:grid}.ops-form textarea{min-width:0}.ops-topbar h1{font-size:1.3rem}}`;
 
 export function operationsShell(title: string, content: string, operator: Operator, env: Env, path: string, styles = ''): string {
-  const links = [['/ops','Overview'],['/approvals','Approvals'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/health','System health'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
+  const links = [['/ops','Overview'],['/approvals','Approvals'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/search','Search & budget'],['/ops/health','System health'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Garfield</title><meta name="robots" content="noindex,nofollow">${styles}<style>${css}</style></head><body><a class="skip" href="#workspace">Skip to content</a><aside class="ops-sidebar"><a class="ops-brand" href="/ops">GARFIELD<small>Operations</small></a><nav class="ops-nav" aria-label="Main navigation">${links.map(([href,label]) => `<a href="${href}"${path===href?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="ops-account"><strong>${esc(operator.email)}</strong>${esc(operator.role)}<br><a href="/cdn-cgi/access/logout">Sign out</a></div></aside><div class="ops-workspace"><header class="ops-topbar"><h1>${esc(title)}</h1><span class="ops-env">${esc(env.OPS_ENVIRONMENT ?? 'Environment not configured')}</span></header><main id="workspace" class="ops-content">${operator.role==='viewer'?'<p class="ops-alert">Read-only access. An administrator handles approval decisions.</p>':''}${content}</main></div></body></html>`;
 }
 
@@ -43,10 +44,40 @@ export function operationsError(message: string, status: number, operator: Opera
   return response(operationsShell('Action not completed',`<section><p>${esc(message)}</p><a href="/approvals">Return to approvals</a></section>`,operator,env,''),status);
 }
 
+async function searchOperations(request:Request,env:Env,operator:Operator):Promise<Response> {
+  const now=new Date(),month=searchMonth(now,env.SPAWN_TIMEZONE);
+  if(request.method==='POST') {
+    if(operator.role!=='owner')return operationsError('Only the owner can reconcile search spend or record a search review.',403,operator,env);
+    const form=await request.formData(),action=String(form.get('action')??''),reason=String(form.get('reason')??'').trim();
+    if(!reason||reason.length>500)return operationsError('Enter a review note of up to 500 characters.',400,operator,env);
+    if(action==='opening_balance') {
+      const raw=String(form.get('opening_usd')??''),microusd=Math.round(Number(raw)*1_000_000);
+      if(String(form.get('month'))!==month || !/^\d{1,6}(\.\d{1,6})?$/.test(raw)||!Number.isSafeInteger(microusd))return operationsError('Enter the current month and its verified opening search spend in USD.',400,operator,env);
+      const result=await env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO search_budget_months(month,opening_microusd,recorded_at,recorded_by,reason) VALUES(?,?,?,?,?)`)
+        .bind(month,microusd,now.toISOString(),operator.email,reason).run();
+      if(!result.meta.changes)return operationsError('This month already has an opening balance. Reconcile corrections with the operator; this form cannot overwrite it.',409,operator,env);
+    } else if(action==='review') {
+      const result=await env.SPAWN_DB.prepare('UPDATE search_reviews SET reviewed_at=?,reviewed_by=?,note=? WHERE scan_id=? AND reviewed_at IS NULL')
+        .bind(now.toISOString(),operator.email,reason,String(form.get('scan_id')??'')).run();
+      if(!result.meta.changes)return operationsError('This review is no longer pending. Refresh the page.',409,operator,env);
+    } else return operationsError('Unknown search action.',400,operator,env);
+    return new Response(null,{status:303,headers:{location:'/ops/search','cache-control':'no-store'}});
+  }
+  if(request.method!=='GET')return operationsError('This action is not supported.',405,operator,env);
+  const data=await searchAccountingData(env,now);
+  const money=(value:unknown)=>value==null?'Unknown':`$${(Number(value)/1_000_000).toFixed(2)}`;
+  const committed=(data.budget?.opening_microusd??0)+(data.totals?.estimated??0)+(data.totals?.held??0);
+  const alerts=data.reviews.map(r=>`<section class="ops-alert"><h2>Search strategy review due</h2><p>${esc(r.consecutive_empty)} consecutive completed scans found no new listing URLs. Triggered ${esc(r.triggered_at)}. This review stays pending even if later scans discover listings.</p>${operator.role==='owner'?`<form method="post" class="ops-form"><input type="hidden" name="action" value="review"><input type="hidden" name="scan_id" value="${esc(r.scan_id)}"><label>Decision and next steps<textarea name="reason" required maxlength="500"></textarea></label><button>Record review</button></form>`:''}</section>`).join('');
+  const opening=!data.budget?`<section class="ops-alert"><h2>Opening spend required</h2><p>Paid scans are blocked until this month’s pre-tracking Spawn API spend is reconciled. Historical scan records contain no billing usage. Include model and web-search charges through activation; do not enter zero unless verified.</p>${operator.role==='owner'?`<form method="post" class="ops-form"><input type="hidden" name="action" value="opening_balance"><input type="hidden" name="month" value="${esc(month)}"><label>Opening spend (USD)<input name="opening_usd" type="number" min="0" max="999999" step="0.000001" required></label><label>Billing evidence and cutoff<textarea name="reason" maxlength="500" required></textarea></label><button>Save opening balance</button></form>`:''}</section>`:'';
+  const content=`${alerts}${opening}<div class="ops-metrics"><div class="ops-metric"><span>${esc(month)} budget · USD</span><strong>${money(SEARCH_BUDGET_MICROUSD)}</strong><span>Calendar month in ${esc(env.SPAWN_TIMEZONE??'America/Mexico_City')}</span></div><div class="ops-metric"><span>Opening + estimated charges + held reserves</span><strong>${data.budget?money(committed):'Unreconciled'}</strong><span>Opening ${money(data.budget?.opening_microusd)} · estimated ${money(data.totals?.estimated)} · held ${money(data.totals?.held)}</span></div><div class="ops-metric"><span>Consecutive completed scans without new listings</span><strong>${esc(data.streak)} / 100</strong><span>A new listing resets this counter. Failures do not count.</span></div></div><section><h2>Discovery yield</h2><p>${esc(data.totals?.new_listings??0)} new listing URLs from ${esc(data.totals?.requests??0)} reserved scan requests this month. New means a previously unseen canonical listing URL, including unavailable products. Discovery does not mean approval or Catch enrollment.</p><p>Restocks and preorder openings are separate. Baseline initialization and pre-tracking scans are excluded from the consecutive counter. A review does not change the search strategy automatically.</p></section><section><h2>Budget guard</h2><p>Every paid scan reserves ${money(SEARCH_RESERVE_MICROUSD)} before calling the API. If there is insufficient room, the scan is skipped. Known usage replaces the reserve with an estimate; timeouts or missing usage retain the reserve. An estimate above its reserve blocks further paid scans for reconciliation.</p><p>These are application cost estimates, not an OpenAI invoice or an account-wide billing cap. They include model tokens and web-search calls; Catch and hosting costs are separate. The budget resets monthly; the consecutive counter does not.</p></section><section><h2>Latest 50 scans</h2>${table(['Started (UTC)','Result','New URLs','Restock / preorder','Unchanged','Web calls','Estimated USD','Details'],data.recent.map(r=>[r.started_at,r.status,r.new_listings??'Unmeasured',r.restocks??'—',r.unchanged??'—',r.web_calls??'Unknown',money(r.estimated_microusd),r.error??'—']),'No scans yet.')}</section>`;
+  return response(operationsShell('Search & budget',content,operator,env,'/ops/search'));
+}
+
 export async function operationsRoute(request: Request, env: Env, operator: Operator): Promise<Response | null> {
   const url = new URL(request.url), path = url.pathname;
   if (path === '/') return new Response(null,{status:302,headers:{location:'/ops','cache-control':'no-store'}});
   if (!path.startsWith('/ops')) return null;
+  if (path === '/ops/search') return searchOperations(request,env,operator);
   if (path === '/ops/customers') return customerOperations(request,env,operator);
   if (path === '/ops/customer-support') return customerSupportOperations(request,env,operator);
   if (path === '/ops/people' && operator.role !== 'owner') return operationsError('Only the owner can manage access.',403,operator,env);

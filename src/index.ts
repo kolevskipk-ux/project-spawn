@@ -23,6 +23,7 @@ import { runAmazonCommercialEnrichment } from "./amazon-enrichment";
 import { validateFulfilmentReview } from "./cross-border";
 import {authenticateOperator, boardAuthorized, mutationAllowed, operationsPath, operatorActor} from './operations-auth';
 import {operationsError, operationsHeaders, operationsRoute, wrapExistingPage} from './operations';
+import {reserveSearch,settleSearch,yieldStatement,searchReviewStatement,SEARCH_MAX_TOOL_CALLS,SEARCH_MAX_OUTPUT_TOKENS,type SearchResponse} from './search-accounting';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -31,17 +32,22 @@ async function sha256(value: string): Promise<string> {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function callOpenAI(env: Env,mode:"market"|"early_asin"="market"): Promise<ScanResult> {
+async function callOpenAI(env: Env,scanId:string,mode:"market"|"early_asin"="market"): Promise<ScanResult> {
   const suppressed = await env.SPAWN_DB.prepare("SELECT vendor_name FROM vendors WHERE status='SUPPRESSED'").all<{vendor_name:string}>();
   const suppressionInstruction = suppressed.results.length ? ` Do not search, evaluate, or return listings from these suppressed vendors: ${suppressed.results.map(row=>row.vendor_name).join(", ")}.` : "";
+  await reserveSearch(env,scanId,new Date());
   const response = await fetch("https://api.openai.com/v1/responses", {
+    signal:AbortSignal.timeout(8*60_000),
     method: "POST", headers: { authorization: `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({ model: env.OPENAI_MODEL, instructions: SCAN_INSTRUCTIONS,
+      service_tier:'default',max_tool_calls:SEARCH_MAX_TOOL_CALLS,max_output_tokens:SEARCH_MAX_OUTPUT_TOKENS,tool_choice:'required',
       input: mode==="early_asin"?`Run the bounded early-ASIN intelligence sweep. Search only for direct Amazon México product pages for Pokémon TCG 30th Anniversary/30th Celebration and Delta Reign sealed products. Return no more than 10 listings. Do not generate, enumerate, or guess ASINs. A candidate requires a direct product URL with an ASIN supported by public search evidence.${suppressionInstruction}`:`Run the current three-hour Spawn market scan. Use web search and return the structured result.${suppressionInstruction}`, tools: [{ type: "web_search" }],
       text: { format: { type: "json_schema", name: "spawn_scan", strict: true, schema: RESPONSE_SCHEMA } }, store: false })
   });
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  const payload = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
+  const payload = await response.json() as SearchResponse;
+  await settleSearch(env,scanId,payload);
+  if(payload.status!=='completed'||!payload.output?.some(item=>item.type==='web_search_call'&&item.status==='completed')) throw new Error('Search incomplete or no completed web search evidence');
   const outputText = payload.output_text ?? payload.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
   if (!outputText) throw new Error("OpenAI returned no structured output text");
   return JSON.parse(outputText) as ScanResult;
@@ -65,7 +71,7 @@ async function runScan(env: Env, triggerSource: "cron" | "manual" | "early_asin"
     await env.SPAWN_DB.prepare("INSERT INTO scan_runs (id, started_at, trigger_source, status, config_version, model) VALUES (?, ?, ?, 'running', ?, ?)")
       .bind(id, started.toISOString(), triggerSource, env.SPAWN_CONFIG_VERSION, env.OPENAI_MODEL).run();
     try {
-      const rawResult = await callOpenAI(env,triggerSource==="early_asin"?"early_asin":"market");
+      const rawResult = await callOpenAI(env,id,triggerSource==="early_asin"?"early_asin":"market");
       const listings=triggerSource==="early_asin"?rawResult.listings.filter(item=>["30th_celebration","delta_reign"].includes(item.watch_category)&&Boolean(amazonAsin(item.url))).slice(0,10):rawResult.listings;
       const result:ScanResult={...rawResult,listings,listings_evaluated:listings.length,available:listings.filter(item=>item.status==="available").length,sold_out:listings.filter(item=>item.status==="sold_out").length,unknown:listings.filter(item=>item.status==="unknown").length};
       const inventory=await updateInventory(env, id, result.listings, started.toISOString());
@@ -77,7 +83,9 @@ async function runScan(env: Env, triggerSource: "cron" | "manual" | "early_asin"
       const resultHash = await sha256(resultJson);
       const finished = new Date().toISOString();
       await env.SPAWN_DB.batch([
+        yieldStatement(env,id,inventory.changes,inventory.discoveries,inventory.baseline,finished),
         env.SPAWN_DB.prepare("UPDATE scan_runs SET finished_at=?, status='succeeded', result_json=?, result_hash=?, discord_message_id=NULL WHERE id=?").bind(finished, resultJson, resultHash, id),
+        searchReviewStatement(env,id,finished),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('last_success', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
           .bind(JSON.stringify({ id, finished_at: finished, result_hash: resultHash }), finished),
         env.SPAWN_DB.prepare("INSERT INTO worker_state (key, value, updated_at) VALUES ('amazon_discovery_window', ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
