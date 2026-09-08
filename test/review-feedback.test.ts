@@ -1,4 +1,4 @@
-import {describe,expect,it} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
 import {runInNewContext} from 'node:vm';
 import {validateFulfilmentReview} from '../src/cross-border';
 import {renderApprovals} from '../src/dashboard';
@@ -7,15 +7,17 @@ import {productApprovalScript} from '../src/product-approval-card';
 
 const data={verification_queue:[],listing_queue:[{candidate_id:'a'.repeat(64),product_name:'Sample',source_url:'https://example.test'}],spawn:{}};
 describe('approval feedback',()=>{
-  it('retains entries and permits retry after an inline error',async()=>{
+  it('uses the action attribute despite a named action control, retains entries and permits retry',async()=>{
     const feedback={textContent:''},button={disabled:false,textContent:'Approve product'},error={textContent:''};
     let submit=async(_event:unknown)=>{};
-    const form={action:'/dashboard/verification/B0H27L3TKW',dataset:{} as Record<string,string>,elements:{evidence_revision:{value:'old'},product_name:{value:'My corrected product'}},
+    const form={action:{value:'approve_product',toString:()=> '[object HTMLInputElement]'},getAttribute:(name:string)=>name==='action'?'/dashboard/verification/B0H27L3TKW':null,dataset:{} as Record<string,string>,elements:{evidence_revision:{value:'old'},product_name:{value:'My corrected product'}},
       addEventListener:(_event:string,handler:typeof submit)=>{submit=handler;},querySelectorAll:()=>[error],
       querySelector:(selector:string)=>({'button[type=submit]':button,'[data-product-feedback]':feedback,'[data-error-for="set_name"]':error}[selector]??null)};
     let result:Record<string,unknown>={ok:false,error:'Confirm the set.',fields:{set_name:'Set is required'},evidenceRevision:'new'};
-    runInNewContext(productApprovalScript,{document:{querySelectorAll:()=>[form]},FormData:class {},fetch:async()=>({json:async()=>result})});
+    const fetch=vi.fn(async()=>({json:async()=>result}));
+    runInNewContext(productApprovalScript,{document:{querySelectorAll:()=>[form]},FormData:class {},fetch});
     await submit({preventDefault(){}});
+    expect(fetch).toHaveBeenCalledWith('/dashboard/verification/B0H27L3TKW',expect.objectContaining({method:'POST'}));
     expect(form.elements.product_name.value).toBe('My corrected product');expect(form.elements.evidence_revision.value).toBe('new');
     expect(error.textContent).toBe('Set is required');expect(button.disabled).toBe(false);
     result={ok:true,message:'Published to inventory · Catch acknowledgement pending.'};await submit({preventDefault(){}});
