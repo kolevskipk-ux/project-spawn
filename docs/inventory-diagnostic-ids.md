@@ -29,9 +29,15 @@ the migrations and deployment after the automatic approval gate.
 Migrations 0031/0032, Worker activation and schedule activation were completed
 as separate operations on September 9, 2026.
 Spawn version: `bbe79a14-6486-4bd8-b845-11573ff731c6` (source `62cddac`).
-Catch version: `ff0f7131-93bf-44b0-9f1f-166e968db7d0` (source `3757ef0`).
+Catch version: `d4597b43-b7f2-48b8-9f88-97047885a126` (source `2c3bdef`).
 Production health/readiness and both release versions were verified. The migration
 generated 359 inventory and 80 Amazon UUID mappings and inserted all seven references.
+The live Catch feed confirms UUID links for all 20 published targets and their
+inventory entries. Deployment verification discovered a pre-existing catalog freeze
+caused by rediscovery timestamps changing without a catalog version increment.
+Catch now excludes only `updated_at` and `last_discovered_at` from the comparison;
+tests still reject unversioned product changes. Catalog version 5 and all existing
+monitoring identities were preserved; no monitoring baseline was reset.
 IDs do not change monitoring
 baselines or approval states, and are not access tokens.
 
