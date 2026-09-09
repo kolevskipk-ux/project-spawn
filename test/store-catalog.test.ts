@@ -81,6 +81,23 @@ it('keeps scheduled work inert until activated, then resumes persisted work',asy
   await runCatalogTick(env,undefined,f);expect(f).toHaveBeenCalled();expect(db.prepare('SELECT status FROM store_catalog_runs').get()?.status).toBe('PARTIAL');
   await approve();await importStoreCatalog(env,store().id);f.mockClear();await runCatalogTick(env,undefined,f);expect(f).not.toHaveBeenCalled();
 });
+it('automatically audits a new pending store without approving or importing it, then drains approved imports',async()=>{
+  inventory();await auditKnownStores(env);env.STORE_CATALOG_SYNC_ENABLED='true';const f=crawler();
+  await runCatalogTick(env,undefined,f);
+  expect(f).toHaveBeenCalled();expect(store().status).toBe('PENDING');
+  expect(db.prepare('SELECT COUNT(*) n FROM inventory').get()?.n).toBe(1);
+  const count=f.mock.calls.length;await runCatalogTick(env,undefined,f);
+  expect(f.mock.calls.length).toBe(count);
+  await approve();await runCatalogTick(env,undefined,f);
+  expect(store().baseline_completed_at).toBeTruthy();
+  expect(db.prepare('SELECT COUNT(*) n FROM inventory').get()?.n).toBe(2);
+});
+it('shows automatic progress instead of manual batch controls',async()=>{
+  inventory();await auditKnownStores(env);env.STORE_CATALOG_SYNC_ENABLED='true';
+  const response=await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,{email:'admin',subject:'admin',role:'admin'});
+  const html=await response.text();expect(html).toContain('Queued for automatic audit');
+  expect(html).not.toContain('Process next catalog batch');expect(html).not.toContain('Import next approved batch');
+});
 it('honors robots, rejects redirects, and records blocked coverage without inventory mutation',async()=>{
   inventory();await auditKnownStores(env);const f=vi.fn(async()=>new Response('User-agent: *\nDisallow: /'));
   await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,f);expect(f).toHaveBeenCalledTimes(1);

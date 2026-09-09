@@ -1,5 +1,19 @@
 # Existing-store catalog onboarding
 
+## Automation update — authorized 2026-09-09
+
+Philip authorized automatic store ingestion after reviewing the manual workflow.
+With `STORE_CATALOG_SYNC_ENABLED=true`, pending independent stores receive their
+first audit automatically. Audits resume in background batches every 15 minutes.
+Completed pending audits wait for category approval; approval authorizes automatic
+import batches and subsequent catalog refreshes. Paused, rejected, and suppressed
+stores remain excluded. No whole-store approvals are inferred or created.
+The portal shows queue/progress instead of requiring manual batch clicks. Failed
+initial audits remain visible for a deliberate recheck rather than endless retry.
+The eight-page batch and existing per-store refresh intervals are unchanged.
+Deploy the code with scheduling off first; activate separately after validation.
+This update supersedes the manual-start requirement below.
+
 Implemented 2026-09-09 on `codex/store-catalog-onboarding`. This is the first,
 existing-store phase of the store-first discovery proposal. It adds no paid AI
 calls and does not change the current paid listing-search algorithm or budget.

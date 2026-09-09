@@ -150,7 +150,7 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
   if(!lock.meta.changes)return;
   try {
     const store=storeId?await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(storeId).first<Store>():await env.SPAWN_DB.prepare(`SELECT s.* FROM store_acquisitions s WHERE s.marketplace=0 AND s.status IN ('PENDING','APPROVED') AND
-      (EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
+      ((s.status='PENDING' AND NOT EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id)) OR EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
         SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 1`).bind(new Date().toISOString()).first<Store>();
     if(!store)return;
     await env.SPAWN_DB.prepare('UPDATE store_acquisitions SET last_tick_at=? WHERE id=?').bind(new Date().toISOString(),store.id).run();

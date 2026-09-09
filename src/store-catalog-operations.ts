@@ -23,7 +23,7 @@ export async function storeCatalogOperations(request:Request,env:Env,operator:Op
     return new Response(null,{status:303,headers:{location:'/ops/stores'+(storeId?'?id='+encodeURIComponent(storeId):''),'cache-control':'no-store'}});
   }
   if(request.method!=='GET')return operationsError('Unsupported action.',405,operator,env);
-  const admin=operator.role!=='viewer';
+  const admin=operator.role!=='viewer',automatic=env.STORE_CATALOG_SYNC_ENABLED==='true';
   const button=(action:string,label:string,storeId='')=>admin?`<form method="post"><input type="hidden" name="id" value="${esc(storeId)}"><button name="action" value="${action}">${label}</button></form>`:'';
   let content=`<p>Start with stores already represented in inventory. Audit their catalog, review coverage, then approve the categories to import. Scheduled catalog checks are <strong>${env.STORE_CATALOG_SYNC_ENABLED==='true'?'enabled':'disabled'}</strong>.</p>`;
   if(!id) {
@@ -45,8 +45,14 @@ export async function storeCatalogOperations(request:Request,env:Env,operator:Op
     ]);
     const selected=JSON.parse(store.categories_json) as string[],suppressed=await storeSuppressed(env,store);
     content+=`<p><a href="/ops/stores">← All stores</a></p><section><h2>${esc(store.retailer)}</h2><p><a href="${esc(store.origin)}" target="_blank" rel="noopener noreferrer">Visit ${esc(store.origin)}</a></p><p>${esc(store.status)}${suppressed?' · SUPPRESSED':''} · Catalog refresh: every ${store.refresh_hours} hours after completion</p><p>${counts?.total??0} products found · ${counts?.additional??0} additional listings · ${counts?.supported??0} with supported identity/offer evidence · ${counts?.imported??0} linked to inventory.</p>`;
-    if(store.marketplace)content+='<p>This marketplace contains multiple sellers. Whole-domain ingestion is unavailable; existing seller approvals remain unchanged.</p>';
-    else if(!suppressed)content+=button('inspect','Start catalog audit',id)+button('continue','Process next catalog batch',id)+(store.status==='APPROVED'?button('import','Import next approved batch',id):'');
+    if(store.marketplace)content+='<p>Marketplace onboarding is not yet supported. Existing seller approvals and monitored inventory remain unchanged.</p>';
+    else if(!suppressed&&!['PAUSED','REJECTED'].includes(store.status)) {
+      if(automatic) {
+        const running=runs.results.some(run=>run.status==='RUNNING');
+        content+=`<p><strong>${running?'Audit in progress':store.status==='APPROVED'?'Automatic ingestion and catalog refresh enabled':runs.results.length?'Audit results ready for review':'Queued for automatic audit'}</strong></p><p>Background work advances every 15 minutes. You can leave this page; no batch clicks are needed. Refresh to see the latest progress.</p>`;
+        if(!running&&runs.results.length)content+=button('inspect','Recheck catalog',id);
+      } else content+=button('inspect','Start catalog audit',id)+button('continue','Process next catalog batch',id)+(store.status==='APPROVED'?button('import','Import next approved batch',id):'');
+    }
     content+='</section><section><h2>Catalog coverage</h2><p>Each batch inspects up to 8 pages. Runs resume from saved progress, with a 2,500-page ceiling. Known listings are prioritized; descriptive product URLs and feed titles are filtered to the four supported watch categories. Unclear names may be missed. “Complete” means the accessible URL queue was exhausted; it does not guarantee the retailer exposes every product or variant. Unsupported variants and missing evidence remain outside the import.</p>';
     content+=runs.results.map(r=>`<article><strong>${esc(r.status)}</strong> · ${esc(r.started_at)}<p>${esc(r.pages)} queued pages · ${esc(r.pending)} remaining · ${esc(r.note)}</p></article>`).join('')||'<p>No catalog run yet.</p>';
     content+='</section>';
