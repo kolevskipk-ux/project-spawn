@@ -3,6 +3,7 @@ import {normalizeVendor,printSeries} from './garfield';
 import {canonicalizeUrl} from './inventory';
 import {targetInsert} from './store-monitoring';
 import {STORE_POLICY} from './store-catalog-parser';
+import {storeSuppressionSql} from './store-visibility-query';
 import {catalogOrigin,catalogUrl,catalogProduct,candidateCatalogUrl,catalogCategory,marketplaceOrigin,parseRobots,robotsAllows,sitemapLinks,STORE_CATEGORIES,type RobotsPolicy} from './store-catalog-parser';
 
 export type Store={id:string;origin:string;retailer:string;vendor_key:string;marketplace:number;status:string;revision:number;categories_json:string;refresh_hours:number;approved_by:string|null;approved_at:string|null;baseline_completed_at:string|null;next_due_at:string|null};
@@ -26,6 +27,23 @@ export async function auditKnownStores(env:Env,now=new Date()) {
     added+=result.meta.changes;
   }
   return {stores:seen.size,added,unsupported};
+}
+// Philip's existing-item policy applies to retailer origins, never entire marketplaces.
+export const adminApprovedStoreEvidence=`EXISTS(SELECT 1 FROM monitoring_candidates c WHERE c.source_url LIKE s.origin||'/%' AND c.status='ACCEPTED' AND c.published_at IS NOT NULL AND c.reviewed_by IS NOT NULL AND trim(c.reviewed_by)<>'' AND c.reviewed_by NOT LIKE 'auto:%')`;
+export async function approveStoresWithAdminInventory(env:Env) {
+  if(env.STORE_ADMIN_ITEM_APPROVAL_ENABLED!=='true')return 0;
+  const stores=(await env.SPAWN_DB.prepare(`SELECT s.* FROM store_acquisitions s WHERE s.status='PENDING' AND s.marketplace=0 AND ${adminApprovedStoreEvidence} AND NOT ${storeSuppressionSql} ORDER BY s.id LIMIT 10`).all<Store>()).results;
+  let approved=0;
+  for(const store of stores){
+    if(await storeSuppressed(env,store))continue;
+    const at=new Date().toISOString(),decisionId=crypto.randomUUID();
+    const result=await env.SPAWN_DB.batch([
+      env.SPAWN_DB.prepare(`UPDATE store_acquisitions AS s SET status='APPROVED',revision=revision+1,categories_json=?,refresh_hours=6,approved_by='auto:admin-item-policy',approved_at=?,policy_json=?,next_due_at=NULL WHERE id=? AND revision=? AND status='PENDING' AND marketplace=0 AND ${adminApprovedStoreEvidence} AND NOT ${storeSuppressionSql}`).bind(JSON.stringify(STORE_CATEGORIES),at,JSON.stringify(STORE_POLICY),store.id,store.revision),
+      env.SPAWN_DB.prepare(`INSERT INTO store_acquisition_decisions(id,store_id,action,actor,decided_at,revision,details_json) SELECT ?,?,'approve','auto:admin-item-policy',?,?,json_object('policy','existing-admin-approved-item','categories',json(?),'hours',6,'source_candidates',json((SELECT json_group_array(candidate_id) FROM monitoring_candidates WHERE source_url LIKE ? AND status='ACCEPTED' AND published_at IS NOT NULL AND reviewed_by IS NOT NULL AND trim(reviewed_by)<>'' AND reviewed_by NOT LIKE 'auto:%'))) WHERE changes()=1`).bind(decisionId,store.id,at,store.revision+1,JSON.stringify(STORE_CATEGORIES),store.origin+'/%')
+    ]);
+    approved+=result[0].meta.changes;
+  }
+  return approved;
 }
 async function enqueue(env:Env,run:Run,store:Store,urls:string[],kind:string) {
   const unique=[...new Set(urls.map(url=>catalogUrl(url,store.origin)).filter((url):url is string=>Boolean(url)))];
@@ -159,6 +177,7 @@ export async function importStoreCatalog(env:Env,storeId:string) {
 }
 export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetch=fetch) {
   if(!storeId&&env.STORE_CATALOG_SYNC_ENABLED!=='true')return;
+  if(!storeId)await approveStoresWithAdminInventory(env);
   if(!storeId){const due=await env.SPAWN_DB.prepare(`SELECT s.id FROM store_acquisitions s WHERE s.marketplace=0 AND s.status IN ('PENDING','APPROVED') AND
       ((s.status='PENDING' AND NOT EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id)) OR EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
         SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 3`).bind(new Date().toISOString()).all<{id:string}>();

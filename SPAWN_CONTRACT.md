@@ -32,7 +32,10 @@ See `docs/store-automation-release.md` for the rollout and remaining limits.
 Philip requested the existing-store onboarding phase before new-store acquisition.
 Spawn may inventory known retailer origins, audit accessible scoped catalogs, and
 ingest supported products after explicit store/category approval. Prior product
-approvals do not become whole-store approvals. Marketplace seller identity,
+approvals now qualify pending non-marketplace stores under Philip's subsequent
+September 9 instruction: an existing human-approved, published item authorizes
+all supported sets at that origin. Paused, rejected and suppressed stores remain
+unchanged. The automatic decision records its source candidate IDs. Marketplace seller identity,
 suppression, prior rejection, customer publication and Catch verification boundaries
 remain in force. Catalog ingestion may retain fulfillment-unverified records; it
 does not assert customer publication or active monitoring. Initial imports are quiet

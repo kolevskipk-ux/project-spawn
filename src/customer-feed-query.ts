@@ -15,7 +15,7 @@ const visible = `WITH eligible AS (
  FROM inventory i LEFT JOIN inventory_revalidation_state r ON r.listing_key=i.listing_key
  LEFT JOIN inventory_revalidation_attempts p ON p.attempt_id=(SELECT a.attempt_id FROM inventory_revalidation_attempts a WHERE a.listing_key=i.listing_key AND a.outcome IN ('AVAILABLE','SOLD_OUT') AND a.http_status=200 ORDER BY a.finished_at DESC,a.attempt_id DESC LIMIT 1)
  LEFT JOIN products ref ON ref.id=i.product_id
- WHERE COALESCE(r.lifecycle_state,'ACTIVE')!='ARCHIVED'
+ WHERE COALESCE(r.lifecycle_state,'ACTIVE')!='ARCHIVED' AND NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=i.listing_key AND admin.removed_at IS NOT NULL)
  AND (${storeVisible} OR i.fulfilment_region_state='DOMESTIC' OR (i.fulfilment_region_state='CROSS_BORDER_CONFIRMED' AND julianday(i.destination_fresh_until)>julianday(?)))
  AND NOT EXISTS(SELECT 1 FROM amazon_watchlist w WHERE w.product_url=i.canonical_url AND w.lifecycle_status IN ('SUSPENDED','REJECTED'))
  AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c JOIN vendors v ON v.vendor_key=c.vendor_key WHERE c.source_listing_key=i.listing_key AND v.status='SUPPRESSED')

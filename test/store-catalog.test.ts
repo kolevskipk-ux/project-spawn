@@ -7,6 +7,8 @@ import {catalogOrigin,catalogProduct,catalogUrl,candidateCatalogUrl,parseRobots,
 import {storeCatalogOperations} from '../src/store-catalog-operations';
 import {handleStoreMonitoring,nextStoreDigest} from '../src/store-monitoring';
 import {customerInventory} from '../src/customer-feed';
+import {approveStoresWithAdminInventory} from '../src/store-catalog';
+import {approvedInventoryOperations} from '../src/approved-inventory-operations';
 // Exercise the real consumer against the real authenticated Spawn handler.
 const catchModule=new URL('../../catch-em-all/src/store-monitor.js',import.meta.url);
 let db:DatabaseSync,env:Env;
@@ -34,6 +36,35 @@ const crawler=()=>vi.fn(async(input:RequestInfo|URL)=>{
 });
 async function audit(){inventory();await auditKnownStores(env);await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,crawler());}
 async function approve(){const s=store();await decideStore(env,s.id,s.revision,'approve',['delta_reign'],6,'admin');}
+it('existing admin item policy queues all sets once and preserves store rejection',async()=>{
+ inventory();await auditKnownStores(env);
+ db.prepare("INSERT INTO monitoring_candidates(candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,language,discovered_at,status,reviewed_by,published_at) VALUES('approved','spawn',?,'known','Cards','cards','Delta','pokemon_tcg','Delta Reign','english','now','ACCEPTED','admin@example.test','now')").run(known);
+ expect(await approveStoresWithAdminInventory(env)).toBe(0);
+ env.STORE_ADMIN_ITEM_APPROVAL_ENABLED='true';
+ expect(await approveStoresWithAdminInventory(env)).toBe(1);
+ expect(store().status).toBe('APPROVED');expect(JSON.parse(store().categories_json)).toContain('mtg_tcg');
+ expect(await approveStoresWithAdminInventory(env)).toBe(0);
+ expect(JSON.parse(String(db.prepare('SELECT details_json FROM store_acquisition_decisions').get()?.details_json)).source_candidates).toEqual(['approved']);
+ await decideStore(env,store().id,store().revision,'reject',[],6,'admin');
+ expect(await approveStoresWithAdminInventory(env)).toBe(0);expect(store().status).toBe('REJECTED');
+});
+it('approved inventory edits and removals are audited, reversible and stop customer visibility and claims',async()=>{
+ await audit();await approve();await importStoreCatalog(env,store().id);
+ const operator={email:'admin@example.test',subject:'admin',role:'admin' as const};
+ const act=(action:string,revision:number,role:'admin'|'viewer'='admin')=>approvedInventoryOperations(new Request('https://spawn.example/approvals',{method:'POST',body:new URLSearchParams({id:'known',revision:String(revision),action,title:'Edited display',language:'english'})}),env,{...operator,role});
+ expect((await act('edit',0,'viewer')).status).toBe(403);
+ expect((await act('edit',0)).status).toBe(303);
+ expect(db.prepare("SELECT title,price_mxn FROM inventory WHERE listing_key='known'").get()).toMatchObject({title:'Edited display',price_mxn:1200});
+ expect((await act('remove',0)).status).toBe(409);
+ expect((await act('review',1)).status).toBe(303);
+ expect((await act('remove',2)).status).toBe(303);
+ const claims=await (await monitor('claim')).json() as any;expect(claims.targets.some((t:any)=>t.id==='known')).toBe(false);
+ expect((await customerInventory(env,new URL('https://source/inventory'))).rows.some(r=>r.id==='known')).toBe(false);
+ expect((await act('restore',3)).status).toBe(303);
+ expect(db.prepare('SELECT COUNT(*) n FROM inventory_admin_actions').get()?.n).toBe(4);
+ expect(db.prepare("SELECT price_mxn FROM inventory WHERE listing_key='known'").get()?.price_mxn).toBe(1200);
+ expect((await (await monitor('claim')).json() as any).targets.some((t:any)=>t.id==='known')).toBe(true);
+});
 async function monitor(path:string,body:unknown={}){
   env.CATCH_INGEST_SECRET='fixture';env.STORE_MONITORING_ENABLED='true';env.STORE_NOTIFICATIONS_ENABLED='true';
   return (await handleStoreMonitoring(new Request('https://spawn.example/internal/garfield/store-monitor/'+path,{method:'POST',headers:{authorization:'Bearer fixture'},body:JSON.stringify(body)}),env))!;

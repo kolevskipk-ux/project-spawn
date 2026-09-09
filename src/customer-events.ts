@@ -36,7 +36,7 @@ export async function handleCustomerEvents(request:Request,url:URL,env:Env):Prom
   if(request.method!=="GET")return response({error:"method_not_allowed"},405);
   const limit=Math.max(1,Math.min(50,Number(url.searchParams.get("limit"))||25)),cursor=String(url.searchParams.get("cursor")||"");
   if(cursor&&!/^[a-f0-9]{64}$/i.test(cursor))return response({error:"invalid_cursor"},400);
-  const rows=await env.SPAWN_DB.prepare(`SELECT event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at FROM customer_inventory_events WHERE delivery_status IN ('PENDING','FAILED') AND event_id>?
+  const rows=await env.SPAWN_DB.prepare(`SELECT event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at FROM customer_inventory_events WHERE NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=customer_inventory_events.listing_key AND admin.removed_at IS NOT NULL) AND delivery_status IN ('PENDING','FAILED') AND event_id>?
     UNION ALL SELECT event_id,schema_version,event_type,'campaign:'||campaign_id listing_key,campaign_id source_observation_id,routing_key,payload_json,occurred_at,created_at FROM campaign_customer_events WHERE delivery_status IN ('PENDING','FAILED') AND event_id>?
     ORDER BY event_id LIMIT ?`).bind(cursor,cursor,limit+1).all<Record<string,unknown>>();
   const page=rows.results.slice(0,limit),events=[];
