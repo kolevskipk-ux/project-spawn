@@ -1,7 +1,8 @@
+import {assessProductEvidence} from './product-page-evidence';
 import { amazonAsin } from "./inventory";
 import type { Env } from "./types";
 
-export const REVALIDATION_PARSER_VERSION="direct-page-v1";
+export const REVALIDATION_PARSER_VERSION="exact-product-jsonld-v1";
 export type RevalidationOutcome="AVAILABLE"|"SOLD_OUT"|"UNKNOWN"|"BLOCKED"|"ERROR";
 
 export interface RevalidationAssessment { outcome:RevalidationOutcome; priceMxn:number|null; evidence:string; }
@@ -31,34 +32,49 @@ export function nextRevalidationTime(outcome:RevalidationOutcome,now:Date,failur
 }
 
 export async function runInventoryRevalidation(env:Env,now=new Date(),fetchFn:typeof fetch=fetch){
+  if(env.INVENTORY_REVALIDATION_ENABLED!=="true")return {enabled:false,attempted:0,results:[] as Array<Record<string,unknown>>};
+  const owner=crypto.randomUUID(),stamp=now.toISOString();
+  const lock=await env.SPAWN_DB.prepare(`INSERT INTO scan_locks(name,owner,acquired_at,expires_at) VALUES('inventory_revalidation',?,?,?)
+    ON CONFLICT(name) DO UPDATE SET owner=excluded.owner,acquired_at=excluded.acquired_at,expires_at=excluded.expires_at WHERE scan_locks.expires_at<=excluded.acquired_at`)
+    .bind(owner,stamp,new Date(now.getTime()+5*60000).toISOString()).run();
+  if(lock.meta.changes!==1)return {enabled:true,attempted:0,results:[] as Array<Record<string,unknown>>,skipped:'already_running'};
+  try {
+    const result=await revalidateBatch(env,now,fetchFn);
+    await env.SPAWN_DB.prepare("INSERT INTO worker_state(key,value,updated_at) VALUES('inventory_revalidation_last',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify(result),new Date().toISOString()).run();
+    return result;
+  }finally{await env.SPAWN_DB.prepare("DELETE FROM scan_locks WHERE name='inventory_revalidation' AND owner=?").bind(owner).run();}
+}
+async function revalidateBatch(env:Env,now:Date,fetchFn:typeof fetch){
   if(env.INVENTORY_REVALIDATION_ENABLED!=="true") return {enabled:false,attempted:0,results:[] as Array<Record<string,unknown>>};
   const limit=Math.max(1,Math.min(5,Number(env.INVENTORY_REVALIDATION_BATCH_SIZE)||2)), targetHours=Math.max(24,Number(env.INVENTORY_REVALIDATION_TARGET_HOURS)||24),freshnessHours=Math.max(targetHours,Number(env.INVENTORY_FRESHNESS_HOURS)||36);
   const candidates=await env.SPAWN_DB.prepare(`SELECT i.listing_key,i.canonical_url,i.retailer,i.title,i.status,i.price_mxn,c.routing_key,s.due_at,s.next_eligible_at,i.fulfilment_region_state,i.retailer_country,i.ship_from_country,i.original_price,i.original_currency,i.mexico_delivery_status,i.shipping_mxn,i.import_cost_status,i.destination_checked_at,i.destination_fresh_until
-    FROM inventory i JOIN monitoring_candidates c ON c.source_listing_key=i.listing_key AND c.status='ACCEPTED'
+    FROM inventory i JOIN monitoring_candidates c ON c.candidate_id=(SELECT candidate_id FROM monitoring_candidates WHERE source_listing_key=i.listing_key AND status='ACCEPTED' ORDER BY discovered_at DESC LIMIT 1)
     LEFT JOIN inventory_revalidation_state s ON s.listing_key=i.listing_key
-    WHERE COALESCE(s.lifecycle_state,'ACTIVE')!='ARCHIVED' AND COALESCE(s.next_eligible_at,i.last_seen_at)<=?
-    ORDER BY COALESCE(s.due_at,i.last_seen_at),i.listing_key LIMIT ?`).bind(now.toISOString(),limit*4).all<DueListing>();
-  const catchRows=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE lifecycle_status IN ('VERIFIED','APPROVED','PUBLISHED')").all<{asin:string}>(), catchAsins=new Set(catchRows.results.map(row=>row.asin));
+    WHERE COALESCE(s.lifecycle_state,'ACTIVE')!='ARCHIVED' AND COALESCE(s.next_eligible_at,i.last_seen_at)<=? AND NOT EXISTS(SELECT 1 FROM amazon_watchlist w WHERE w.product_url=i.canonical_url AND (w.lifecycle_status='PUBLISHED' OR w.staging_enabled=1))
+    ORDER BY COALESCE(s.due_at,i.last_seen_at),i.listing_key LIMIT ?`).bind(now.toISOString(),1000).all<DueListing>();
+  const catchRows=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' OR staging_enabled=1").all<{asin:string}>(), catchAsins=new Set(catchRows.results.map(row=>row.asin));
   const domainRows=await env.SPAWN_DB.prepare("SELECT domain,blocked_until FROM revalidation_domain_state WHERE blocked_until>?").bind(now.toISOString()).all<{domain:string;blocked_until:string}>(), blockedDomains=new Set(domainRows.results.map(row=>row.domain));
-  const selected:DueListing[]=[],domains=new Set<string>();
+  const selected:DueListing[]=[],domains=new Map<string,number>();
   for(const row of candidates.results){
     let url:URL;try{url=new URL(row.canonical_url);}catch{continue;}
     const domain=url.hostname.toLowerCase(),asin=amazonAsin(row.canonical_url);
-    if(domains.has(domain)||blockedDomains.has(domain)||(asin&&catchAsins.has(asin))||(row.fulfilment_region_state==="CROSS_BORDER_CONFIRMED"&&Date.parse(row.destination_fresh_until??"")<=now.getTime()))continue;
-    domains.add(domain);selected.push(row);if(selected.length>=limit)break;
+    if((domains.get(domain)??0)>=2||blockedDomains.has(domain)||(asin&&catchAsins.has(asin))||(row.fulfilment_region_state==="CROSS_BORDER_CONFIRMED"&&Date.parse(row.destination_fresh_until??"")<=now.getTime()))continue;
+    domains.set(domain,(domains.get(domain)??0)+1);selected.push(row);if(selected.length>=limit)break;
   }
   const results:Array<Record<string,unknown>>=[];
   for(const row of selected){
     const started=new Date(),attemptId=crypto.randomUUID(),url=new URL(row.canonical_url),domain=url.hostname.toLowerCase();
+    if(blockedDomains.has(domain))continue;
     let httpStatus=0,responseUrl=row.canonical_url,assessment:RevalidationAssessment,error:string|null=null;
     try{
       const response=await fetchFn(row.canonical_url,{headers:{"User-Agent":"Mozilla/5.0 (compatible; ProjectGarfield-Revalidation/1.0)",Accept:"text/html,application/xhtml+xml","Accept-Language":"es-MX,es;q=0.9,en;q=0.7"},redirect:"follow",signal:AbortSignal.timeout(8_000)});
       httpStatus=response.status;responseUrl=response.url||row.canonical_url;
       const finalUrl=new URL(responseUrl);
-      assessment=finalUrl.hostname.toLowerCase()!==domain?{outcome:"UNKNOWN",priceMxn:null,evidence:"cross_domain_redirect"}:assessDirectListing(response.status,await response.text());
+      assessment=finalUrl.hostname.toLowerCase()!==domain?{outcome:"UNKNOWN",priceMxn:null,evidence:"cross_domain_redirect"}:assessProductEvidence(response.status,await response.text(),row.canonical_url,row.title);
     }catch(caught){error=String(caught instanceof Error?caught.message:caught).slice(0,240);assessment={outcome:"ERROR",priceMxn:null,evidence:"transport_error"};}
     const finished=new Date(), prior=await env.SPAWN_DB.prepare("SELECT * FROM inventory_revalidation_state WHERE listing_key=?").bind(row.listing_key).first<Record<string,unknown>>();
     const trustworthy=assessment.outcome==="AVAILABLE"||assessment.outcome==="SOLD_OUT",failures=trustworthy?0:Number(prior?.consecutive_failures??0)+1,next=nextRevalidationTime(assessment.outcome,finished,failures,targetHours);
+    if(!trustworthy)blockedDomains.add(domain);
     const lastSuccess=typeof prior?.last_success_at==="string"?Date.parse(prior.last_success_at):NaN;
     const lifecycle=assessment.outcome==="AVAILABLE"?"ACTIVE":assessment.outcome==="SOLD_OUT"?"SOLD_OUT":assessment.outcome==="ERROR"?(Number.isFinite(lastSuccess)&&lastSuccess>finished.getTime()-freshnessHours*3_600_000?String(prior?.lifecycle_state??"ACTIVE"):"STALE"):assessment.outcome;
     const soldOutSince=assessment.outcome==="SOLD_OUT"?String(prior?.sold_out_since??finished.toISOString()):assessment.outcome==="AVAILABLE"?null:prior?.sold_out_since??null;
@@ -72,8 +88,8 @@ export async function runInventoryRevalidation(env:Env,now=new Date(),fetchFn:ty
         ON CONFLICT(domain) DO UPDATE SET consecutive_failures=excluded.consecutive_failures,blocked_until=excluded.blocked_until,last_attempt_at=excluded.last_attempt_at,last_outcome=excluded.last_outcome,updated_at=excluded.updated_at`)
         .bind(domain,failures,trustworthy?null:next,finished.toISOString(),assessment.outcome,finished.toISOString())
     ];
-    if(trustworthy) statements.push(env.SPAWN_DB.prepare("UPDATE inventory SET status=?,availability_state=?,price_mxn=CASE WHEN ?='AVAILABLE' AND ? IS NOT NULL THEN ? ELSE price_mxn END,last_seen_at=?,last_change_type=CASE WHEN ?='AVAILABLE' AND status='sold_out' THEN 'restock' WHEN ?='AVAILABLE' AND ? IS NOT NULL AND price_mxn IS NOT NULL AND ?<price_mxn THEN 'price_drop' ELSE 'unchanged' END WHERE listing_key=?")
-      .bind(assessment.outcome==="AVAILABLE"?"available":"sold_out",assessment.outcome==="AVAILABLE"?"available":"sold_out",assessment.outcome,assessment.priceMxn,assessment.priceMxn,finished.toISOString(),assessment.outcome,assessment.outcome,assessment.priceMxn,assessment.priceMxn,row.listing_key));
+    if(trustworthy) statements.push(env.SPAWN_DB.prepare("UPDATE inventory SET availability_observed_at=?,availability_freshness_status='REVALIDATED',pricing_observed_at=CASE WHEN ? IS NOT NULL THEN ? ELSE pricing_observed_at END,price_verification_status=CASE WHEN ? IS NOT NULL THEN 'VERIFIED' ELSE 'PENDING' END,status=?,availability_state=?,price_mxn=CASE WHEN ? IN ('AVAILABLE','SOLD_OUT') AND ? IS NOT NULL THEN ? ELSE price_mxn END,last_seen_at=?,last_change_type=CASE WHEN ?='AVAILABLE' AND status='sold_out' THEN 'restock' WHEN ?='AVAILABLE' AND ? IS NOT NULL AND price_mxn IS NOT NULL AND ?<price_mxn THEN 'price_drop' ELSE 'unchanged' END WHERE listing_key=?")
+      .bind(finished.toISOString(),assessment.priceMxn,finished.toISOString(),assessment.priceMxn,assessment.outcome==="AVAILABLE"?"available":"sold_out",assessment.outcome==="AVAILABLE"?"available":"sold_out",assessment.outcome,assessment.priceMxn,assessment.priceMxn,finished.toISOString(),assessment.outcome,assessment.outcome,assessment.priceMxn,assessment.priceMxn,row.listing_key));
     const reduction=assessment.priceMxn!=null&&row.price_mxn!=null?row.price_mxn-assessment.priceMxn:0;
     const eventType=assessment.outcome==="AVAILABLE"&&row.status==="sold_out"?"BECAME_BUYABLE":assessment.outcome==="AVAILABLE"&&assessment.priceMxn!=null&&row.price_mxn!=null&&(reduction>=100||reduction/row.price_mxn>=0.05)?"PRICE_DROP":null;
     if(eventType&&row.routing_key){

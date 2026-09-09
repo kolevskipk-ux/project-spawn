@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "approved_on": "2026-09-09",
+  "approved_by": "Philip",
+  "currency": "MXN",
+  "market": "MX",
+  "reference_type": "operator_guideline",
+  "display_label": "Category price reference",
+  "source": "Philip explicitly selected these starting values in the Garfield discussion on 2026-09-09.",
+  "source_url": null,
+  "observed_at": null,
+  "official_msrp": false,
+  "scope": "Standard individual sealed products; initial research context is modern English-language Pokemon TCG. Other languages and special editions require separate review.",
+  "references": [
+    {
+      "product_type": "elite_trainer_box",
+      "amount_mxn": 1100
+    },
+    {
+      "product_type": "booster_bundle",
+      "booster_count": 6,
+      "amount_mxn": 629
+    },
+    {
+      "product_type": "three_booster_blister",
+      "booster_count": 3,
+      "amount_mxn": 349
+    },
+    {
+      "product_type": "binder_collection",
+      "amount_mxn": 594,
+      "source": "Philip reports Walmart; listing URL pending"
+    },
+    {
+      "product_type": "ultra_premium_collection",
+      "amount_mxn": 3370,
+      "source": "Philip reports Walmart 30th Celebration Day o Night; independent retrieval unavailable",
+      "source_url": "https://www.walmart.com.mx/ip/cartas-coleccionables-pokemon-tcg-30th-celebration-ultra-premium-day-o-night-collection-en-ingles-varios-modelos-1-pieza/00019621415869"
+    },
+    {
+      "product_type": "poster_collection",
+      "amount_mxn": 329,
+      "source": "Philip reports Walmart; listing URL pending; excludes premium poster collections"
+    },
+    {
+      "product_type": "premium_collection",
+      "amount_mxn": 749,
+      "source": "Walmart 30th Celebration Ditto; sold and shipped by Walmart; price independently observed 2026-09-09",
+      "source_url": "https://www.walmart.com.mx/ip/cartas-coleccionables-pokemon-tcg-30th-celebration-ditto-premium-collection-en-ingles/00019621415836"
+    }
+  ],
+  "exclusions": [
+    "pokemon_center_exclusive",
+    "cases",
+    "multipacks",
+    "opened_products",
+    "empty_packaging"
+  ],
+  "revision_policy": "Preserve prior revisions and their provenance. New product-specific evidence must identify the edition, language, seller, full item price, source URL and observation date. Do not relabel an operator guideline as observed launch pricing or official MSRP. Reviewed product-specific references take precedence over a category guideline."
+}

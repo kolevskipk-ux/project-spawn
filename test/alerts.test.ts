@@ -134,7 +134,7 @@ describe("Inventory Board", () => {
   });
 
   it("sanitizes Catch status input and fails closed when status is unreachable", async () => {
-    const env = { CATCH_MONITOR_ENDPOINT:"https://catch.example/status" } as Env;
+    const env = { CATCH_MONITOR_ENDPOINT:"https://catch.example/status", SPAWN_DB:{prepare:()=>({all:async()=>({results:[{source_key:'B0ABC12345',diagnostic_id:'e13401b4-519c-443c-a140-ad3a67f25e77'}]})})} } as unknown as Env;
     const goodFetch = async () => new Response(JSON.stringify({
       architecture:{ cadenceRolloutMode:"safe-hourly" }, health:{ retailerAccess:{ amazon:{ mode:"NORMAL", degraded:false } } }, rows:[
         { group:"amazon", id:"valid", name:"Valid ASIN", asin:"b0abc12345", url:"javascript:alert(1)", cadenceClass:"hot", cadenceMinutes:60, persistedState:"BUYABLE" },
@@ -144,6 +144,8 @@ describe("Inventory Board", () => {
     const snapshot = await catchHuntSnapshot(env, goodFetch as typeof fetch);
     expect(snapshot.rows).toHaveLength(1);
     expect(snapshot.rows[0].asin).toBe("B0ABC12345");
+    expect(snapshot.rows[0].diagnostic_id).toBe('e13401b4-519c-443c-a140-ad3a67f25e77');
+    expect(renderBoard([], '', new Date(), snapshot)).toContain('Diagnostic ID: <code');
     expect(snapshot.rows[0].url).toBe("https://www.amazon.com.mx/dp/B0ABC12345");
     expect(snapshot.rollout).toBe("safe-hourly");
     const failed = await catchHuntSnapshot(env, (async () => new Response("no", { status:503 })) as typeof fetch);
@@ -172,7 +174,7 @@ describe("Inventory Board", () => {
       const timer=setTimeout(()=>{init?.signal?.removeEventListener('abort',abort);resolve(new Response(JSON.stringify({rows:[{group:'amazon',asin:'B0ABC12345',name:'Amazon test item'}]})));},3500);
       init?.signal?.addEventListener('abort',abort,{once:true});
     });
-    const snapshot=await catchHuntSnapshot({CATCH_MONITOR_ENDPOINT:'https://catch.example/status'} as Env,slowFetch as typeof fetch);
+    const snapshot=await catchHuntSnapshot({CATCH_MONITOR_ENDPOINT:'https://catch.example/status',SPAWN_DB:{prepare:()=>({all:async()=>({results:[]})})}} as unknown as Env,slowFetch as typeof fetch);
     expect(snapshot.available).toBe(true);expect(snapshot.rows).toHaveLength(1);
     expect(renderBoard([], '', new Date(), snapshot)).toContain('amazon méxico');
   });

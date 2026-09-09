@@ -12,21 +12,24 @@
     }
   ],
   "triggers": {
-    "crons": ["5 * * * *"]
+    "crons": [
+      "5 * * * *",
+      "20,35,50 * * * *"
+    ]
   },
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "TRUSTED_STORE_AUTO_APPROVAL_ENABLED": "false",
     "SPAWN_TIMEZONE": "America/Mexico_City",
-    "SPAWN_CONFIG_VERSION": "8.5.2-rc.1",
+    "SPAWN_CONFIG_VERSION": "8.7.0-inventory",
     "SPAWN_QUIET_START": "02:05",
     "SPAWN_QUIET_END": "06:05",
     "PUBLIC_BASE_URL": "https://spawn.aztlan-eng.com",
     "CATCH_MONITOR_ENDPOINT": "https://pokemon30th-discord-monitor.phil-kolevski.workers.dev/status.json",
-    "INVENTORY_REVALIDATION_ENABLED": "false",
+    "INVENTORY_REVALIDATION_ENABLED": "true",
     "AMAZON_ENRICHMENT_ENABLED": "false",
     "AMAZON_ENRICHMENT_BATCH_SIZE": "1",
-    "INVENTORY_REVALIDATION_BATCH_SIZE": "2",
+    "INVENTORY_REVALIDATION_BATCH_SIZE": "5",
     "INVENTORY_REVALIDATION_TARGET_HOURS": "24",
     "INVENTORY_FRESHNESS_HOURS": "36",
     "SEED_VERIFICATION_ENABLED": "true",
@@ -44,22 +47,34 @@
     {
       "name": "PUBLIC_RATE_LIMIT",
       "namespace_id": "7251001",
-      "simple": { "limit": 60, "period": 60 }
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
     },
     {
       "name": "FEEDBACK_RATE_LIMIT",
       "namespace_id": "7251002",
-      "simple": { "limit": 10, "period": 60 }
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
     },
     {
       "name": "MANUAL_RATE_LIMIT",
       "namespace_id": "7251003",
-      "simple": { "limit": 3, "period": 60 }
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
     },
     {
       "name": "INGEST_RATE_LIMIT",
       "namespace_id": "7251004",
-      "simple": { "limit": 30, "period": 60 }
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
     }
   ],
   "d1_databases": [

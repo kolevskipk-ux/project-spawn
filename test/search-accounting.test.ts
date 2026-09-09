@@ -92,7 +92,7 @@ describe('search spend and discovery review',()=>{
  });
  it('preserves existing scans, child records and observations through the repair migration',()=>{
   const previous=new DatabaseSync(':memory:');previous.exec('PRAGMA foreign_keys=ON');
-  for(const name of readdirSync('migrations').filter(n=>n.endsWith('.sql')&&!n.startsWith('0029')).sort())previous.exec(readFileSync('migrations/'+name,'utf8'));
+  for(const name of readdirSync('migrations').filter(n=>n.endsWith('.sql')&&n<'0029').sort())previous.exec(readFileSync('migrations/'+name,'utf8'));
   previous.exec("INSERT INTO scan_runs VALUES('old','2026-09-01',NULL,'cron','succeeded','test','test',NULL,NULL,NULL,NULL); INSERT INTO search_budget_months VALUES('2026-09',0,'now','test','test'); INSERT INTO search_accounting(scan_id,month,reserved_microusd,pricing_version) VALUES('old','2026-09',100,'test'); INSERT INTO search_reviews(scan_id,triggered_at,consecutive_empty) VALUES('old','now',100);");
   previous.exec("INSERT INTO catch_inventory_observations(observation_id,listing_key,asin,observed_state,evidence_type,observed_at,received_at) VALUES('old','key','B0H27L3TKW','BUYABLE','direct_page','now','now')");
   previous.exec('BEGIN');previous.exec(readFileSync('migrations/0029_discovery_and_observation_repairs.sql','utf8'));previous.exec('COMMIT');

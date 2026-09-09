@@ -1,0 +1,62 @@
+import {it,expect,beforeEach,afterEach} from 'vitest';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync,readdirSync} from 'node:fs';
+import {createHmac} from 'node:crypto';
+import {referenceCategory} from '../src/category-reference';
+import {huntAvailability,type CatchHuntRow} from '../src/board';
+import {runInventoryRevalidation} from '../src/revalidation';
+import {inventoryIdentities} from '../src/inventory-identities';
+import {inventoryDiagnostics} from '../src/inventory-diagnostics';
+import {handleCatchInventoryObservation} from '../src/catch-inventory';
+import {productApprovalCard} from '../src/product-approval-card';
+import type {Env} from '../src/types';
+import worker from '../src/index';
+let db:DatabaseSync,env:Env;
+beforeEach(()=>{db=new DatabaseSync(':memory:');for(const n of readdirSync('migrations').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('migrations/'+n,'utf8'));
+ const prepare=(sql:string)=>{let args:unknown[]=[];return {bind(...v:unknown[]){args=v;return this;},async first(){return db.prepare(sql).get(...args as never[])??null;},async all(){return {results:db.prepare(sql).all(...args as never[])};},async run(){const r=db.prepare(sql).run(...args as never[]);return {meta:{changes:Number(r.changes)}};}};};env={SPAWN_DB:{prepare,batch:async(statements:{run:()=>Promise<unknown>}[])=>{db.exec('BEGIN');try{const out=[];for(const s of statements)out.push(await s.run());db.exec('COMMIT');return out;}catch(e){db.exec('ROLLBACK');throw e;}}},CATCH_INGEST_SECRET:'test-secret-for-inventory-release-123456',INVENTORY_REVALIDATION_ENABLED:'true',INVENTORY_REVALIDATION_BATCH_SIZE:'5'} as unknown as Env;
+});
+afterEach(()=>db.close());
+it('keeps the extra maintenance ticks isolated from paid discovery and approval jobs',async()=>{
+ const jobs:Promise<unknown>[]=[];
+ worker.scheduled({cron:'20,35,50 * * * *'} as ScheduledController,{INVENTORY_REVALIDATION_ENABLED:'false'} as Env,{waitUntil:(p:Promise<unknown>)=>jobs.push(p)} as unknown as ExecutionContext);
+ expect(jobs).toHaveLength(1);await Promise.all(jobs);
+});
+it('keeps standard categories distinct from exclusive, premium poster and multipack products',()=>{
+ expect(referenceCategory('Delta Reign Elite Trainer Box','english')).toBe('elite_trainer_box');
+ expect(referenceCategory('Delta Reign Three Pack-Blister','english')).toBe('three_booster_blister');
+ expect(referenceCategory('30th Celebration Ditto Premium Collection','english')).toBe('premium_collection');
+ expect(referenceCategory('30th Celebration Ultra-Premium Collection','english')).toBe('ultra_premium_collection');
+ for(const title of ['Pokemon Center Elite Trainer Box','Ascended Heroes Premium Poster Collection','2 x Booster Bundle','Empty Elite Trainer Box'])expect(referenceCategory(title,'english')).toBeNull();
+ expect(referenceCategory('Elite Trainer Box','unknown')).toBeNull();
+ expect(db.prepare('SELECT COUNT(*) n FROM category_price_references').get()?.n).toBe(7);
+});
+it('does not confuse the featured offer with marketplace availability or accept future/stale offers',()=>{
+ const now=new Date('2026-09-09T12:00:00Z'),row={persistedState:'SOLD_OUT',lastTrustworthyAt:'2026-09-09T11:00:00Z'} as CatchHuntRow;
+ expect(huntAvailability(row,now)).toBe('NO_FEATURED_OFFER');
+ const offer={...row,buyingOptions:{status:'OK',checkedAt:'2026-09-09T10:00:00Z',lowestOffer:{priceMxn:1100}}};
+ expect(huntAvailability(offer,now)).toBe('BUYABLE_VIA_OPTIONS');
+ expect(huntAvailability({...offer,buyingOptions:{...offer.buyingOptions,checkedAt:'2026-09-08T10:00:00Z'}},now)).toBe('NO_FEATURED_OFFER');
+ expect(huntAvailability({...offer,buyingOptions:{...offer.buyingOptions,checkedAt:'2026-09-10T10:00:00Z'}},now)).toBe('NO_FEATURED_OFFER');
+ expect(huntAvailability({...row,buyingOptions:{status:'OK',checkedAt:'2026-09-09T10:00:00Z',explicitlyEmpty:true}},now)).toBe('SOLD_OUT');
+});
+it('refreshes exact-page evidence and updates the timestamp actually used by the inventory card',async()=>{
+ db.exec("INSERT INTO inventory(listing_key,canonical_url,retailer,title,watch_category,first_seen_at,last_seen_at,status,availability_observed_at,fulfilment_region_state) VALUES('test-listing','https://cards.test/item','Cards','Pokemon Delta Reign ETB','delta_reign','2026-09-01','2026-09-01','unknown','2026-09-01','DOMESTIC'); INSERT INTO monitoring_candidates(candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,language,discovered_at,status) VALUES('test','test','https://cards.test/item','test-listing','Cards','cards','Pokemon Delta Reign ETB','pokemon_tcg','Delta Reign','english','2026-09-01','ACCEPTED');");
+ const html='<script type="application/ld+json">'+JSON.stringify({'@type':'Product',url:'https://cards.test/item',name:'Pokemon Delta Reign ETB',offers:{'@type':'Offer',price:1100,priceCurrency:'MXN',availability:'https://schema.org/InStock'}})+'</script><p>Related product sold out $9999</p>';
+ const result=await runInventoryRevalidation(env,new Date(),(async()=>new Response(html)) as typeof fetch);
+ expect(result.attempted).toBe(1);expect(result.results[0].outcome).toBe('AVAILABLE');
+ const listing=db.prepare("SELECT * FROM inventory WHERE listing_key='test-listing'").get()!;
+ expect(listing.price_mxn).toBe(1100);expect(listing.price_verification_status).toBe('VERIFIED');expect(String(listing.availability_observed_at)).not.toBe('2026-09-01');
+ const id=db.prepare("SELECT diagnostic_id FROM inventory_diagnostic_ids WHERE source_key='test-listing'").get()!.diagnostic_id as string;
+ const diagnostics=await inventoryDiagnostics(env,id);expect(diagnostics).toHaveProperty('attempts');expect((diagnostics as {attempts:unknown[]}).attempts).toHaveLength(1);
+});
+it('links a legacy target to inventory, records the sender and rejects wrong UUIDs without changing freshness',async()=>{
+ const asin='B0HG3RVZLW',now=new Date().toISOString(),ids=await inventoryIdentities(env),target=ids.identities.find((r:any)=>r.asin===asin) as any;
+ const payload={schema_version:2,source_owner:'catch',observation_id:'obs-1',source_product_id:'amazon-delta-reign-booster-bundle',canonical_product_id:'delta-reign-en-booster-bundle',product_name:'Delta Reign Booster Bundle',asin,product_url:'https://www.amazon.com.mx/dp/'+asin,watch_category:'delta_reign',routing_key:'delta-reign',observed_state:'BUYABLE_VIA_OPTIONS',price_mxn:629,seller:'Example',fulfilled_by:'Example',observed_at:now,evidence_type:'buying_options',transition_id:null,delivery_outcome:null,price_verification_status:'VERIFIED',target_diagnostic_id:target.target_diagnostic_id};
+ const send=async(body:unknown)=>{const text=JSON.stringify(body),timestamp=String(Math.floor(Date.now()/1000)),sig='sha256='+createHmac('sha256','test-secret-for-inventory-release-123456').update(timestamp+'.'+text).digest('hex');return handleCatchInventoryObservation(new Request('https://spawn.test/internal/catch-inventory-observations',{method:'POST',headers:{'x-spawn-timestamp':timestamp,'x-spawn-signature':sig},body:text}),env);};
+ expect((await send(payload)).status).toBe(202);
+ const stored=db.prepare("SELECT * FROM catch_inventory_observations WHERE observation_id='obs-1'").get()!;expect(stored.source_product_id).toBe(payload.source_product_id);expect(stored.inventory_diagnostic_id).toBeTruthy();
+ expect((await send({...payload,observation_id:'obs-2',target_diagnostic_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'})).status).toBe(409);
+ expect((await send({...payload,observation_id:'obs-3',observed_at:new Date(Date.now()+1000).toISOString(),observed_state:'SOLD_OUT',evidence_type:'direct_page',price_mxn:null,seller:null,fulfilled_by:null,price_verification_status:'PENDING'})).status).toBe(202);
+ expect(db.prepare('SELECT availability_observed_at FROM inventory WHERE retailer_sku=?').get(asin)?.availability_observed_at).toBe(now);
+ expect(productApprovalCard({lifecycle_status:'PUBLISHED',listing_status:'PENDING'},'')).toContain('Published to Catch · Inventory approval pending');
+});

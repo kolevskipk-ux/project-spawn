@@ -4,7 +4,10 @@ export function productApprovalCard(row:Record<string,unknown>,token:string){
   let evidence:Record<string,unknown>={};try{evidence=JSON.parse(String(row.evidence_json||'{}'));}catch{}
   const input=(name:string,label:string,value:unknown,required=false)=>`<label>${label}<input name="${name}" value="${esc(value)}" maxlength="500"${required?' required':''}><span data-error-for="${name}" role="alert"></span></label>`;
   const alreadyPublished=row.listing_status==='ACCEPTED';
-  return `<article class="approval-card"><h3>${esc(row.product_name)}</h3><p>${esc(row.asin)} · ${esc(languageLabel(String(row.language||'unknown')))} · ${alreadyPublished?'Already in inventory':'Awaiting approval'}</p>
+  const catchPublished=row.lifecycle_status==='PUBLISHED';
+  const approvalLabel=catchPublished?(alreadyPublished?'In inventory · Published to Catch':'Published to Catch · Inventory approval pending'):(alreadyPublished?'In inventory · Catch approval pending':'Awaiting inventory approval');
+  return `<article class="approval-card"><h3>${esc(row.product_name)}</h3><p>${esc(row.asin)} · ${esc(languageLabel(String(row.language||'unknown')))} · ${approvalLabel}</p>
+    <p class="hint">Source: ${esc(row.source??"Unrecorded")}${row.approved_at?` · Catch approval: ${esc(row.approved_at)}`:""}</p>
     <p><a href="${esc(row.product_url)}" target="_blank" rel="noreferrer">Open Amazon listing ↗</a> · This listing is the supporting evidence.</p>
     <form class="approval-form" data-product-action method="post" action="/dashboard/verification/${esc(row.asin)}?access=${encodeURIComponent(token)}">
       <input type="hidden" name="action" value="approve_product"><input type="hidden" name="evidence_revision" value="${esc(row.evidence_revision)}">

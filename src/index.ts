@@ -1,3 +1,5 @@
+import {inventoryIdentities} from './inventory-identities';
+import {inventoryDiagnostics,diagnosticsPage} from './inventory-diagnostics';
 import {approvalNote} from './approval-note';
 import {registerTrustedStore,runTrustedStoreApprovals} from './trusted-stores';
 import {resolveAmazonIdentity} from "./identity-review";
@@ -132,7 +134,7 @@ const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""'
 
 async function inventoryCsv(env: Env): Promise<Response> {
   const rows = await boardRows(env);
-  const columns = ["title", "print_series", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "original_price", "original_currency", "fulfilment_region_state", "retailer_country", "ship_from_country", "mexico_delivery_status", "shipping_mxn", "import_cost_status", "destination_checked_at", "destination_fresh_until", "amazon_launch_mxn", "collectr_usd", "value_classification", "status", "availability_state", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
+  const columns = ["diagnostic_id", "title", "print_series", "watch_category", "retailer", "retailer_sku", "language", "price_mxn", "original_price", "original_currency", "fulfilment_region_state", "retailer_country", "ship_from_country", "mexico_delivery_status", "shipping_mxn", "import_cost_status", "destination_checked_at", "destination_fresh_until", "amazon_launch_mxn", "collectr_usd", "value_classification", "status", "availability_state", "last_change_type", "first_seen_at", "last_seen_at", "canonical_url"];
   const body = [columns.join(","), ...rows.map((row) => columns.map((column) => csvCell(row[column as keyof typeof row])).join(","))].join("\r\n");
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=spawn-inventory.csv", "cache-control": "no-store" } });
 }
@@ -160,6 +162,7 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/monitoring-candidates") {
     const rows=await env.SPAWN_DB.prepare("SELECT * FROM monitoring_candidates WHERE status IN ('PENDING','ACCEPTED') ORDER BY discovered_at DESC LIMIT 200").all(); return json({candidates:rows.results});
   }
+  if(request.method==='GET'&&url.pathname==='/internal/garfield/inventory-identities')return json(await inventoryIdentities(env));
   if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
@@ -386,6 +389,13 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleRoutes(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if(request.method==='GET' && url.pathname==='/dashboard/inventory-diagnostics') {
+    if(!boardAuthorized(request,url,env))return json({error:'unauthorized'},401);
+    const id=(url.searchParams.get('id')??'').trim().toLowerCase();
+    const data=id?await inventoryDiagnostics(env,id):null;
+    if(request.headers.get('accept')==='application/json')return json(data??{});
+    return diagnosticsPage(id,data,env.BOARD_ACCESS_TOKEN);
+  }
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
   if (url.pathname === "/admin/seed-campaigns") {
@@ -509,6 +519,8 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
   ctx.waitUntil(runInventoryRevalidation(env,now).catch(error=>console.error("inventory revalidation failed",error)));
+  // Additional maintenance ticks never run discovery, approvals or enrichment.
+  if(_controller.cron==='20,35,50 * * * *')return;
   ctx.waitUntil(runAmazonCommercialEnrichment(env,now).catch(error=>console.error("Amazon commercial enrichment failed",error)));
   ctx.waitUntil(runPendingSeedVerifications(env).catch(error=>console.error("seed verification failed",error)));
   if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
