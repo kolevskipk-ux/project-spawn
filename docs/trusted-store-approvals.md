@@ -1,6 +1,8 @@
 # Trusted-store approval release
 
-Prepared locally; not deployed or activated.
+Production rollout authorized by Philip on 2026-09-08 (Mexico City).
+Release code: `70047d0`. Migration 0030 applied successfully. Worker deployment
+is authorized with automatic approval disabled; activation remains a separate step.
 
 Validation: TypeScript passes. The full 208-test suite passed, then all 27
 trusted-store tests passed after the final seller-identity hardening (three added
