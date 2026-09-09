@@ -1,8 +1,30 @@
 import type {CustomerInventoryPage,CustomerListing} from './customer-feed';
 import {saveSupport,supportKinds} from './customer-support';
 import {createRemoteJWKSet, jwtVerify} from 'jose';
+import {customerEntitlement,discordConfigured,finishDiscordLink,membershipRequired,startDiscordLink} from './customer-membership';
+import {customerLegal,legalReady} from './customer-legal';
+import {discordInteraction,syncInventoryRoles} from './customer-discord';
 
 export interface CustomerEnv {
+  CUSTOMER_MEMBERSHIP_MODE?: 'disabled'|'pilot'|'enforced';
+  CUSTOMER_MEMBERSHIP_PILOT_EMAILS?: string;
+  DISCORD_APPLICATION_ID?: string;
+  DISCORD_GUILD_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_REDIRECT_URI?: string;
+  DISCORD_REQUIRED_ROLE_ID?: string;
+  DISCORD_FREE_ACCESS_ENABLED?: string;
+  DISCORD_INVENTORY_ROLE_ID?: string;
+  DISCORD_PUBLIC_KEY?: string;
+  DISCORD_ROLE_SYNC_ENABLED?: string;
+  CUSTOMER_PUBLIC_URL?: string;
+  CUSTOMER_LEGAL_PUBLISHED?: string;
+  CUSTOMER_OPERATOR_NAME?: string;
+  CUSTOMER_OPERATOR_ADDRESS?: string;
+  CUSTOMER_PRIVACY_EMAIL?: string;
+  CUSTOMER_TERMS_VERSION?: string;
+  CUSTOMER_TERMS_EFFECTIVE_DATE?: string;
   CUSTOMER_DB: D1Database;
   CUSTOMER_SOURCE?: Fetcher;
   CUSTOMER_INVENTORY_MODE?: 'source' | 'samples';
@@ -52,10 +74,12 @@ const watermark = (member: Member) => `GARFIELD · ${member.id.slice(0,12)} · $
 
 export async function customerFetch(request: Request, env: CustomerEnv): Promise<Response> {
   const url=new URL(request.url), path=url.pathname;
+  if(path==='/discord/interactions')return discordInteraction(request,env);
+  if((path==='/terms'||path==='/privacy'&&legalReady(env))&&['GET','HEAD'].includes(request.method))return page(env,path==='/terms'?'Terms':'Privacy',customerLegal(env,path==='/privacy'));
   if(path==='/privacy' && ['GET','HEAD'].includes(request.method))return page(env,'Account and privacy information',`<section class="account panel"><h1>Your account and data</h1><p>Garfield stores your verified email, customer ID, account status, registration date, and access-change records to run the dashboard and manage access. Cloudflare processes email-code authentication and hosts this service.</p><p>Your customer ID and the viewing date appear as watermarks. Watermarks identify the viewing account; they cannot prevent screenshots or copying.</p><p>Support requests are stored with your customer ID, request type, message, and delivery status. Messages and customer IDs are forwarded to our team's SUPPORT_SPAWN channel on Discord. Your email is available to authorized administrators in the support queue.</p><p>You can <a href="/app/support">request account removal or access help</a>. Removal requests require team review and do not immediately delete data. Do not include passwords or sign-in codes in messages.</p><a href="/">Back to Garfield</a></section>`);
-  if(path==='/' && ['GET','HEAD'].includes(request.method)) return page(env,'Explore the inventory',`<section class="hero"><div class="eyebrow">Your inventory dashboard</div><h1>See the full tracked inventory.</h1><p class="muted">Create a free account to browse the listings we’re tracking, check observed availability, and filter by set or store.</p><a class="button" href="/app">Get dashboard access</a><p>No invitation needed. Sign in with a code sent to your email.</p><p class="muted">Browser access only. Downloads are unavailable during the pilot.</p>${env.CUSTOMER_DATA_KIND==='published'?'':'<p class="notice">This staging pilot uses sample listings, not live offers.</p>'}</section>`);
-  if(!['/app','/app/account','/app/join','/app/support'].includes(path)) return page(env,'Page not found','<h1>Page not found</h1><a href="/app">Return to inventory</a>',undefined,404);
-  if(!['GET','HEAD'].includes(request.method) && !(['/app/join','/app/support'].includes(path) && request.method==='POST')) return page(env,'Action unavailable','<h1>Action unavailable</h1>',undefined,405);
+  if(path==='/' && ['GET','HEAD'].includes(request.method)) return page(env,'Explore the inventory',`<section class="hero"><div class="eyebrow">Your inventory dashboard</div><h1>See the full tracked inventory.</h1><p class="muted">Create a free account to browse the listings we’re tracking, check observed availability, and filter by set or store.</p><a class="button" href="/app">Get dashboard access</a><p>Sign in with a code sent to your email.</p><p class="muted">Browser access only. Downloads are unavailable during the pilot.</p>${env.CUSTOMER_DATA_KIND==='published'?'':'<p class="notice">This staging pilot uses sample listings, not live offers.</p>'}</section>`);
+  if(!['/app','/app/account','/app/join','/app/support','/app/onboarding','/app/discord/start','/app/discord/callback','/app/terms'].includes(path)) return page(env,'Page not found','<h1>Page not found</h1><a href="/app">Return to inventory</a>',undefined,404);
+  if(!['GET','HEAD'].includes(request.method) && !(['/app/join','/app/support','/app/discord/start','/app/terms'].includes(path) && request.method==='POST')) return page(env,'Action unavailable','<h1>Action unavailable</h1>',undefined,405);
   const email=await identity(request,env);
   if(!email) return page(env,'Sign-in required','<h1>Sign-in required</h1><p>Your session could not be verified. Please sign in again.</p><a href="/cdn-cgi/access/logout">Sign out and retry</a>',undefined,401);
   const window=Math.floor(Date.now()/60000);
@@ -69,7 +93,27 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
     return redirect('/app');
   }
   if(!member) return page(env,'Create your account',`<section class="account panel"><div class="eyebrow">One more step</div><h1>Create your account</h1><p>Email verified: <strong>${escape(email)}</strong></p><p>Your account gives you read-only access to the tracked inventory. We store your verified email, account ID, and registration date to manage access. Your account ID appears as a watermark on listings.</p><p class="muted">Downloads are unavailable in this pilot.</p><form method="post" action="/app/join"><button>Create account &amp; view inventory</button></form></section>`);
-  if(path==='/app/account') return page(env,'My account',`<section class="account panel"><h1>My account</h1><p>${escape(member.email)}</p><p class="identity">Customer ID: ${escape(member.id)}</p><p>Access: customer · read only</p><p>Downloads: unavailable</p><p class="muted">For access help or account removal, <a href="/app/support">contact support</a>.</p><p><a href="/app">Back to inventory</a></p><a href="/cdn-cgi/access/logout">Sign out</a></section>`,member);
+  if(path==='/app/discord/start'&&request.method==='POST'){
+    if(!sameOriginForm(request))return new Response('Open the linking form on this website.',{status:403,headers});
+    return redirect(await startDiscordLink(env,member));
+  }
+  if(path==='/app/discord/callback'){
+    try{await finishDiscordLink(env,member,url);return redirect('/app/onboarding');}
+    catch{return page(env,'Link not completed','<h1>Discord link not completed</h1><p>The link expired, authorization failed, or this Discord account is already linked. Try again or contact support to change your linked account.</p><a href="/app/onboarding">Return to onboarding</a>',member,400);}
+  }
+  if(path==='/app/terms'&&request.method==='POST'){
+    if(!sameOriginForm(request))return new Response('Open the terms form on this website.',{status:403,headers});
+    const form=await request.formData();
+    if(!legalReady(env)||form.get('version')!==env.CUSTOMER_TERMS_VERSION||form.get('terms')!=='yes'||form.get('adult')!=='yes')return page(env,'Review terms','<h1>Review the current terms and confirm you are at least 18.</h1><a href="/app/onboarding">Return</a>',member,400);
+    await env.CUSTOMER_DB.prepare("INSERT OR IGNORE INTO customer_terms_acceptances(customer_id,terms_version,accepted_at,adult_confirmed) SELECT ?,?,?,1 WHERE EXISTS(SELECT 1 FROM customer_members WHERE id=? AND status='ACTIVE')").bind(member.id,env.CUSTOMER_TERMS_VERSION!,new Date().toISOString(),member.id).run();
+    return redirect('/app/onboarding');
+  }
+  if(path==='/app/onboarding'){
+    const entitlement=await customerEntitlement(env,member);
+    const messages:Record<string,string>={link_discord:'Link your Discord account to verify your Garfield server membership.',configuration:'Discord onboarding is being configured.',join_server:'Join the Garfield server and complete its membership screening.',retry_discord:'Discord could not be reached. Please retry shortly.',required_role:'Your Discord account does not have the required membership role.',accept_terms:'Review the terms and confirm that you are at least 18.',member:'Your membership and terms acceptance are verified.',temporary_grace:'Your recent membership verification remains valid during a temporary Discord interruption.'};
+    return page(env,'Inventory access',`<section class="account panel"><h1>Inventory access</h1><p>${escape(messages[entitlement.reason]??'Contact support for access help.')}</p>${discordConfigured(env)?'<form method="post" action="/app/discord/start"><button>Link Discord account</button></form>':'<p>Discord linking will be available soon.</p>'}${legalReady(env)?`<form method="post" action="/app/terms"><input type="hidden" name="version" value="${escape(env.CUSTOMER_TERMS_VERSION)}"><p><a href="/terms" target="_blank">Read terms</a> · <a href="/privacy" target="_blank">Privacy notice</a></p><label><input type="checkbox" name="terms" value="yes" required> I accept the current terms.</label><br><label><input type="checkbox" name="adult" value="yes" required> I am at least 18 years old.</label><br><button>Save acceptance</button></form>`:'<p>Terms are being prepared; acceptance is not open yet.</p>'}${entitlement.allowed?'<p><a class="button" href="/app">Open inventory</a></p>':''}<p><a href="/app/support">Access help</a> · <a href="/app/account">My account</a></p></section>`,member);
+  }
+  if(path==='/app/account') return page(env,'My account',`<section class="account panel"><h1>My account</h1><p>${escape(member.email)}</p><p class="identity">Customer ID: ${escape(member.id)}</p><p>Access: customer · read only</p><p>Downloads: unavailable</p><p class="muted"><a href="/app/onboarding">Manage Discord membership and terms</a>. For access help or account removal, <a href="/app/support">contact support</a>.</p><p><a href="/app">Back to inventory</a></p><a href="/cdn-cgi/access/logout">Sign out</a></section>`,member);
   if(path==='/app/join') return redirect('/app');
   if(path==='/app/support') {
     if(request.method==='POST') {
@@ -87,6 +131,7 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
     const saved=/^[a-f0-9-]{36}$/.test(requested)?await env.CUSTOMER_DB.prepare('SELECT id FROM customer_support WHERE id=? AND customer_id=?').bind(requested,member.id).first<{id:string}>():null;
     return page(env,'Support',`<section class="account panel"><h1>Contact support</h1>${saved?`<p class="notice" role="status">Request saved. Reference: ${escape(saved.id)}. Our team will review it.</p>`:''}<p>Send an account-access question or request account removal. Your message and customer ID will be shared with our team in the SUPPORT_SPAWN Discord channel. Please do not include passwords, sign-in codes, or payment details.</p><form method="post" action="/app/support"><label>Request type<select name="kind">${Object.entries(supportKinds).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label><label>Message<textarea name="message" required maxlength="1000" rows="6" style="width:100%;font:inherit"></textarea></label><button>Send request</button></form><p>Requests are stored even if Discord delivery is temporarily unavailable. Submitting an account-removal request does not immediately delete the account.</p><a href="/app">Back to inventory</a></section>`,member);
   }
+  if(membershipRequired(env,member)){const entitlement=await customerEntitlement(env,member);if(!entitlement.allowed)return redirect('/app/onboarding');}
   const q=(url.searchParams.get('q')??'').trim().slice(0,100), set=(url.searchParams.get('set')??'').slice(0,100), store=(url.searchParams.get('store')??'').slice(0,100);
   const availability=['available','sold_out','unknown'].includes(url.searchParams.get('availability')??'') ? url.searchParams.get('availability')! : '';
   const pageNumber=Math.min(1000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
@@ -114,7 +159,7 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
   return page(env,'Inventory',`<div class="eyebrow">Explore the listings</div><h1>Tracked inventory</h1><p class="muted">Filter the inventory by set, store, or observed availability.</p>${env.CUSTOMER_DATA_KIND==='published'?'':'<p class="notice">Sample listings for testing · No live purchasing information</p>'}<form class="filters" method="get" action="/app"><label>Search<input name="q" value="${escape(q)}" maxlength="100" placeholder="Product name"></label><label>Set<select name="set"><option value="">All sets</option>${options(facets.results.map(r=>r.set_name),set)}</select></label><label>Store<select name="store"><option value="">All stores</option>${options(facets.results.map(r=>r.retailer),store)}</select></label><label>Availability<select name="availability"><option value="">Any availability</option>${Object.entries(labels).map(([key,label])=>`<option value="${key}" ${availability===key?'selected':''}>${label}</option>`).join('')}</select></label><button>Apply filters</button><a href="/app">Clear</a></form><div class="grid">${cards||'<p>No listings match these filters. <a href="/app">Clear filters</a></p>'}</div><nav class="pager" aria-label="Inventory pages">${pageNumber>1?pageLink(pageNumber-1,'Previous'):''}<span>Page ${pageNumber}</span>${result.results.length>24?pageLink(pageNumber+1,'Next'):''}</nav><p class="identity muted">Viewing as customer ${escape(member.id)} · Downloads unavailable</p>`,member);
 }
 
-export default {async fetch(request: Request, env: CustomerEnv): Promise<Response> {
+export default {scheduled(_controller:ScheduledController,env:CustomerEnv,ctx:ExecutionContext){ctx.waitUntil(syncInventoryRoles(env).catch(()=>console.error('Discord role synchronization failed')));},async fetch(request: Request, env: CustomerEnv): Promise<Response> {
   try {const response=await customerFetch(request,env);return request.method==='HEAD'?new Response(null,{status:response.status,headers:response.headers}):response;}
   catch {return page(env,'Temporarily unavailable','<h1>Temporarily unavailable</h1><p>Please try again shortly.</p>',undefined,503);}
 }};

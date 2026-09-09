@@ -16,7 +16,16 @@
     "CUSTOMER_ACCESS_AUD": "968bc7bb85517fcf1f7a78da46f69b4a7f932aa688854a5c955a3c39c80c0b3d",
     "CUSTOMER_ENVIRONMENT": "Customer pilot",
     "CUSTOMER_INVENTORY_MODE": "source",
-    "CUSTOMER_DATA_KIND": "published"
+    "CUSTOMER_DATA_KIND": "published",
+    "CUSTOMER_MEMBERSHIP_MODE": "disabled",
+    "DISCORD_GUILD_ID": "1537592665535942709",
+    "DISCORD_FREE_ACCESS_ENABLED": "true",
+    "DISCORD_ROLE_SYNC_ENABLED": "false",
+    "DISCORD_REDIRECT_URI": "https://customers.aztlan-eng.com/app/discord/callback",
+    "CUSTOMER_PUBLIC_URL": "https://customers.aztlan-eng.com",
+    "CUSTOMER_LEGAL_PUBLISHED": "false",
+    "DISCORD_APPLICATION_ID": "1547374053248204840",
+    "DISCORD_PUBLIC_KEY": "7a39b11d9eaadeaa26c47b60ae8a01a1a07556becf9901f73efce0c5a1223279"
   },
   "d1_databases": [
     {
