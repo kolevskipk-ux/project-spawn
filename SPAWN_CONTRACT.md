@@ -4,6 +4,40 @@ Status: approved operating contract with proposed cross-border inventory amendme
 Date: 2026-09-03
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
+## Trusted-store amendment — implementation authorized 2026-09-08
+
+Philip authorized optional approval comments and remembered store approval, with
+Spawn inventory publication and eligible Amazon enrollment in Catch. This amends
+the per-product manual-approval language below for this explicit deterministic path.
+Production migration, deployment and activation still require separate approval.
+
+A successful individual administrator approval may establish an exact-origin,
+product-category trust rule. Marketplace trust additionally requires a stable
+seller identifier; one Amazon seller never authorizes every Amazon seller.
+The approval form exposes a checked remember-store choice. Rules retain the source
+decision, administrator, time and structured evidence. Existing approvals are not
+backfilled; only listings discovered after the rule was created qualify.
+
+Each automatic decision independently checks the exact product page, identity,
+seller and domestic Mexico shipping evidence. Missing, blocked, ambiguous or
+cross-border evidence remains manual. Amazon additionally passes its independent
+verification and existing catalog publication gates. Unknown language remains
+allowed in inventory and manual approval; it cannot be used to invent a canonical
+Amazon identity. An eligible Amazon target is published for hourly Catch monitoring
+with initial buyable alerts disabled; Catch acknowledgement is a separate state.
+
+The decision records its rule and supporting evidence and leaves a persistent
+administrator audit flag. Administrators can mark flags seen and revoke store
+trust. Revocation stops subsequent decisions, without removing already published
+products or cancelling a publication already in progress. Rejected or suppressed
+products are never revived by this path. An interrupted/partial publication needs
+manual reconciliation and remains flagged.
+
+Comments on product, identity, rejection and campaign approvals are optional.
+When omitted, a generated decision note preserves the audit record alongside the
+administrator and timestamp. Evidence requirements and non-approval workflows
+such as pricing-reference changes and access management retain their own checks.
+
 ## 1. Mission
 
 Spawn is Garfield's discovery, qualification, and catalog-governance service.

@@ -1,3 +1,4 @@
+import {approvalNote} from './approval-note';
 import { catalogProductId } from "./catalog";
 import type { Env, Listing } from "./types";
 import {catalogLanguageAllowed, catalogRoute, validatePublishedAmazonCatalog} from './contracts/amazon-catalog.mjs';
@@ -180,7 +181,7 @@ export interface ReviewInput {
 }
 
 export async function reviewAmazonCandidate(env: Env, asin: string, action: ReviewAction, input: ReviewInput, actor: string) {
-  const reason=input.reason.trim().slice(0,500);
+  const reason=approvalNote(input.reason,action);
   if (!reason) return {ok:false as const,error:"reason_required"};
   const row=await env.SPAWN_DB.prepare(`SELECT w.*,a.outcome attempt_outcome,a.canonical_product_id verified_product_id,a.language verified_language
     FROM amazon_watchlist w JOIN amazon_verification_attempts a ON a.id=w.verification_attempt_id

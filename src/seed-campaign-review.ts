@@ -1,3 +1,4 @@
+import {approvalNote} from './approval-note';
 import type {Env} from "./types";
 
 const CAMPAIGN_ID=/^[a-z0-9][a-z0-9-]{2,79}$/;
@@ -6,12 +7,13 @@ const SHA256=/^[a-f0-9]{64}$/i;
 async function digest(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return [...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");}
 
 export function validateCampaignPublicationForm(form:FormData){
-  const action=String(form.get("action")||""),reason=String(form.get("reason")||"").trim().slice(0,500),expectedCount=Number(form.get("expected_count"));
+  const action=String(form.get("action")||""),reason=approvalNote(form.get("reason"),"campaign visibility approval"),expectedCount=Number(form.get("expected_count"));
   if(action!=="publish_visibility"||!reason||!Number.isInteger(expectedCount)||expectedCount<1||expectedCount>1000)return {ok:false as const,error:"invalid_campaign_review"};
   return {ok:true as const,value:{reason,expectedCount}};
 }
 
 export async function publishSeedCampaign(env:Env,campaignId:string,reason:string,expectedCount:number,actor:string){
+  reason=approvalNote(reason,"campaign visibility approval");
   if(!CAMPAIGN_ID.test(campaignId)||!reason||!Number.isInteger(expectedCount))return {ok:false as const,error:"invalid_campaign_review"};
   const replay=await env.SPAWN_DB.prepare("SELECT item_count,event_id FROM seed_campaign_publications WHERE campaign_id=?").bind(campaignId).first<{item_count:number;event_id:string}>();
   if(replay)return {ok:true as const,replayed:true,count:replay.item_count,eventId:replay.event_id};

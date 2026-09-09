@@ -1,3 +1,5 @@
+import {approvalNote} from './approval-note';
+import {registerTrustedStore,runTrustedStoreApprovals} from './trusted-stores';
 import {resolveAmazonIdentity} from "./identity-review";
 import {prepareProductApproval,publishProductMonitoring} from './product-approval';
 import {AMAZON_CATALOG_SCHEMA_VERSION} from "./contracts/amazon-catalog.mjs";
@@ -242,6 +244,7 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
       await env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET product_name=?,language=?,review_eligible=1 WHERE candidate_id=? AND status='PENDING'")
         .bind(prepared.row.product_name,prepared.row.language,candidate.candidate_id).run();
       const publicationForm=new FormData();form.forEach((value,key)=>publicationForm.set(key,value));
+      publicationForm.delete('trust_store');
       publicationForm.set('action','publish');publicationForm.set('disposition','visibility_only');
       const publicationUrl=new URL(`/dashboard/listing/${candidate.candidate_id}`,url);publicationUrl.searchParams.set('access',env.BOARD_ACCESS_TOKEN);
       const published=await dashboardListingReview(request,publicationUrl,env,{form:publicationForm,actor});
@@ -254,6 +257,9 @@ async function dashboardVerification(request:Request,url:URL,env:Env):Promise<Re
     }else{
       await env.SPAWN_DB.prepare('UPDATE amazon_watchlist SET staging_enabled=0 WHERE asin=? AND lifecycle_status!=\'PUBLISHED\'').bind(asin).run();
     }
+    const trustForm=new FormData();form.forEach((value,key)=>trustForm.set(key,value));
+    if(candidate.status==='ACCEPTED')trustForm.set('fulfilment_region_state',String(candidate.fulfilment_region_state));
+    await registerTrustedStore(env,{...candidate,product_name:prepared.row.product_name,watch_category:prepared.row.watch_category},trustForm,actor).catch(error=>console.error('Store trust registration failed',error));
     return json({ok:true,message:form.get('destination')==='monitor'?'Published to inventory · Catch acknowledgement pending.':prepared.row.lifecycle_status==='PUBLISHED'?'Published to inventory · Existing Catch monitoring retained.':'Published to inventory · Catch monitoring not requested.'});
     }finally{await env.SPAWN_DB.prepare('DELETE FROM ops_review_locks WHERE resource=? AND owner=?').bind(resource,owner).run();}
   }
@@ -285,11 +291,11 @@ async function dashboardSeedCampaignReview(request:Request,url:URL,env:Env):Prom
   return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
 
-async function dashboardListingReview(request:Request,url:URL,env:Env,review?:{form:FormData;actor:string}):Promise<Response|null> {
+export async function dashboardListingReview(request:Request,url:URL,env:Env,review?:{form:FormData;actor:string}):Promise<Response|null> {
   const match=url.pathname.match(/^\/dashboard\/listing\/([a-f0-9]{64})$/i); if(!match) return null;
-  if(!boardAuthorized(request,url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
+  if(!review&&!boardAuthorized(request,url,env)) return new Response("Not found",{status:404,headers:{"cache-control":"no-store"}});
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
-  const form=review?.form??await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=String(form.get("reason")||"").trim().slice(0,500);
+  const form=review?.form??await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=approvalNote(form.get("reason"),action);
   if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
   const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
@@ -326,6 +332,7 @@ async function dashboardListingReview(request:Request,url:URL,env:Env,review?:{f
     const eventPayload={schema_version:2,event_id:match[1],event_type:"LISTING_PUBLISHED",source_owner:"spawn",listing_key:candidate.source_listing_key,product_name:candidate.product_name,product_language:candidate.language,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null,fulfilment_region_state:fulfilment.value.state,retailer_country:fulfilment.value.retailerCountry,ship_from_country:fulfilment.value.shipFromCountry,original_price:fulfilment.value.originalPrice,original_currency:fulfilment.value.originalCurrency,mexico_delivery_status:fulfilment.value.mexicoDeliveryStatus,shipping_mxn:fulfilment.value.shippingMxn,import_cost_status:fulfilment.value.importCostStatus,destination_checked_at:fulfilment.value.checkedAt,destination_fresh_until:fulfilment.value.freshUntil};
     publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
     await env.SPAWN_DB.batch(publicationStatements);
+    await registerTrustedStore(env,candidate,form,actor).catch(error=>console.error('Store trust registration failed',error));
   }
   const destination=new URL("/approvals",url);destination.searchParams.set("access",env.BOARD_ACCESS_TOKEN);destination.searchParams.set("notice",`${action}:${match[1]}`);return new Response(null,{status:303,headers:{location:destination.toString(),"cache-control":"no-store"}});
 }
@@ -506,6 +513,11 @@ export default { fetch: handleFetch, scheduled(_controller: ScheduledController,
   ctx.waitUntil(runPendingSeedVerifications(env).catch(error=>console.error("seed verification failed",error)));
   if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
   if (isQuietWindow(now, env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
+  ctx.waitUntil(runTrustedStoreApprovals(env,async(id,form,actor)=>{
+    const url=new URL(`/dashboard/listing/${id}`,env.PUBLIC_BASE_URL);
+    const response=await dashboardListingReview(new Request(url,{method:'POST'}),url,env,{form,actor});
+    return response?.status===303;
+  }).catch(error=>console.error('Trusted-store approvals failed',error)));
   ctx.waitUntil(retryApprovalRequests(env).catch((error)=>console.error("approval request retry failed",error)));
   ctx.waitUntil(retryDiscoveryApprovalRequests(env).catch((error)=>console.error("discovery approval request retry failed",error)));
   if (!isAmazonDiscoveryWindow(now,env.SPAWN_TIMEZONE)) return;

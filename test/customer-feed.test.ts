@@ -20,6 +20,10 @@ beforeAll(async()=>{const pair=await generateKeyPair('RS256');keys.publicKey=pai
 beforeEach(()=>{
  db=new DatabaseSync(':memory:');for(const directory of ['migrations','customer-migrations'])for(const name of readdirSync(directory).filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync(`${directory}/${name}`,'utf8'));
  db.exec(readFileSync('scripts/seed-customer-source-staging.sql','utf8'));
+ // Keep synthetic observations behind the reader's clock. SQLite's millisecond
+ // timestamp rounding can otherwise make freshly seeded evidence appear future-dated.
+ const observed=new Date(Date.now()-1000).toISOString();
+ db.prepare('UPDATE inventory SET availability_observed_at=?,pricing_observed_at=? WHERE listing_key LIKE ?').run(observed,observed,'customer-pilot-demo-%');
  const storage=adapter();ops={SPAWN_DB:storage,CUSTOMER_DB:storage,OPS_AUTH_MODE:'access',OPS_ACCESS_ISSUER:issuer,OPS_ACCESS_AUD:'operations',OPS_OWNER_EMAIL:owner,OPS_ENVIRONMENT:'Staging'} as unknown as Env;
  customers={CUSTOMER_DB:storage,CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging',CUSTOMER_INVENTORY_MODE:'source',CUSTOMER_SOURCE:{fetch:(url:string,init?:RequestInit)=>feed.fetch(new Request(url,init),{SPAWN_DB:storage})} as unknown as Fetcher};
  db.prepare("INSERT INTO customer_members(id,email,status,created_at) VALUES(?,?,'ACTIVE',?)").run(id,buyer,new Date().toISOString());

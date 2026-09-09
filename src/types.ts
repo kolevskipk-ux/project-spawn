@@ -5,6 +5,7 @@ export interface Env {
   OPENAI_API_KEY: string;
   RUN_TOKEN: string;
   OPENAI_MODEL: string;
+  TRUSTED_STORE_AUTO_APPROVAL_ENABLED?: string;
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
   SPAWN_QUIET_START?: string;

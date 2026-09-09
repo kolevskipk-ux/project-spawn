@@ -1,3 +1,4 @@
+import {approvalNote} from './approval-note';
 import type {Env} from './types';
 import {catalogLanguageAllowed} from './contracts/amazon-catalog.mjs';
 
@@ -27,7 +28,7 @@ export async function resolveAmazonIdentity(env: Env, asin: string, input: Ident
   if (!['REVIEW_REQUIRED','VERIFIED'].includes(String(row.outcome)) || row.access_outcome !== 'VALID_PAGE' || !Number.isFinite(age) || age < 0 || age > 36 * 3_600_000 ||
       !['directAmazonMxUrl','httpSuccess','amazonPage','expectedAsin','notRobotBlocked'].every(key=>gates?.[key] === true))
     return {ok:false as const,error:'verification_required'};
-  const productName=input.productName.trim(),setName=input.setName.trim(),format=input.format.trim(),reason=input.reason.trim();
+  const productName=input.productName.trim(),setName=input.setName.trim(),format=input.format.trim(),reason=approvalNote(input.reason,"identity review");
   let evidenceUrl: URL;
   try { evidenceUrl=new URL(input.evidenceUrl); } catch { return {ok:false as const,error:'identity_evidence_required'}; }
   if (![productName,setName,format,reason].every(value=>value.length>=3 && value.length<=500) ||
