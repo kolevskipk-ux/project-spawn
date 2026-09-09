@@ -6,6 +6,7 @@ export interface Env {
   RUN_TOKEN: string;
   OPENAI_MODEL: string;
   TRUSTED_STORE_AUTO_APPROVAL_ENABLED?: string;
+  STORE_CATALOG_SYNC_ENABLED?: string;
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
   SPAWN_QUIET_START?: string;

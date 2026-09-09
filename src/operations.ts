@@ -6,6 +6,7 @@ import type {Operator} from './operations-auth';
 import {searchAccountingData,searchMonth,SEARCH_BUDGET_MICROUSD,SEARCH_RESERVE_MICROUSD} from './search-accounting';
 import {searchAuditDetail} from './search-audit';
 import {trustedStoreOperations} from './trusted-store-operations';
+import {storeCatalogOperations} from './store-catalog-operations';
 
 export const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]!);
 const css = `
@@ -17,7 +18,7 @@ const css = `
 @media(max-width:540px){.ops-metrics{grid-template-columns:1fr}.ops-form{display:grid}.ops-form textarea{min-width:0}.ops-topbar h1{font-size:1.3rem}}`;
 
 export function operationsShell(title: string, content: string, operator: Operator, env: Env, path: string, styles = ''): string {
-  const links = [['/ops','Overview'],['/approvals','Approvals'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/trusted-stores','Trusted stores'],['/ops/search','Search & budget'],['/ops/health','System health'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
+  const links = [['/ops','Overview'],['/approvals','Approvals'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/stores','Store acquisition'],['/ops/trusted-stores','Trusted stores'],['/ops/search','Search & budget'],['/ops/health','System health'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Garfield</title><meta name="robots" content="noindex,nofollow">${styles}<style>${css}</style></head><body><a class="skip" href="#workspace">Skip to content</a><aside class="ops-sidebar"><a class="ops-brand" href="/ops">GARFIELD<small>Operations</small></a><nav class="ops-nav" aria-label="Main navigation">${links.map(([href,label]) => `<a href="${href}"${path===href?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="ops-account"><strong>${esc(operator.email)}</strong>${esc(operator.role)}<br><a href="/cdn-cgi/access/logout">Sign out</a></div></aside><div class="ops-workspace"><header class="ops-topbar"><h1>${esc(title)}</h1><span class="ops-env">${esc(env.OPS_ENVIRONMENT ?? 'Environment not configured')}</span></header><main id="workspace" class="ops-content">${operator.role==='viewer'?'<p class="ops-alert">Read-only access. An administrator handles approval decisions.</p>':''}${content}</main></div></body></html>`;
 }
 
@@ -102,6 +103,7 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
   if (path === '/') return new Response(null,{status:302,headers:{location:'/ops','cache-control':'no-store'}});
   if (!path.startsWith('/ops')) return null;
   if (path === '/ops/trusted-stores') return trustedStoreOperations(request,env,operator);
+  if (path === '/ops/stores') return storeCatalogOperations(request,env,operator);
   if (path === '/ops/search/audit') return searchAuditOperations(request,env,operator);
   if (path === '/ops/search') return searchOperations(request,env,operator);
   if (path === '/ops/customers') return customerOperations(request,env,operator);

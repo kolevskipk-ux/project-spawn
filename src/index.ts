@@ -30,6 +30,7 @@ import {operationsError, operationsHeaders, operationsRoute, wrapExistingPage} f
 import {reserveSearch,settleSearch,yieldStatement,searchReviewStatement,SEARCH_MAX_TOOL_CALLS,SEARCH_MAX_OUTPUT_TOKENS,type SearchResponse} from './search-accounting';
 import {recordSearchAudit,searchResponseEvidence} from './search-audit';
 import {buildSearchPlan} from './search-plan';
+import {runCatalogTick} from './store-catalog';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -518,6 +519,7 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
+  if(env.STORE_CATALOG_SYNC_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
   ctx.waitUntil(runInventoryRevalidation(env,now).catch(error=>console.error("inventory revalidation failed",error)));
   // Additional maintenance ticks never run discovery, approvals or enrichment.
   if(_controller.cron==='20,35,50 * * * *')return;

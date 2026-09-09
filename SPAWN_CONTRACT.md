@@ -4,6 +4,18 @@ Status: approved operating contract with proposed cross-border inventory amendme
 Date: 2026-09-03
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
+## Existing-store catalog audit — implementation authorized 2026-09-09
+
+Philip requested the existing-store onboarding phase before new-store acquisition.
+Spawn may inventory known retailer origins, audit accessible scoped catalogs, and
+ingest supported products after explicit store/category approval. Prior product
+approvals do not become whole-store approvals. Marketplace seller identity,
+suppression, prior rejection, customer publication and Catch verification boundaries
+remain in force. Catalog ingestion may retain fulfillment-unverified records; it
+does not assert customer publication or active monitoring. Initial imports are quiet
+baselines. Recurring catalog refresh is separately activated, bounded and auditable.
+See `docs/store-catalog-onboarding.md` for capabilities, limitations and rollout.
+
 ## Trusted-store amendment — implementation authorized 2026-09-08
 
 Philip authorized optional approval comments and remembered store approval, with

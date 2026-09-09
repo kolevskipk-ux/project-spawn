@@ -20,6 +20,7 @@
   "vars": {
     "OPENAI_MODEL": "gpt-5.6-terra",
     "TRUSTED_STORE_AUTO_APPROVAL_ENABLED": "false",
+    "STORE_CATALOG_SYNC_ENABLED": "false",
     "SPAWN_TIMEZONE": "America/Mexico_City",
     "SPAWN_CONFIG_VERSION": "8.7.0-inventory",
     "SPAWN_QUIET_START": "02:05",
