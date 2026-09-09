@@ -25,7 +25,7 @@ describe('customer pilot isolation',()=>{
   expect((await customerFetch(await request('/app/support'),env)).status).toBe(200);
   const id=String(db.prepare('SELECT id FROM customer_members WHERE email=?').get('customer@example.test')?.id);
   Object.assign(env,{DISCORD_GUILD_ID:'1537592665535942709',DISCORD_BOT_TOKEN:'fixture',DISCORD_FREE_ACCESS_ENABLED:'true',CUSTOMER_LEGAL_PUBLISHED:'true',CUSTOMER_OPERATOR_NAME:'Test operator',CUSTOMER_OPERATOR_ADDRESS:'Test address',CUSTOMER_PRIVACY_EMAIL:'privacy@example.test',CUSTOMER_TERMS_VERSION:'v1',CUSTOMER_TERMS_EFFECTIVE_DATE:'2026-09-09'});
-  db.prepare("INSERT INTO customer_discord_links(customer_id,discord_user_id,guild_id,linked_at,membership_status,checked_at,verified_at) VALUES(?,?,?,?,'MEMBER',?,?)").run(id,'1537592665535942710',env.DISCORD_GUILD_ID, new Date().toISOString(),new Date().toISOString(),new Date().toISOString());
+  db.prepare("INSERT INTO customer_discord_links(customer_id,discord_user_id,guild_id,linked_at,membership_status,checked_at,verified_at) VALUES(?,?,?,?,'MEMBER',?,?)").run(id,'1537592665535942710',env.DISCORD_GUILD_ID!, new Date().toISOString(),new Date().toISOString(),new Date().toISOString());
   const accept=async(adult:string,origin='https://customers.example.test')=>customerFetch(new Request(await request('/app/terms',undefined,{method:'POST',origin}),{body:new URLSearchParams({terms:'yes',adult,version:'v1'})}),env);
   expect((await accept('no')).status).toBe(400);
   expect((await accept('yes','https://attacker.test')).status).toBe(403);

@@ -2,6 +2,24 @@
 
 Server ID: `1537592665535942709`. Community name: Poke Primos.
 
+## Live setup checkpoint — September 9, 2026
+
+- Application `1547374053248204840` installed in PokePrimos with Manage Roles.
+- OAuth redirect and signed interaction endpoint saved; both Worker secrets stored.
+- Inventory Access: `1547379339446976642`.
+- Poke Primos Membership (future qualifying role): `1547379340566724709`.
+- Discord's Roles screen confirms the bot is above both new roles; existing
+  Tier A, Admin and Tier B remain above the bot. Both new roles have zero permissions.
+- Guild commands registered. A live `/access` invocation returned the onboarding
+  and support links with Discord's “Only you can see this” indicator.
+- Customer deployment: `97b951f4-3971-4dae-a60b-32b2aba0a192`.
+- All 257 tests pass. Live customer linking, acceptance and role grant/revocation
+  remain to be verified. Enforcement, role synchronization and cron remain off
+  pending the legal/onboarding pilot; this is not a completed customer rollout.
+
+The separate bilingual legal task holds the unpublished ES/EN drafts. Complete
+operator facts and approved copy there before enabling acceptance here.
+
 ## Application and secrets
 
 Create a Poke Primos application in https://discord.com/developers/applications.
