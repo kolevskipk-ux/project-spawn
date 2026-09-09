@@ -1,7 +1,11 @@
 # Store automation release
 
-Prepared September 9, 2026. Implementation is local; migrations and new feature
-activation have not been applied to production.
+Released September 9, 2026. Production migrations 0034–0036 are applied.
+Store ingestion and Catch monitoring are active; 26 existing-admin-approved
+retailers qualified automatically. Six live targets were acknowledged before
+activating store notifications. Initial catalog imports remain quiet.
+Amazon seller-policy automation remains disabled while the requested
+status-dependent buying-options workflow is developed.
 
 ## Behavior
 
