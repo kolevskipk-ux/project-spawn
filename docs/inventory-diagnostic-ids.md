@@ -24,10 +24,14 @@ For `amazon`, it is the ASIN in `amazon_watchlist` and
 `amazon_verification_attempts`, and identifies the Catch status-feed row.
 
 Apply migrations 0031 and 0032 before deploying the updated Worker. Philip approved
-the production inventory release on September 9, 2026; automatic approval review
-subsequently required an explicit confirmation for the production migrations.
-Migration, Worker activation and schedule activation remain separate operations.
-No production migration or deployment has been performed for this release yet.
+the production inventory release on September 9, 2026 and explicitly confirmed
+the migrations and deployment after the automatic approval gate.
+Migrations 0031/0032, Worker activation and schedule activation were completed
+as separate operations on September 9, 2026.
+Spawn version: `bbe79a14-6486-4bd8-b845-11573ff731c6` (source `62cddac`).
+Catch version: `ff0f7131-93bf-44b0-9f1f-166e968db7d0` (source `3757ef0`).
+Production health/readiness and both release versions were verified. The migration
+generated 359 inventory and 80 Amazon UUID mappings and inserted all seven references.
 IDs do not change monitoring
 baselines or approval states, and are not access tokens.
 
