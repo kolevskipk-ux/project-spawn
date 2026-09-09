@@ -17,6 +17,23 @@ beforeAll(async()=>{const pair=await generateKeyPair('RS256');keys.publicKey=pai
 beforeEach(()=>{db=new DatabaseSync(':memory:');db.exec(readFileSync('customer-migrations/0001_customer_pilot.sql','utf8'));db.exec(readFileSync('scripts/seed-customer-staging.sql','utf8'));env={CUSTOMER_DB:adapter(),CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging · sample data'};});
 afterEach(()=>db.close());
 describe('customer pilot isolation',()=>{
+ it('gates inventory behind membership and explicit adult/terms acceptance without hiding account help',async()=>{
+  db.exec(readFileSync('customer-migrations/0004_discord_membership.sql','utf8'));
+  await join();env.CUSTOMER_MEMBERSHIP_MODE='enforced';
+  expect((await customerFetch(await request(),env)).headers.get('location')).toBe('/app/onboarding');
+  expect((await customerFetch(await request('/app/account'),env)).status).toBe(200);
+  expect((await customerFetch(await request('/app/support'),env)).status).toBe(200);
+  const id=String(db.prepare('SELECT id FROM customer_members WHERE email=?').get('customer@example.test')?.id);
+  Object.assign(env,{DISCORD_GUILD_ID:'1537592665535942709',DISCORD_BOT_TOKEN:'fixture',DISCORD_FREE_ACCESS_ENABLED:'true',CUSTOMER_LEGAL_PUBLISHED:'true',CUSTOMER_OPERATOR_NAME:'Test operator',CUSTOMER_OPERATOR_ADDRESS:'Test address',CUSTOMER_PRIVACY_EMAIL:'privacy@example.test',CUSTOMER_TERMS_VERSION:'v1',CUSTOMER_TERMS_EFFECTIVE_DATE:'2026-09-09'});
+  db.prepare("INSERT INTO customer_discord_links(customer_id,discord_user_id,guild_id,linked_at,membership_status,checked_at,verified_at) VALUES(?,?,?,?,'MEMBER',?,?)").run(id,'1537592665535942710',env.DISCORD_GUILD_ID, new Date().toISOString(),new Date().toISOString(),new Date().toISOString());
+  const accept=async(adult:string,origin='https://customers.example.test')=>customerFetch(new Request(await request('/app/terms',undefined,{method:'POST',origin}),{body:new URLSearchParams({terms:'yes',adult,version:'v1'})}),env);
+  expect((await accept('no')).status).toBe(400);
+  expect((await accept('yes','https://attacker.test')).status).toBe(403);
+  expect(db.prepare('SELECT COUNT(*) n FROM customer_terms_acceptances').get()?.n).toBe(0);
+  expect((await accept('yes')).status).toBe(303);
+  expect((await customerFetch(await request(),env)).status).toBe(200);
+  env.CUSTOMER_TERMS_VERSION='v2';expect((await customerFetch(await request(),env)).headers.get('location')).toBe('/app/onboarding');
+ });
  it('has a public landing but never exposes listings without a verified customer JWT',async()=>{
   expect((await customerFetch(new Request('https://customers.example.test/'),env)).status).toBe(200);
   for(const headers of [{},{'Cf-Access-Authenticated-User-Email':'customer@example.test'},{'Cf-Access-Jwt-Assertion':'fake'}] as Record<string,string>[] )expect((await customerFetch(new Request('https://customers.example.test/app',{headers}),env)).status).toBe(401);
