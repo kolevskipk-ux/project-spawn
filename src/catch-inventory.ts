@@ -6,7 +6,7 @@ import { verifyCatchSignature } from "./benchmarks";
 
 const STATES=new Set(["BUYABLE_FEATURED","BUYABLE_VIA_OPTIONS","SOLD_OUT","NO_FEATURED_OFFER","UNKNOWN","BLOCKED","ERROR"]);
 const ROUTES=new Set(["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"]);
-const CATEGORIES=new Set(["30th_celebration","delta_reign","mtg_hobbit_collector_box","ascended_heroes","prismatic_evolutions","pokemon_tcg"]);
+const CATEGORIES=new Set(["30th_celebration","delta_reign","mtg_hobbit_collector_box","mtg_tcg","ascended_heroes","prismatic_evolutions","pokemon_tcg"]);
 
 interface CatchInventoryObservation {
   schema_version:2; source_owner:"catch";

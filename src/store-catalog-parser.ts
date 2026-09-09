@@ -2,7 +2,8 @@ import type {Listing} from './types';
 import {canonicalizeUrl} from './inventory';
 import {assessProductEvidence} from './product-page-evidence';
 
-export const STORE_CATEGORIES = ['30th_celebration','ascended_heroes','delta_reign','mtg_hobbit_collector_box'] as const;
+export const STORE_CATEGORIES = ['30th_celebration','ascended_heroes','delta_reign','mtg_hobbit_collector_box','pokemon_tcg','mtg_tcg'] as const;
+export const STORE_POLICY = {version:1,scope:'all-supported-sets',catalogHours:6,cadenceMinutes:{hot:5,warm:30,regular:60},hunts:{ascended_heroes:{priority:'warm',route:'ascended-heroes'}},newInventory:{hot:'immediate',warm:'daily',regular:'daily'}} as const;
 export function catalogOrigin(value:string):string|null {
   try {
     const url=new URL(value),host=url.hostname;
@@ -19,18 +20,23 @@ export function catalogUrl(value:string,origin:string):string|null {
 }
 export function catalogCategory(title:string):Listing['watch_category']|null {
   const text=title.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if(/single card|\bsingles\b|playmat|sleeves|deck box|\bfunko\b|\bfigure\b(?! collection)|\bfigura\b(?! coleccion)/.test(text))return null;
   const matches:Listing['watch_category'][]=[];
   if(/\b30(?:th)?\b/.test(text)&&/celebration|anniversary|aniversario/.test(text))matches.push('30th_celebration');
   if(/\bascended heroes\b/.test(text))matches.push('ascended_heroes');
   if(/\bdelta reign\b/.test(text))matches.push('delta_reign');
   if(/\bhobbit\b/.test(text)&&/collector booster/.test(text)&&/\bbox\b|\bdisplay\b/.test(text)&&!/sample|single|\bpack\b/.test(text))matches.push('mtg_hobbit_collector_box');
-  return matches.length===1?matches[0]:null;
+  if(matches.length===1)return matches[0];
+  if(matches.length)return null;
+  if(/single card|\bsingles\b|playmat|sleeves|deck box|\bfunko\b|\bfigure\b(?! collection)|\bfigura\b(?! coleccion)/.test(text))return null;
+  const sealed=/booster|bundle|elite trainer|\betb\b|blister|collection|coleccion|\btin\b|\blata\b|\bdisplay\b|\bdeck\b|\bmazo\b|\bpack\b|\bsobre\b|\bcaja\b|\bbox\b/.test(text);
+  if(sealed&&/\bpokemon\b/.test(text))return 'pokemon_tcg';
+  if(sealed&&/\bmtg\b|magic(?: the gathering|: the gathering)/.test(text))return 'mtg_tcg';
+  return null;
 }
 export function candidateCatalogUrl(url:string) {
-  // Shopify handles describe the product; retain opaque URLs on other platforms.
-  const path=new URL(url).pathname;if(!/^\/(?:en\/)?(?:products|collections)\//.test(path))return true;
-  if(/^\/collections\/all\/?$/.test(path))return true;
-  try {return Boolean(catalogCategory(decodeURIComponent(path).replace(/[-_]/g,' ')));}catch{return false;}
+  // Discover every product URL; identify scope from product evidence, not a hunt-name URL filter.
+  return !/\/(cart|checkout|account|search)(\/|$)/.test(new URL(url).pathname);
 }
 const decode=(text:string)=>text.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
 export function sitemapLinks(text:string,origin:string) {
@@ -61,14 +67,14 @@ export function catalogProduct(html:string,url:string,retailer:string):{title:st
   for(const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi))try{visit(JSON.parse(m[1]));}catch{}
   const products=nodes.filter(p=>[p['@type']].flat().some(t=>t==='Product'||t==='https://schema.org/Product')&&[p.url,p['@id']].some(v=>typeof v==='string'&&catalogUrl(v,new URL(url).origin)===canonicalizeUrl(url)));
   if(products.length!==1||typeof products[0].name!=='string')return null;
-  const product=products[0],title=product.name.slice(0,500),category=catalogCategory(title);
+  const product=products[0],title=product.name.slice(0,500),category=catalogCategory(title+' '+String(product.brand?.name??product.brand??'')+' '+String(product.category??''));
   const proof=assessProductEvidence(200,html,url,title,product.sku?String(product.sku):null);
   const offers=[product.offers].flat(),preorder=offers.length===1&&offers[0]?.['@type']!=='AggregateOffer'&&
     (!offers[0]?.url||catalogUrl(String(offers[0].url),new URL(url).origin)===url)&&/\/(PreOrder|PreSale)$/.test(String(offers[0]?.availability));
   if(proof.outcome==='BLOCKED'||proof.outcome==='ERROR')return {title,category,listing:null,note:proof.evidence};
   // Ambiguous variants remain visible for review rather than becoming stock evidence.
   const supported=['AVAILABLE','SOLD_OUT'].includes(proof.outcome)||preorder;
-  if(!category||!supported)return {title,category,listing:null,note:category?proof.evidence:'Outside supported watch categories'};
+  if(!category||!supported)return {title,category,listing:null,note:category?proof.evidence:'Outside supported sealed Pokémon and Magic inventory'};
   const language:Listing['language']=/\b(english|ingles)\b/i.test(title)?'english':/\b(spanish|espa[nñ]ol)\b/i.test(title)?'spanish':'unknown';
   const listing:Listing={title,watch_category:category,retailer,retailer_sku:product.sku?String(product.sku).slice(0,200):null,url,
     status:proof.outcome==='AVAILABLE'?'available':proof.outcome==='SOLD_OUT'?'sold_out':'unknown',

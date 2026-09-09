@@ -1,11 +1,13 @@
 import type {Env,Listing} from './types';
 import {normalizeVendor,printSeries} from './garfield';
 import {canonicalizeUrl} from './inventory';
+import {targetInsert} from './store-monitoring';
+import {STORE_POLICY} from './store-catalog-parser';
 import {catalogOrigin,catalogUrl,catalogProduct,candidateCatalogUrl,catalogCategory,marketplaceOrigin,parseRobots,robotsAllows,sitemapLinks,STORE_CATEGORIES,type RobotsPolicy} from './store-catalog-parser';
 
 export type Store={id:string;origin:string;retailer:string;vendor_key:string;marketplace:number;status:string;revision:number;categories_json:string;refresh_hours:number;approved_by:string|null;approved_at:string|null;baseline_completed_at:string|null;next_due_at:string|null};
 type Run={id:string;store_id:string;status:string;robots_json:string;started_at:string;note:string};
-const MAX_PAGES=2500, PAGES_PER_TICK=8;
+const MAX_PAGES=25000, PAGES_PER_TICK=24;
 export const storeDigest=async(value:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
 export async function storeSuppressed(env:Env,store:Store) {
   const suppressed=(await env.SPAWN_DB.prepare("SELECT vendor_key FROM vendors WHERE status='SUPPRESSED'").all<{vendor_key:string}>()).results;
@@ -43,7 +45,7 @@ export async function startCatalogRun(env:Env,id:string,actor:string,now=new Dat
   await env.SPAWN_DB.batch([
     env.SPAWN_DB.prepare("INSERT INTO store_catalog_runs(id,store_id,status,started_at,started_by) VALUES(?,?,'RUNNING',?,?)").bind(runId,id,now.toISOString(),actor),
     env.SPAWN_DB.prepare("INSERT INTO store_catalog_pages(run_id,url,kind) VALUES(?,?,'ROBOTS')").bind(runId,store.origin+'/robots.txt'),
-    env.SPAWN_DB.prepare('UPDATE store_acquisitions SET revision=revision+1 WHERE id=?').bind(id)
+    env.SPAWN_DB.prepare('UPDATE store_acquisitions SET next_due_at=NULL WHERE id=?').bind(id)
   ]);
   return runId;
 }
@@ -94,7 +96,7 @@ async function processPage(env:Env,run:Run,store:Store,page:{url:string;kind:str
       } else if(page.kind==='FEED') {
         const feed=JSON.parse(result.text) as {products?:Array<{handle?:string;title?:string}>};
         if(!Array.isArray(feed.products)||feed.products.length>250)throw new Error('Unsupported product feed');
-        await enqueue(env,run,store,feed.products.filter(p=>typeof p.handle==='string'&&/^[\w-]+$/.test(p.handle)&&catalogCategory(p.title??p.handle.replace(/-/g,' '))).map(p=>store.origin+'/products/'+p.handle),'PAGE');
+        await enqueue(env,run,store,feed.products.filter(p=>typeof p.handle==='string'&&/^[\w-]+$/.test(p.handle)).map(p=>store.origin+'/products/'+p.handle),'PAGE');
         if(feed.products.length===250){const next=new URL(page.url);next.searchParams.set('page',String(Number(next.searchParams.get('page'))+1));await enqueue(env,run,store,[next.href],'FEED');}
         detail=`Found ${feed.products.length} products; direct pages required for variant, currency and stock evidence`;
       } else {
@@ -134,24 +136,30 @@ export async function importStoreCatalog(env:Env,storeId:string) {
         SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ${gate}`)
         .bind(key,item.url,store.retailer,listing.title,listing.watch_category,listing.retailer_sku,item.first_seen_at,now,listing.status,listing.availability_state??listing.status,listing.price_mxn,listing.language,listing.language_evidence,store.baseline_completed_at?'new':'baseline',printSeries(listing.watch_category),...bindings),
       env.SPAWN_DB.prepare(`UPDATE store_catalog_items SET imported_at=?,listing_key=? WHERE store_id=? AND url=? AND ${gate} AND EXISTS(SELECT 1 FROM inventory WHERE listing_key=?)`)
-        .bind(now,key,store.id,item.url,...bindings,key)
+        .bind(now,key,store.id,item.url,...bindings,key),
+      targetInsert(env,store,listing,key,now)
     ]);
     imported+=results[1].meta.changes;
   }
+  const backlog=(await env.SPAWN_DB.prepare(`SELECT i.listing_json,i.listing_key FROM store_catalog_items i WHERE i.store_id=? AND i.imported_at IS NOT NULL AND i.listing_json IS NOT NULL AND i.listing_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=i.listing_key) LIMIT 40`).bind(store.id).all<{listing_json:string;listing_key:string}>()).results;
+  for(const item of backlog)await targetInsert(env,{...store,baseline_completed_at:null},JSON.parse(item.listing_json),item.listing_key,new Date().toISOString()).run();
   await env.SPAWN_DB.prepare(`UPDATE store_acquisitions SET baseline_completed_at=? WHERE id=? AND status='APPROVED' AND baseline_completed_at IS NULL
+    AND EXISTS(SELECT 1 FROM store_catalog_runs WHERE store_id=store_acquisitions.id AND status IN ('COMPLETE','PARTIAL'))
     AND NOT EXISTS(SELECT 1 FROM store_catalog_items WHERE ${eligible}) AND NOT EXISTS(SELECT 1 FROM store_catalog_runs WHERE store_id=? AND status='RUNNING')`)
     .bind(new Date().toISOString(),store.id,store.id,store.categories_json,store.id).run();
   return imported;
 }
 export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetch=fetch) {
   if(!storeId&&env.STORE_CATALOG_SYNC_ENABLED!=='true')return;
-  const owner=crypto.randomUUID(),now=Date.now(),resource='store-catalog-worker';
+  if(!storeId){const due=await env.SPAWN_DB.prepare(`SELECT s.id FROM store_acquisitions s WHERE s.marketplace=0 AND s.status IN ('PENDING','APPROVED') AND
+      ((s.status='PENDING' AND NOT EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id)) OR EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
+        SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 3`).bind(new Date().toISOString()).all<{id:string}>();
+    await Promise.all(due.results.map(s=>runCatalogTick(env,s.id,fetchFn)));return;}
+  const owner=crypto.randomUUID(),now=Date.now(),resource='store-catalog:'+storeId;
   const lock=await env.SPAWN_DB.prepare('INSERT INTO ops_review_locks(resource,owner,expires_at) VALUES(?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE ops_review_locks.expires_at<?').bind(resource,owner,now+180000,now).run();
   if(!lock.meta.changes)return;
   try {
-    const store=storeId?await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(storeId).first<Store>():await env.SPAWN_DB.prepare(`SELECT s.* FROM store_acquisitions s WHERE s.marketplace=0 AND s.status IN ('PENDING','APPROVED') AND
-      ((s.status='PENDING' AND NOT EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id)) OR EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
-        SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 1`).bind(new Date().toISOString()).first<Store>();
+    const store=await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(storeId).first<Store>();
     if(!store)return;
     await env.SPAWN_DB.prepare('UPDATE store_acquisitions SET last_tick_at=? WHERE id=?').bind(new Date().toISOString(),store.id).run();
     if(['REJECTED','PAUSED'].includes(store.status)||await storeSuppressed(env,store))return;
@@ -168,7 +176,7 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
         const partial=Boolean(failure?.n||run.note);
         await env.SPAWN_DB.batch([
           env.SPAWN_DB.prepare('UPDATE store_catalog_runs SET status=?,finished_at=?,note=? WHERE id=?').bind(partial?'PARTIAL':'COMPLETE',new Date().toISOString(),run.note||'Accessible frontier exhausted; this does not establish whole-store completeness',run.id),
-          env.SPAWN_DB.prepare('UPDATE store_acquisitions SET revision=revision+1,last_completed_at=?,next_due_at=? WHERE id=?').bind(new Date().toISOString(),new Date(Date.now()+store.refresh_hours*3600000).toISOString(),store.id)
+          env.SPAWN_DB.prepare('UPDATE store_acquisitions SET last_completed_at=?,next_due_at=? WHERE id=?').bind(new Date().toISOString(),new Date(Date.now()+store.refresh_hours*3600000).toISOString(),store.id)
         ]);break;
       }
       await processPage(env,run,store,page,fetchFn);
@@ -182,16 +190,14 @@ export async function decideStore(env:Env,id:string,revision:number,action:strin
   const store=await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(id).first<Store>();
   if(!store||store.revision!==revision)throw new Error('Store changed; reload before deciding');
   if(action==='approve'&&(store.marketplace||await storeSuppressed(env,store)))throw new Error('Suppressed stores and marketplaces cannot receive whole-store approval');
-  const running=await env.SPAWN_DB.prepare("SELECT id FROM store_catalog_runs WHERE store_id=? AND status='RUNNING'").bind(id).first();
-  const audit=await env.SPAWN_DB.prepare("SELECT id FROM store_catalog_runs WHERE store_id=? AND status IN ('COMPLETE','PARTIAL') ORDER BY started_at DESC LIMIT 1").bind(id).first();
-  if(action==='approve'&&(running||!audit))throw new Error('Finish the catalog audit before approving');
   const status=action==='approve'?'APPROVED':action==='reject'?'REJECTED':'PAUSED',decisionId=crypto.randomUUID(),at=new Date().toISOString();
   const results=await env.SPAWN_DB.batch([
-    env.SPAWN_DB.prepare(`UPDATE store_acquisitions SET status=?,revision=revision+1,categories_json=?,refresh_hours=?,approved_by=CASE WHEN ?='APPROVED' THEN ? ELSE approved_by END,approved_at=CASE WHEN ?='APPROVED' THEN ? ELSE approved_at END WHERE id=? AND revision=? AND (?<>'APPROVED' OR NOT EXISTS(SELECT 1 FROM store_catalog_runs WHERE store_id=? AND status='RUNNING'))`)
-      .bind(status,action==='approve'?JSON.stringify([...new Set(categories)]):store.categories_json,action==='approve'?hours:store.refresh_hours,status,actor,status,at,id,revision,status,id),
+    env.SPAWN_DB.prepare(`UPDATE store_acquisitions SET status=?,revision=revision+1,categories_json=?,refresh_hours=?,approved_by=CASE WHEN ?='APPROVED' THEN ? ELSE approved_by END,approved_at=CASE WHEN ?='APPROVED' THEN ? ELSE approved_at END WHERE id=? AND revision=?`)
+      .bind(status,action==='approve'?JSON.stringify([...new Set(categories)]):store.categories_json,action==='approve'?hours:store.refresh_hours,status,actor,status,at,id,revision),
     env.SPAWN_DB.prepare(`INSERT INTO store_acquisition_decisions(id,store_id,action,actor,decided_at,revision,details_json) SELECT ?,?,?,?,?,?,? WHERE changes()=1`)
-      .bind(decisionId,id,action,actor,at,revision+1,JSON.stringify({categories,hours})),
-    env.SPAWN_DB.prepare("UPDATE store_catalog_runs SET status='PARTIAL',finished_at=?,note='Stopped by store decision' WHERE store_id=? AND status='RUNNING' AND EXISTS(SELECT 1 FROM store_acquisition_decisions WHERE id=?)").bind(at,id,decisionId)
+      .bind(decisionId,id,action,actor,at,revision+1,JSON.stringify({categories,hours,policy:STORE_POLICY})),
+    env.SPAWN_DB.prepare('UPDATE store_acquisitions SET policy_json=? WHERE id=? AND EXISTS(SELECT 1 FROM store_acquisition_decisions WHERE id=?)').bind(JSON.stringify(STORE_POLICY),id,decisionId),
+    env.SPAWN_DB.prepare("UPDATE store_catalog_runs SET status='PARTIAL',finished_at=?,note='Stopped by store decision' WHERE store_id=? AND status='RUNNING' AND ?<>'approve' AND EXISTS(SELECT 1 FROM store_acquisition_decisions WHERE id=?)").bind(at,id,action,decisionId)
   ]);
   if(!results[0].meta.changes)throw new Error('Store changed; reload before deciding');
 }

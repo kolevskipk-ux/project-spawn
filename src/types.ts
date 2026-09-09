@@ -6,7 +6,12 @@ export interface Env {
   RUN_TOKEN: string;
   OPENAI_MODEL: string;
   TRUSTED_STORE_AUTO_APPROVAL_ENABLED?: string;
+  AMAZON_PENDING_AUTOMATION_ENABLED?: string;
+  AMAZON_APPROVAL_DIGEST_ENABLED?: string;
   STORE_CATALOG_SYNC_ENABLED?: string;
+  STORE_CATALOG_FAST_ENABLED?: string;
+  STORE_MONITORING_ENABLED?: string;
+  STORE_NOTIFICATIONS_ENABLED?: string;
   SPAWN_TIMEZONE: string;
   SPAWN_CONFIG_VERSION: string;
   SPAWN_QUIET_START?: string;
@@ -39,7 +44,7 @@ export interface Env {
 
 export interface Listing {
   title: string;
-  watch_category: "30th_celebration" | "ascended_heroes" | "delta_reign" | "mtg_hobbit_collector_box";
+  watch_category: "30th_celebration" | "ascended_heroes" | "delta_reign" | "mtg_hobbit_collector_box" | "pokemon_tcg" | "mtg_tcg";
   retailer: string;
   retailer_sku: string | null;
   url: string;

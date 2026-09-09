@@ -1,7 +1,7 @@
 import {customerInventoryStatements} from './customer-feed-query';
 import {compareReferences,type ReferenceProduct,type ReferenceResult} from './reference-comparison';
 export interface FeedEnv { SPAWN_DB: D1Database }
-export interface CustomerListing {id:string;title:string;set_name:string;retailer:string;language:string;price_mxn:number|null;availability:string;observed_at:string;references?:ReferenceResult[]}
+export interface CustomerListing {id:string;title:string;set_name:string;retailer:string;language:string;price_mxn:number|null;availability:string;observed_at:string;references?:ReferenceResult[];delivery_note?:string}
 export interface CustomerInventoryPage {rows:CustomerListing[];facets:{set_name:string;retailer:string}[]}
 
 // This Worker has no public routes. Only the customer Worker's service binding
@@ -14,7 +14,7 @@ export async function customerInventory(env:FeedEnv,url:URL,now=new Date()):Prom
    const check=compareReferences({title:r.title,watch_category:r._category,language:r.language,product_id:r._product_id,price_mxn:r.price_mxn,availability_state:r._availability_state,price_verification_status:r.price_mxn!=null?'VERIFIED':'PENDING',pricing_observed_at:r._price_at,fulfilment_region_state:r._fulfilment},reference.id?reference:null,now);
    const references=['Product mapping missing','Product identity mismatch','Variant match needs review'].includes(check.offerStatus)?[]:check.references.filter(ref=>ref.referenceMxn!=null&&ref.status!=='Reference match needs review');
    // Explicit customer allowlist: never send internal catalog fields or audit data.
-   return {id:r.id,title:r.title,set_name:r.set_name,retailer:r.retailer,language:r.language,price_mxn:r.price_mxn,availability:r.availability,observed_at:r.observed_at,references};
+   return {id:r.id,title:r.title,set_name:r.set_name,retailer:r.retailer,language:r.language,price_mxn:r.price_mxn,availability:r.availability,observed_at:r.observed_at,references,...!['DOMESTIC','CROSS_BORDER_CONFIRMED'].includes(r._fulfilment)?{delivery_note:'Mexico delivery not verified; confirm with the store.'}:{}};
  });
  return {rows,facets:result[1].results as unknown as CustomerInventoryPage['facets']};
 }

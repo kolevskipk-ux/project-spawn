@@ -5,6 +5,7 @@ import {assessTrustedStorePage,registerTrustedStore,runTrustedStoreApprovals} fr
 import {dashboardListingReview} from '../src/index';
 import {trustedStoreOperations} from '../src/trusted-store-operations';
 import type {Env} from '../src/types';
+import {amazonApprovalSummary,sendAmazonApprovalDigest} from '../src/amazon-approval-digest';
 let db:DatabaseSync,env:Env;
 function adapter(){
   const prepare=(sql:string)=>{
@@ -23,7 +24,7 @@ function page(url=normal,seller:unknown=url===amazon?{identifier:'SELLER1'}:{},s
 function candidate(url=normal){const now=new Date().toISOString();db.prepare("INSERT INTO inventory(listing_key,canonical_url,retailer,title,watch_category,first_seen_at,last_seen_at,status,language) VALUES('listing',?,'Store',?,'delta_reign',?,?,'unknown','unknown')").run(url,title,now,now);db.prepare("INSERT INTO monitoring_candidates(candidate_id,source,source_url,source_listing_key,vendor,vendor_key,product_name,product_family,print_series,language,discovered_at,review_eligible) VALUES(?,'scan',?,'listing','Store','store',?,'pokemon_tcg','Delta Reign','unknown',?,1)").run(id,url,title,now);return {...db.prepare('SELECT * FROM monitoring_candidates').get(),watch_category:'delta_reign'};}
 function trust(url=normal,sellerKey='store:https://cards.example'){db.prepare("INSERT INTO trusted_store_rules(id,origin,seller_key,category,source_candidate_id,created_by,created_at) VALUES('rule',?,?,'delta_reign','source','admin',?)").run(new URL(url).origin,sellerKey,'2000-01-01T00:00:00.000Z');}
 const fetchPage=(html=page())=>vi.fn(async()=>new Response(html));
-async function publish(candidateId:string,form:FormData,actor:string){const url=new URL('https://spawn.test/dashboard/listing/'+candidateId);return (await dashboardListingReview(new Request(url,{method:'POST'}),url,env,{form,actor}))?.status===303;}
+async function publish(candidateId:string,form:FormData,actor:string){const url=new URL('https://spawn.test/dashboard/listing/'+candidateId);const response=await dashboardListingReview(new Request(url,{method:'POST'}),url,env,{form,actor});return response?.status===303;}
 it('publishes an eligible store listing once and retains its proof and unseen admin flag',async()=>{candidate();trust();const f=fetchPage();await runTrustedStoreApprovals(env,publish,f);await runTrustedStoreApprovals(env,publish,f);expect(db.prepare('SELECT status,reviewed_by FROM monitoring_candidates').get()).toMatchObject({status:'ACCEPTED',reviewed_by:'auto:trusted-store:rule'});expect(db.prepare('SELECT COUNT(*) n FROM customer_inventory_events').get()?.n).toBe(1);expect(db.prepare('SELECT outcome,admin_seen_at,details_json FROM trusted_store_attempts').get()).toMatchObject({outcome:'AUTO_APPROVED',admin_seen_at:null,details_json:expect.stringContaining('exact-product-jsonld-v1')});expect(f).toHaveBeenCalledTimes(1);});
 it.each(['disabled','revoked','rejected','wrong-category','suppressed'])('never publishes when %s',async condition=>{candidate();trust();if(condition==='disabled')env.TRUSTED_STORE_AUTO_APPROVAL_ENABLED='false';if(condition==='revoked')db.exec('UPDATE trusted_store_rules SET enabled=0');if(condition==='rejected')db.exec("UPDATE monitoring_candidates SET status='REJECTED'");if(condition==='wrong-category')db.exec("UPDATE trusted_store_rules SET category='ascended_heroes'");if(condition==='suppressed')db.exec("INSERT INTO vendors(vendor_key,vendor_name,status,updated_at,reason) VALUES('store','Store','SUPPRESSED','now','test')");const p=vi.fn();await runTrustedStoreApprovals(env,p,fetchPage());expect(p).not.toHaveBeenCalled();});
 it.each([{}, {name:'SELLER1'}, {identifier:{}}, {'@id':'#seller'}, {url:'https://www.amazon.com.mx/'}, {url:amazon}, {identifier:'DIFFERENT'}])('does not inherit marketplace approval across missing or changed seller IDs: %j',async seller=>{candidate(amazon);trust(amazon,'seller:SELLER1');const now=new Date().toISOString();db.prepare("INSERT INTO amazon_watchlist(asin,product_name,product_url,watch_category,language,source,first_discovered_at,last_discovered_at,updated_at) VALUES('B0H27L3TKW',?,?,'delta_reign','english','test',?,?,?)").run(title,amazon,now,now,now);const p=vi.fn();await runTrustedStoreApprovals(env,p,fetchPage(page(amazon,seller)));expect(p).not.toHaveBeenCalled();});
@@ -39,3 +40,43 @@ it('leaves historical pending listings outside a newly created trust rule',async
 it('rechecks revocation after fetching and respects an administrator review lock',async()=>{candidate();trust();const p=vi.fn();db.prepare('INSERT INTO ops_review_locks VALUES(?,?,?)').run('/dashboard/listing/'+id,'admin',Date.now()+60000);const f=fetchPage();await runTrustedStoreApprovals(env,p,f);expect(f).not.toHaveBeenCalled();db.exec('DELETE FROM ops_review_locks');await runTrustedStoreApprovals(env,p,async()=>{db.exec('UPDATE trusted_store_rules SET enabled=0');return new Response(page());});expect(p).not.toHaveBeenCalled();});
 it.each(['REJECTED','APPROVED','PUBLISHED'])('does not reverify an Amazon target in state %s',async state=>{candidate(amazon);trust(amazon,'seller:SELLER1');const now=new Date().toISOString();db.prepare("INSERT INTO amazon_watchlist(asin,product_name,product_url,watch_category,language,source,lifecycle_status,first_discovered_at,last_discovered_at,updated_at,canonical_product_id,routing_key,approved_by,approved_at) VALUES('B0H27L3TKW',?,?,'delta_reign','spanish','test',?,?,?,?,'fixture-es-id','delta-reign','admin','2000-01-01T00:00:00Z')").run(title,amazon,state,now,now,now);const f=fetchPage(page(amazon));await runTrustedStoreApprovals(env,vi.fn(),f);expect(f).not.toHaveBeenCalled();expect(db.prepare("SELECT lifecycle_status FROM amazon_watchlist WHERE asin='B0H27L3TKW'").get()?.lifecycle_status).toBe(state);});
 it('escapes audit content in the admin page',async()=>{candidate();trust();db.prepare("INSERT INTO trusted_store_attempts(id,candidate_id,attempted_at,outcome,details_json) VALUES('flag',?,'now','ERROR',?)").run(id,'<script>alert(1)</script>');const page=await trustedStoreOperations(new Request('https://spawn.test/ops/trusted-stores'),env,{email:'admin',subject:'admin',role:'admin'});expect(await page.text()).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');});
+
+async function pendingPolicyFixture(){
+  candidate(amazon);trust(amazon,'seller:SELLER1');
+  const stamp=new Date().toISOString();
+  db.prepare("INSERT INTO amazon_watchlist(asin,product_name,product_url,watch_category,language,source,first_discovered_at,last_discovered_at,updated_at) VALUES('B0H27L3TKW',?,?,'delta_reign','spanish','test',?,?,?)").run(title,amazon,stamp,stamp,stamp);
+  db.exec("UPDATE monitoring_candidates SET source='codex_seed',review_eligible=0,discovered_at='2000-01-01'; UPDATE trusted_store_rules SET created_at='2026-01-01'");
+  env.TRUSTED_STORE_AUTO_APPROVAL_ENABLED='false';env.AMAZON_PENDING_AUTOMATION_ENABLED='true';
+  const response=await trustedStoreOperations(new Request('https://spawn.test/ops/trusted-stores',{method:'POST',body:new URLSearchParams({action:'expand_amazon',id:'rule'})}),env,{email:'admin',subject:'admin',role:'admin'});
+  expect(response.status).toBe(303);
+}
+it('processes historical seeded Amazon candidates under one seller policy without an initial alert storm',async()=>{
+  await pendingPolicyFixture();db.exec('DELETE FROM inventory');
+  await runTrustedStoreApprovals(env,publish,fetchPage(page(amazon)));
+  expect(db.prepare('SELECT status,automatic_baseline FROM monitoring_candidates').get()).toMatchObject({status:'ACCEPTED',automatic_baseline:1});
+  expect(db.prepare("SELECT lifecycle_status,poll_interval_minutes,automatic_baseline FROM amazon_watchlist WHERE asin='B0H27L3TKW'").get()).toMatchObject({lifecycle_status:'PUBLISHED',poll_interval_minutes:60,automatic_baseline:1});
+  expect(db.prepare('SELECT COUNT(*) n FROM customer_inventory_events').get()?.n).toBe(0);
+  const f=fetchPage(page(amazon));await runTrustedStoreApprovals(env,publish,f);expect(f).not.toHaveBeenCalled();
+});
+it('resolves a supported non-hunt Magic product from exact product evidence under the all-set policy',async()=>{
+  await pendingPolicyFixture();const name='Magic The Gathering Bloomburrow Booster Box';
+  db.prepare("UPDATE monitoring_candidates SET product_name=?,product_family='mtg_tcg',print_series='Bloomburrow'").run(name);
+  db.prepare("UPDATE inventory SET title=?,watch_category='mtg_tcg'").run(name);
+  db.prepare("UPDATE amazon_watchlist SET product_name=?,watch_category='mtg_tcg' WHERE asin='B0H27L3TKW'").run(name);
+  await runTrustedStoreApprovals(env,publish,fetchPage(page(amazon).replaceAll(title,name)));
+  expect(db.prepare("SELECT lifecycle_status FROM amazon_watchlist WHERE asin='B0H27L3TKW'").get()?.lifecycle_status).toBe('PUBLISHED');
+  expect(db.prepare("SELECT method FROM amazon_verification_attempts ORDER BY id DESC LIMIT 1").get()?.method).toBe('policy_resolution');
+});
+it('does not approve a historical candidate until its seller rule explicitly includes pending inventory',async()=>{
+  await pendingPolicyFixture();db.exec('UPDATE trusted_store_rules SET include_pending=0');
+  const f=fetchPage(page(amazon));await runTrustedStoreApprovals(env,publish,f);expect(f).not.toHaveBeenCalled();
+});
+it('summarizes exceptions and delivers one operations-only digest per date',async()=>{
+  await pendingPolicyFixture();await runTrustedStoreApprovals(env,publish,fetchPage(page(amazon,{},false)));
+  const summary=await amazonApprovalSummary(env);expect(summary.pending).toMatchObject([{reason:'MANUAL_REVIEW',count:1}]);
+  env.AMAZON_APPROVAL_DIGEST_ENABLED='true';env.OPS_DISCORD_WEBHOOK_URL='https://discord.example/ops';env.PUBLIC_BASE_URL='https://spawn.example';
+  const f=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>new Response(null,{status:204}));const now=new Date('2026-09-10T15:05:00Z');
+  await sendAmazonApprovalDigest(env,now,f);await sendAmazonApprovalDigest(env,now,f);expect(f).toHaveBeenCalledTimes(1);
+  expect(f.mock.calls[0][0]).toBe('https://discord.example/ops');
+  expect(db.prepare('SELECT delivered_at FROM amazon_approval_digests').get()?.delivered_at).toBe(now.toISOString());
+});

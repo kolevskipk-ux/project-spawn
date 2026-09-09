@@ -1,16 +1,20 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import type {Env} from '../src/types';
 import {auditKnownStores,decideStore,importStoreCatalog,runCatalogTick,startCatalogRun,type Store} from '../src/store-catalog';
 import {catalogOrigin,catalogProduct,catalogUrl,candidateCatalogUrl,parseRobots,robotsAllows,sitemapLinks} from '../src/store-catalog-parser';
 import {storeCatalogOperations} from '../src/store-catalog-operations';
+import {handleStoreMonitoring,nextStoreDigest} from '../src/store-monitoring';
+import {customerInventory} from '../src/customer-feed';
+// Exercise the real consumer against the real authenticated Spawn handler.
+const catchModule=new URL('../../catch-em-all/src/store-monitor.js',import.meta.url);
 let db:DatabaseSync,env:Env;
 function adapter(){
   const prepare=(sql:string)=>{let values:unknown[]=[];return {
     bind(...args:unknown[]){values=args;return this;},async first(){return db.prepare(sql).get(...values as never[])??null;},
     async all(){return {results:db.prepare(sql).all(...values as never[]),success:true};},
-    execute(){const result=db.prepare(sql).run(...values as never[]);return {success:true,meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}};},async run(){return this.execute();}
+    execute(){if(/^\s*(SELECT|WITH)\b/i.test(sql))return {results:db.prepare(sql).all(...values as never[]),success:true,meta:{changes:0}};const result=db.prepare(sql).run(...values as never[]);return {success:true,meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}};},async run(){return this.execute();}
   };};
   return {prepare,async batch(statements:Array<{execute:()=>unknown}>){db.exec('BEGIN');try{const results=statements.map(s=>s.execute());db.exec('COMMIT');return results;}catch(error){db.exec('ROLLBACK');throw error;}}};
 }
@@ -30,6 +34,114 @@ const crawler=()=>vi.fn(async(input:RequestInfo|URL)=>{
 });
 async function audit(){inventory();await auditKnownStores(env);await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,crawler());}
 async function approve(){const s=store();await decideStore(env,s.id,s.revision,'approve',['delta_reign'],6,'admin');}
+async function monitor(path:string,body:unknown={}){
+  env.CATCH_INGEST_SECRET='fixture';env.STORE_MONITORING_ENABLED='true';env.STORE_NOTIFICATIONS_ENABLED='true';
+  return (await handleStoreMonitoring(new Request('https://spawn.example/internal/garfield/store-monitor/'+path,{method:'POST',headers:{authorization:'Bearer fixture'},body:JSON.stringify(body)}),env))!;
+}
+it('one-click approval uses all sets without a hidden confirmation and queues Catch targets',async()=>{
+  inventory();await auditKnownStores(env);await startCatalogRun(env,store().id,'admin');
+  const request=new Request('https://spawn.example/ops/stores',{method:'POST',body:new URLSearchParams({id:store().id,revision:String(store().revision),action:'approve'})});
+  expect((await storeCatalogOperations(request,env,{email:'admin',subject:'admin',role:'admin'})).status).toBe(303);
+  expect(JSON.parse(store().categories_json)).toContain('mtg_tcg');
+  await runCatalogTick(env,store().id,crawler());
+  expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_targets').get()?.n).toBe(2);
+});
+it('claims once, acknowledges baseline observations, preserves state on failure and deduplicates restocks',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  const claim=await (await monitor('claim')).json() as any;
+  expect(claim.targets.length).toBe(2);expect((await (await monitor('claim')).json() as any).targets).toHaveLength(0);
+  const observation={id:claim.targets[0].id,lease_id:claim.lease_id,state:'sold_out',price_mxn:1000,evidence:'fixture'};
+  expect((await monitor('observe',observation)).status).toBe(200);
+  expect((await (await monitor('observe',observation)).json() as any).replayed).toBe(true);
+  expect(db.prepare('SELECT COUNT(*) n FROM store_customer_events').get()?.n).toBe(0);
+  db.prepare("UPDATE store_monitor_targets SET next_due_at='2000' WHERE id=?").run(observation.id);
+  const again=await (await monitor('claim')).json() as any;
+  await monitor('observe',{...observation,lease_id:again.lease_id,state:'blocked',price_mxn:null});
+  expect(db.prepare('SELECT state FROM store_monitor_targets WHERE id=?').get(observation.id)?.state).toBe('sold_out');
+  db.prepare("UPDATE store_monitor_targets SET next_due_at='2000' WHERE id=?").run(observation.id);
+  const restock=await (await monitor('claim')).json() as any;
+  const update={...observation,lease_id:restock.lease_id,state:'available'};
+  await monitor('observe',update);await monitor('observe',update);
+  expect(db.prepare("SELECT COUNT(*) n FROM store_customer_events WHERE kind='HUNT_UPDATE'").get()?.n).toBe(1);
+});
+it('revocation between selection and transaction prevents all observation and event writes',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  const claim=await (await monitor('claim')).json() as any;
+  const old=env.SPAWN_DB.batch.bind(env.SPAWN_DB);
+  env.SPAWN_DB.batch=(async statements=>{db.exec("UPDATE store_acquisitions SET status='REJECTED'");return old(statements);}) as typeof env.SPAWN_DB.batch;
+  expect((await monitor('observe',{id:claim.targets[0].id,lease_id:claim.lease_id,state:'available',price_mxn:1200,evidence:'fixture'})).status).toBe(409);
+  expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_observations').get()?.n).toBe(0);
+  expect(db.prepare('SELECT COUNT(*) n FROM store_customer_events').get()?.n).toBe(0);
+});
+it('suppressed aliases on an approved origin stop claims, receipts, events and customer visibility',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  const claim=await (await monitor('claim')).json() as any;
+  for(const t of claim.targets)await monitor('observe',{id:t.id,lease_id:claim.lease_id,state:'available',price_mxn:1000,evidence:'fixture'});
+  inventory(origin+'/products/alias','Cards alias','alias');
+  db.exec("INSERT INTO vendors(vendor_key,vendor_name,status,updated_at) VALUES('cards-alias','Cards alias','SUPPRESSED','2026-09-09'); UPDATE store_monitor_targets SET next_due_at='2000'");
+  expect((await (await monitor('claim')).json() as any).targets).toHaveLength(0);
+  expect((await customerInventory(env,new URL('https://customer-source/inventory'))).rows).toHaveLength(0);
+  expect((await (await monitor('events')).json() as any).events).toHaveLength(0);
+});
+it('new hot inventory is immediate and regular inventory is queued for the next daily digest',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  db.exec("UPDATE store_monitor_targets SET baseline=0; UPDATE store_monitor_targets SET priority='hot',cadence_minutes=5 WHERE id='known'");
+  const claim=await (await monitor('claim')).json() as any;
+  for(const t of claim.targets)await monitor('observe',{id:t.id,lease_id:claim.lease_id,state:'available',price_mxn:1200,evidence:'fixture'});
+  const events=db.prepare("SELECT * FROM store_customer_events WHERE kind='NEW_INVENTORY'").all();
+  expect(events).toHaveLength(2);
+  for(const e of events)expect(e.due_at===e.created_at).toBe(e.target_id==='known');
+  expect(nextStoreDigest(new Date('2026-09-09T16:00:00Z'))).toBe('2026-09-10T15:00:00.000Z');
+});
+it('accepts supported non-hunt sets and excludes accessories',()=>{
+  expect(catalogProduct(page(fresh,'Pokemon Twilight Masquerade Booster Box'),fresh,'Cards')?.category).toBe('pokemon_tcg');
+  expect(catalogProduct(page(fresh,'Magic The Gathering Bloomburrow Booster Box'),fresh,'Cards')?.category).toBe('mtg_tcg');
+  expect(catalogProduct(page(fresh,'Pokemon card sleeves'),fresh,'Cards')?.listing).toBeNull();
+  expect(catalogProduct(page(fresh,'Pokemon 30th Celebration Figure Collection Mew'),fresh,'Cards')?.category).toBe('30th_celebration');
+});
+it('expires a delayed hunt update without claiming it was delivered',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  db.exec("UPDATE store_monitor_targets SET state='sold_out'");
+  const claim=await (await monitor('claim')).json() as any;
+  await monitor('observe',{id:claim.targets[0].id,lease_id:claim.lease_id,state:'available',price_mxn:1000,evidence:'fixture'});
+  db.exec("UPDATE store_customer_events SET created_at='2000-01-01T00:00:00Z' WHERE kind='HUNT_UPDATE'");
+  const feed=await (await monitor('events')).json() as any;
+  expect(feed.events).toHaveLength(0);
+  expect(db.prepare("SELECT expired_at,delivered_at FROM store_customer_events WHERE kind='HUNT_UPDATE'").get()).toMatchObject({expired_at:expect.any(String),delivered_at:null});
+});
+it('enrolls Ascended Heroes in the dedicated warm hunt',async()=>{
+  inventory();await auditKnownStores(env);
+  await decideStore(env,store().id,store().revision,'approve',['ascended_heroes'],6,'admin');
+  await startCatalogRun(env,store().id,'admin');
+  await runCatalogTick(env,store().id,async(input,init)=>{
+    const response=await crawler()(input);return new Response((await response.text()).replaceAll('Delta Reign','Ascended Heroes'),{status:response.status});
+  });
+  const target=db.prepare('SELECT * FROM store_monitor_targets WHERE url=?').get(fresh);
+  expect(target).toMatchObject({priority:'warm',cadence_minutes:30,routing_key:'ascended-heroes',baseline:1});
+});
+it.skipIf(!existsSync(catchModule))('takes an approved store through Catch observation, onboarding, daily inventory and immediate restock delivery',async()=>{
+  await audit();await approve();await importStoreCatalog(env,store().id);
+  env.CATCH_INGEST_SECRET='fixture';env.STORE_MONITORING_ENABLED='true';env.STORE_NOTIFICATIONS_ENABLED='true';
+  const values=new Map(),sent:unknown[]=[];let availability='OutOfStock';
+  const catchEnv={CATCH_INGEST_SECRET:'fixture',STORE_MONITORING_ENABLED:'true',STORE_NOTIFICATIONS_ENABLED:'true',STATE:{get:async(k:string)=>values.get(k),put:async(k:string,v:string)=>values.set(k,v)},SPAWN_SERVICE:{fetch:async(url:string,init:RequestInit)=>handleStoreMonitoring(new Request(url,init),env)}};
+  const options={webhookForRoute:()=> 'https://discord.example/webhook',fetchFn:(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=String(input);
+    if(url==='https://discord.example/webhook'){sent.push(JSON.parse(String(init?.body)));return new Response(null,{status:204});}
+    return new Response(page(url,undefined,availability));
+  }) as typeof fetch};
+  const {runStoreMonitoring}=await import(/* @vite-ignore */ catchModule.href);
+  const first=await runStoreMonitoring(catchEnv,options);expect(first).toMatchObject({acknowledged:2});expect(sent).toHaveLength(0);
+  const view=await customerInventory(env,new URL('https://customer-source/inventory'));
+  expect(view.rows).toHaveLength(2);
+  expect(view.rows.some(r=>r.delivery_note?.includes('not verified'))).toBe(true);
+  db.exec("UPDATE store_customer_events SET due_at='2000'");
+  await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(1);
+  expect(JSON.stringify(sent[0])).toContain('Store now tracking');expect(JSON.stringify(sent[0])).not.toContain('/ops/');
+  db.exec("UPDATE store_monitor_targets SET next_due_at='2000'");availability='InStock';
+  await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(2);
+  expect(JSON.stringify(sent[1])).toContain('Hunt update');
+  await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(2);
+});
 it('groups known stores by exact origin without copying product approvals or reviving rejected stores',async()=>{
   inventory();inventory(origin+'/products/second','Cards alias','second');inventory('https://www.amazon.com.mx/dp/B012345678','Amazon','amazon');
   const report=await auditKnownStores(env);expect(report.added).toBe(2);expect(store().status).toBe('PENDING');
@@ -49,11 +161,11 @@ it('audits before approval, imports quietly and preserves existing inventory and
   expect(db.prepare('SELECT COUNT(*) n FROM discovery_approval_notifications').get()?.n).toBe(0);
   expect(store().baseline_completed_at).toBeTruthy();expect(await importStoreCatalog(env,store().id)).toBe(0);
 });
-it('requires a finished audit and an unchanged review revision',async()=>{
+it('approves during a running audit and rejects stale admin decisions',async()=>{
   inventory();await auditKnownStores(env);const s=store();
-  await expect(decideStore(env,s.id,s.revision,'approve',['delta_reign'],6,'admin')).rejects.toThrow('Finish');
-  await startCatalogRun(env,s.id,'admin');await expect(decideStore(env,s.id,s.revision,'approve',['delta_reign'],6,'admin')).rejects.toThrow('changed');
-  await runCatalogTick(env,s.id,crawler());await approve();
+  await startCatalogRun(env,s.id,'admin');await approve();
+  expect(db.prepare('SELECT status FROM store_catalog_runs').get()?.status).toBe('RUNNING');
+  await runCatalogTick(env,s.id,crawler());
   await expect(decideStore(env,s.id,s.revision,'reject',[],6,'admin')).rejects.toThrow('changed');
   expect(db.prepare('SELECT COUNT(*) n FROM store_acquisition_decisions').get()?.n).toBe(1);
 });
@@ -111,18 +223,18 @@ it('does not reset imported items or revive missing items when a later scan fail
   expect(db.prepare('SELECT * FROM inventory ORDER BY listing_key').all()).toEqual(before);
 });
 it('bounds each tick and resumes sitemap pagination without duplicate products',async()=>{
-  inventory();await auditKnownStores(env);const urls=Array.from({length:15},(_,i)=>origin+'/products/delta-reign-'+i);
+  inventory();await auditKnownStores(env);const urls=Array.from({length:35},(_,i)=>origin+'/products/delta-reign-'+i);
   const f=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('sitemap.xml')?new Response('<urlset>'+urls.map(u=>'<loc>'+u+'</loc>').join('')+'</urlset>'):crawler()(input));
-  await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,f);expect(f.mock.calls.length).toBeLessThanOrEqual(8);
+  await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,f);expect(f.mock.calls.length).toBeLessThanOrEqual(24);
   expect(db.prepare('SELECT status FROM store_catalog_runs').get()?.status).toBe('RUNNING');
   await runCatalogTick(env,store().id,f);await runCatalogTick(env,store().id,f);
-  expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items').get()?.n).toBe(16);
+  expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items').get()?.n).toBe(36);
 });
 it('protects controls and escapes retailer/product evidence',async()=>{
   await audit();db.prepare('UPDATE store_acquisitions SET retailer=?').run('<script>evil</script>');
   const operator={email:'admin',subject:'admin',role:'admin' as const};
   const pageResponse=await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,operator);
-  const html=await pageResponse.text();expect(html).toContain('&lt;script&gt;evil&lt;/script&gt;');expect(html).toContain('Approve store inventory');
+  const html=await pageResponse.text();expect(html).toContain('&lt;script&gt;evil&lt;/script&gt;');expect(html).toContain('Approve store');
   const request=new Request('https://spawn.example/ops/stores',{method:'POST',body:new URLSearchParams({action:'audit_inventory'})});
   expect((await storeCatalogOperations(request,env,{...operator,role:'viewer'})).status).toBe(403);
 });
@@ -130,8 +242,8 @@ it('validates URLs, sitemap entities, and robots rules',()=>{
   for(const url of ['http://cards.example','https://127.0.0.1','https://[::1]','https://a.internal','https://user:pass@cards.example','https://cards.example:444'])expect(catalogOrigin(url)).toBeNull();
   expect(catalogUrl('https://evil.example/',origin)).toBeNull();
   expect(catalogUrl('/collections/all/products/delta-reign',origin)).toBe(origin+'/products/delta-reign');
-  expect(candidateCatalogUrl(origin+'/collections/figures')).toBe(false);
-  expect(candidateCatalogUrl(origin+'/products/unrelated-figure')).toBe(false);
+  expect(candidateCatalogUrl(origin+'/collections/figures')).toBe(true);
+  expect(candidateCatalogUrl(origin+'/products/unrelated-figure')).toBe(true);
   expect(candidateCatalogUrl(origin+'/products/delta-reign')).toBe(true);
   expect(sitemapLinks('<urlset><loc>'+origin+'/products/a?x=1&amp;y=2</loc><loc>https://evil.example/</loc></urlset>',origin)).toEqual([origin+'/products/a?x=1&y=2']);
   expect(()=>sitemapLinks('<!DOCTYPE x>',origin)).toThrow();

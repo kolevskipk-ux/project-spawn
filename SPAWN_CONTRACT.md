@@ -4,6 +4,29 @@ Status: approved operating contract with proposed cross-border inventory amendme
 Date: 2026-09-03
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield
 
+## Store automation amendment — implementation authorized 2026-09-09
+
+Philip authorized one store approval covering current and future supported sealed
+Pokémon and Magic inventory, including sets without active hunts. Spawn owns
+catalog discovery every six hours after completion, approval policy and durable
+inventory/observation/event storage. Catch owns recurring product-page acquisition
+and customer delivery. Authenticated Catch observations advance stored state;
+Spawn's intake applies the agreed transition rules atomically with the receipt.
+Successful Catch acknowledgement makes an approved store listing eligible for the
+existing customer feed. Unverified Mexico delivery is explicitly labeled.
+
+Hot/warm/regular scheduling targets remain 5/30/60 minutes. Ascended Heroes is warm
+and uses the dedicated `ASCENDED_HEROES_HUNT` destination. Initial inventory is a
+quiet baseline; subsequent hot additions are immediate and warm/regular additions
+wait for the daily digest. Failed or unknown checks retain the last good state.
+
+An explicit verified Amazon seller-policy expansion may include the older pending
+queue and all supported sets. It does not authorize unrelated marketplace sellers.
+Automatic decisions retain product/seller/shipping evidence, a policy identity and
+an operator-visible result; partial publication remains a review exception.
+This supersedes future-discoveries-only rules for expanded policies only.
+See `docs/store-automation-release.md` for the rollout and remaining limits.
+
 ## Existing-store catalog audit — implementation authorized 2026-09-09
 
 Philip requested the existing-store onboarding phase before new-store acquisition.

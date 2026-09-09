@@ -31,6 +31,8 @@ import {reserveSearch,settleSearch,yieldStatement,searchReviewStatement,SEARCH_M
 import {recordSearchAudit,searchResponseEvidence} from './search-audit';
 import {buildSearchPlan} from './search-plan';
 import {runCatalogTick} from './store-catalog';
+import {sendAmazonApprovalDigest} from './amazon-approval-digest';
+import {handleStoreMonitoring} from './store-monitoring';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -167,9 +169,9 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/amazon-watchlist") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='amazon_catalog_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,COALESCE(routing_key_v2,routing_key) routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
+      env.SPAWN_DB.prepare("SELECT asin,canonical_product_id,product_name,product_url,watch_category,language,priority,lane,poll_interval_minutes,COALESCE(routing_key_v2,routing_key) routing_key,alert_on_initial_buyable,approved_by,approval_reason,approved_at,source,last_discovered_at,updated_at,automatic_baseline FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' ORDER BY CASE lane WHEN 'priority' THEN 0 ELSE 1 END, CASE priority WHEN 'BOSS' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, asin").all()
     ]);
-    return json({schema_version:AMAZON_CATALOG_SCHEMA_VERSION,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results});
+    return json({schema_version:AMAZON_CATALOG_SCHEMA_VERSION,catalog_version:version?.value??"0",published_at:version?.updated_at??null,watchlist:rows.results.map(({automatic_baseline,...row})=>automatic_baseline?{...row,automatic_baseline:1}:row)});
   }
   if(request.method==="GET"&&url.pathname==="/internal/garfield/amazon-staging"){
     const rows=await env.SPAWN_DB.prepare(`SELECT w.asin,a.canonical_product_id,w.product_name,w.product_url,w.watch_category,w.language,'HIGH' priority,'normal' lane,60 poll_interval_minutes,COALESCE(w.routing_key_v2,w.routing_key) routing_key,0 alert_on_initial_buyable,w.staged_at,w.evidence_revision
@@ -180,7 +182,7 @@ async function sharedState(request: Request, url: URL, env: Env): Promise<Respon
   if (request.method === "GET" && url.pathname === "/internal/garfield/listing-publications") {
     const [version,rows]=await Promise.all([
       env.SPAWN_DB.prepare("SELECT value,updated_at FROM worker_state WHERE key='listing_publication_version'").first<{value:string;updated_at:string}>(),
-      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,routing_key,disposition,reviewed_by,review_reason,published_at FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' AND routing_key IS NOT NULL ORDER BY published_at,candidate_id").all()
+      env.SPAWN_DB.prepare("SELECT candidate_id,source_url,vendor,product_name,product_family,print_series,product_type,language,retailer_sku,observed_price_mxn,availability_state,routing_key,disposition,reviewed_by,review_reason,published_at,automatic_baseline,COALESCE((SELECT i.watch_category FROM inventory i WHERE i.listing_key=monitoring_candidates.source_listing_key),(SELECT w.watch_category FROM amazon_watchlist w WHERE w.product_url=monitoring_candidates.source_url)) watch_category FROM monitoring_candidates WHERE review_eligible=1 AND status='ACCEPTED' AND routing_key IS NOT NULL ORDER BY published_at,candidate_id").all()
     ]);
     return json({schema_version:1,publication_version:version?.value??"0",published_at:version?.updated_at??null,listings:rows.results});
   }
@@ -301,7 +303,7 @@ export async function dashboardListingReview(request:Request,url:URL,env:Env,rev
   if(request.method!=="POST") return json({error:"method_not_allowed"},405);
   const form=review?.form??await request.formData(),action=String(form.get("action")||""),disposition=String(form.get("disposition")||""),reason=approvalNote(form.get("reason"),action);
   if(!reason||!["publish","reject"].includes(action)||(action==="publish"&&!['visibility_only','hourly','five_minute'].includes(disposition))) return json({error:"invalid_review"},400);
-  const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
+  const candidate=await env.SPAWN_DB.prepare(`SELECT c.*,COALESCE(i.watch_category,w.watch_category,c.product_family) watch_category,i.listing_key existing_inventory_key FROM monitoring_candidates c LEFT JOIN inventory i ON i.listing_key=c.source_listing_key LEFT JOIN amazon_watchlist w ON w.product_url=c.source_url WHERE c.candidate_id=? AND c.review_eligible=1 AND c.status='PENDING'`).bind(match[1]).first<Record<string,unknown>>();
   if(!candidate) return json({error:"not_found_or_reviewed"},404);
   const actor=review?.actor??operatorActor(request),now=new Date().toISOString();
   if(action==="reject") await env.SPAWN_DB.batch([
@@ -333,8 +335,8 @@ export async function dashboardListingReview(request:Request,url:URL,env:Env,rev
     if(review)publicationStatements.push(env.SPAWN_DB.prepare('UPDATE inventory SET language=?,title=? WHERE listing_key=?').bind(candidate.language,candidate.product_name,candidate.source_listing_key));
     publicationStatements.push(env.SPAWN_DB.prepare("UPDATE inventory SET fulfilment_region_state=?,retailer_country=?,ship_from_country=?,original_price=?,original_currency=?,mexico_delivery_status=?,shipping_mxn=?,import_cost_status=?,destination_checked_at=?,destination_fresh_until=? WHERE listing_key=?").bind(fulfilment.value.state,fulfilment.value.retailerCountry,fulfilment.value.shipFromCountry,fulfilment.value.originalPrice,fulfilment.value.originalCurrency,fulfilment.value.mexicoDeliveryStatus,fulfilment.value.shippingMxn,fulfilment.value.importCostStatus,fulfilment.value.checkedAt,fulfilment.value.freshUntil,candidate.source_listing_key));
     const category=String(candidate.watch_category),storedRoute=String(candidate.routing_key??""),routingKey=["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"].includes(storedRoute)?storedRoute:category==="30th_celebration"?"pokemon-30th":category==="delta_reign"?"delta-reign":category==="mtg_hobbit_collector_box"?"magic-hobbit":"pokemon-main";
-    const eventPayload={schema_version:2,event_id:match[1],event_type:"LISTING_PUBLISHED",source_owner:"spawn",listing_key:candidate.source_listing_key,product_name:candidate.product_name,product_language:candidate.language,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null,fulfilment_region_state:fulfilment.value.state,retailer_country:fulfilment.value.retailerCountry,ship_from_country:fulfilment.value.shipFromCountry,original_price:fulfilment.value.originalPrice,original_currency:fulfilment.value.originalCurrency,mexico_delivery_status:fulfilment.value.mexicoDeliveryStatus,shipping_mxn:fulfilment.value.shippingMxn,import_cost_status:fulfilment.value.importCostStatus,destination_checked_at:fulfilment.value.checkedAt,destination_fresh_until:fulfilment.value.freshUntil};
-    publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
+    const eventPayload={watch_category:category,schema_version:2,event_id:match[1],event_type:"LISTING_PUBLISHED",source_owner:"spawn",listing_key:candidate.source_listing_key,product_name:candidate.product_name,product_language:candidate.language,retailer:candidate.vendor,direct_url:candidate.source_url,observed_state:"unconfirmed",price_mxn:candidate.observed_price_mxn??null,source_observation_id:match[1],occurred_at:now,routing_key:routingKey,evidence_fresh_until:null,fulfilment_region_state:fulfilment.value.state,retailer_country:fulfilment.value.retailerCountry,ship_from_country:fulfilment.value.shipFromCountry,original_price:fulfilment.value.originalPrice,original_currency:fulfilment.value.originalCurrency,mexico_delivery_status:fulfilment.value.mexicoDeliveryStatus,shipping_mxn:fulfilment.value.shippingMxn,import_cost_status:fulfilment.value.importCostStatus,destination_checked_at:fulfilment.value.checkedAt,destination_fresh_until:fulfilment.value.freshUntil};
+    if(!candidate.automatic_baseline) publicationStatements.push(env.SPAWN_DB.prepare("INSERT OR IGNORE INTO customer_inventory_events(event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at) VALUES(?,2,'LISTING_PUBLISHED',?,?,?,?,?,?)").bind(match[1],candidate.source_listing_key,match[1],routingKey,JSON.stringify(eventPayload),now,now));
     await env.SPAWN_DB.batch(publicationStatements);
     await registerTrustedStore(env,candidate,form,actor).catch(error=>console.error('Store trust registration failed',error));
   }
@@ -397,6 +399,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
     if(request.headers.get('accept')==='application/json')return json(data??{});
     return diagnosticsPage(id,data,env.BOARD_ACCESS_TOKEN);
   }
+  const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
   if (url.pathname === "/admin/seed-campaigns") {
@@ -519,15 +522,25 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 
 export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
-  if(env.STORE_CATALOG_SYNC_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
+  const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
+  if(_controller.cron==='* * * * *'){
+    if(!quiet&&env.STORE_CATALOG_FAST_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
+    return;
+  }
+  if(!quiet&&env.STORE_CATALOG_SYNC_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
   ctx.waitUntil(runInventoryRevalidation(env,now).catch(error=>console.error("inventory revalidation failed",error)));
-  // Additional maintenance ticks never run discovery, approvals or enrichment.
+  if(env.AMAZON_PENDING_AUTOMATION_ENABLED==='true')ctx.waitUntil(runTrustedStoreApprovals(env,async(id,form,actor)=>{
+    const url=new URL(`/dashboard/listing/${id}`,env.PUBLIC_BASE_URL);
+    return (await dashboardListingReview(new Request(url,{method:'POST'}),url,env,{form,actor}))?.status===303;
+  }).catch(error=>console.error('Amazon pending approvals failed',error)));
+  if(env.AMAZON_APPROVAL_DIGEST_ENABLED==='true')ctx.waitUntil(sendAmazonApprovalDigest(env,now).catch(error=>console.error('Amazon approval digest failed',error)));
+  // Additional maintenance ticks never run paid discovery or enrichment.
   if(_controller.cron==='20,35,50 * * * *')return;
   ctx.waitUntil(runAmazonCommercialEnrichment(env,now).catch(error=>console.error("Amazon commercial enrichment failed",error)));
   ctx.waitUntil(runPendingSeedVerifications(env).catch(error=>console.error("seed verification failed",error)));
   if(isEarlyAsinIntelligenceWindow(now,env.SPAWN_TIMEZONE)){ctx.waitUntil(runScan(env,"early_asin").catch(error=>console.error("early ASIN intelligence failed",error)));return;}
   if (isQuietWindow(now, env.SPAWN_TIMEZONE, env.SPAWN_QUIET_START ?? "02:05", env.SPAWN_QUIET_END ?? "06:05")) return;
-  ctx.waitUntil(runTrustedStoreApprovals(env,async(id,form,actor)=>{
+  if(env.AMAZON_PENDING_AUTOMATION_ENABLED!=='true')ctx.waitUntil(runTrustedStoreApprovals(env,async(id,form,actor)=>{
     const url=new URL(`/dashboard/listing/${id}`,env.PUBLIC_BASE_URL);
     const response=await dashboardListingReview(new Request(url,{method:'POST'}),url,env,{form,actor});
     return response?.status===303;

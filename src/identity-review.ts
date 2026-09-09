@@ -46,12 +46,12 @@ export async function resolveAmazonIdentity(env: Env, asin: string, input: Ident
       (asin,evidence_revision,started_at,completed_at,outcome,method,access_outcome,http_status,product_url,
        canonical_product_id,product_name,watch_category,language,retailer,retailer_identifier,observed_availability,
        evidence_json,gate_results_json,confidence,unresolved_questions,created_by)
-      SELECT a.asin,?,?,?,'VERIFIED','operator_resolution',a.access_outcome,a.http_status,a.product_url,
+       SELECT a.asin,?,?,?,'VERIFIED',CASE WHEN ? LIKE 'auto:%' THEN 'policy_resolution' ELSE 'operator_resolution' END,a.access_outcome,a.http_status,a.product_url,
        ?,?,a.watch_category,?,a.retailer,a.retailer_identifier,a.observed_availability,?,?,'MEDIUM',?,?
       FROM amazon_verification_attempts a JOIN amazon_watchlist w ON w.verification_attempt_id=a.id
       WHERE w.asin=? AND w.lifecycle_status IN ('DISCOVERED','VERIFIED') AND w.evidence_revision=?`)
-      .bind(revision,stamp,stamp,identity,productName,input.language,evidence,
-        JSON.stringify({...gates,canonicalIdentity:true,languageRecorded:true,operatorResolved:true}),
+      .bind(revision,stamp,stamp,actor,identity,productName,input.language,evidence,
+        JSON.stringify({...gates,canonicalIdentity:true,languageRecorded:true,operatorResolved:!actor.startsWith('auto:'),policyResolved:actor.startsWith('auto:')}),
         input.language==='unknown'?'Language unconfirmed; explicitly acknowledged by administrator':null,actor,asin,input.evidenceRevision),
     env.SPAWN_DB.prepare(`UPDATE amazon_watchlist SET verification_attempt_id=(SELECT id FROM amazon_verification_attempts WHERE evidence_revision=?),
       evidence_revision=?,product_name=?,language=?,canonical_product_id=?,lifecycle_status='VERIFIED',verified_at=?,updated_at=?,staging_enabled=0
