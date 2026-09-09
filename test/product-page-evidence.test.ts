@@ -18,7 +18,11 @@ describe('attributable product-page evidence',()=>{
   expect(check(product([offer,{...offer,price:'1399.00'}])).outcome).toBe('UNKNOWN');
   expect(check(product({...offer,availability:'https://schema.org/PreOrder'})).outcome).toBe('UNKNOWN');
   expect(check(product({...offer,priceCurrency:'USD'})).priceMxn).toBeNull();
-  expect(check(product({...offer,url:url+'?variant=2'})).outcome).toBe('UNKNOWN');
+  expect(check(product([{...offer,url:url+'?variant=2'},{...offer,url:url+'?variant=3'}])).outcome).toBe('UNKNOWN');
+ });
+ it('attributes a sole variant offer on the exact base page but rejects other destinations and queries',()=>{
+  expect(check(product({...offer,url:url+'?variant=2'}))).toMatchObject({outcome:'AVAILABLE',priceMxn:1299});
+  for(const target of [url+'?variant=2&other=1',url+'?variant=bad','https://elsewhere.test/products/etb?variant=2','https://store.test/products/other?variant=2'])expect(check(product({...offer,url:target})).outcome).toBe('UNKNOWN');
  });
  it('records blocks and HTTP failures without parsing offers',()=>{
   expect(check(product(offer),403).outcome).toBe('BLOCKED');

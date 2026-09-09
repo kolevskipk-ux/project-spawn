@@ -49,9 +49,17 @@ export async function startCatalogRun(env:Env,id:string,actor:string,now=new Dat
   ]);
   return runId;
 }
-async function boundedFetch(url:string,fetchFn:typeof fetch) {
-  const response=await fetchFn(url,{redirect:'manual',signal:AbortSignal.timeout(6000),headers:{'User-Agent':'GarfieldCatalog/1.0','Accept':'text/html,application/xml,application/json,text/plain'}});
-  if(response.status>=300&&response.status<400)throw new Error('Redirect requires operator review');
+async function boundedFetch(url:string,fetchFn:typeof fetch,allows:(url:string)=>boolean) {
+  let target=url,response:Response;
+  const signal=AbortSignal.timeout(6000);
+  for(let redirects=0;;redirects++){
+    response=await fetchFn(target,{redirect:'manual',signal,headers:{'User-Agent':'GarfieldCatalog/1.0','Accept':'text/html,application/xml,application/json,text/plain'}});
+    if(response.status<300||response.status>=400)break;
+    const location=response.headers.get('location');await response.body?.cancel();
+    if(!location||redirects>=2)throw new Error('Invalid or excessive redirects');
+    target=new URL(location,target).href;
+    if(catalogOrigin(target)!==catalogOrigin(url)||!allows(target))throw new Error('Redirect leaves approved origin or robots scope');
+  }
   if(Number(response.headers.get('content-length'))>2_000_000)throw new Error('Page exceeds 2 MB limit');
   const reader=response.body?.getReader();if(!reader)return {status:response.status,text:''};
   const decoder=new TextDecoder();let text='',bytes=0;
@@ -76,7 +84,7 @@ async function processPage(env:Env,run:Run,store:Store,page:{url:string;kind:str
     const policy=JSON.parse(run.robots_json) as RobotsPolicy|null;
     if(page.kind!=='ROBOTS'&&(!policy||!robotsAllows(policy,page.url))) {state='BLOCKED';detail='Robots policy disallows this path';}
     else {
-      const result=await boundedFetch(page.url,fetchFn);
+      const result=await boundedFetch(page.url,fetchFn,target=>page.kind==='ROBOTS'?new URL(target).pathname==='/robots.txt':Boolean(policy&&robotsAllows(policy,target)));
       if(page.kind==='ROBOTS') {
         if(![200,404].includes(result.status))throw new Error(`Robots policy unavailable: HTTP ${result.status}`);
         const rules=parseRobots(result.status===404?'':result.text,store.origin);

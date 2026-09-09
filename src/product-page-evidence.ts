@@ -21,7 +21,14 @@ export function assessProductEvidence(status:number,html:string,url:string,title
  if(!offers.length||offers.length>50)return unknown('offers_missing_or_ambiguous');
  const observations=offers.map(offer=>{
   const offerType=String(offer['@type']??'');if(offerType==='AggregateOffer'||offerType==='https://schema.org/AggregateOffer')return null;
-  if(offer.url&&(!samePage(String(offer.url),url)))return null;
+  if(offer.url&&!samePage(String(offer.url),url)){
+    // Shopify exposes its sole selected variant as an offer query on the exact
+    // Product page. Multiple variants and unrelated query parameters stay ambiguous.
+    try{const offered=new URL(String(offer.url),url),base=new URL(url);
+      if(offers.length!==1||base.search||!/^[0-9]+$/.test(offered.searchParams.get('variant')??'')||[...offered.searchParams.keys()].length!==1)return null;
+      offered.search='';if(!samePage(offered.href,url))return null;
+    }catch{return null;}
+  }
   const availability=String(offer.availability??'').split('/').at(-1),amount=String(offer.price??'');
   if(!['InStock','OutOfStock','SoldOut'].includes(availability??''))return null;
   const price=String(offer.priceCurrency??'').toUpperCase()==='MXN'&&/^\d+(\.\d{1,2})?$/.test(amount)&&Number(amount)>0?Number(amount):null;

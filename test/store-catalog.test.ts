@@ -210,12 +210,22 @@ it('shows automatic progress instead of manual batch controls',async()=>{
   const html=await response.text();expect(html).toContain('Queued for automatic audit');
   expect(html).not.toContain('Process next catalog batch');expect(html).not.toContain('Import next approved batch');
 });
-it('honors robots, rejects redirects, and records blocked coverage without inventory mutation',async()=>{
+it('honors robots, rejects external redirects, and records blocked coverage without inventory mutation',async()=>{
   inventory();await auditKnownStores(env);const f=vi.fn(async()=>new Response('User-agent: *\nDisallow: /'));
   await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,f);expect(f).toHaveBeenCalledTimes(1);
   expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items').get()?.n).toBe(0);
   await startCatalogRun(env,store().id,'admin');await runCatalogTick(env,store().id,async()=>new Response('',{status:302,headers:{Location:'http://127.0.0.1/'}}));
   expect(db.prepare("SELECT COUNT(*) n FROM store_catalog_runs WHERE status='BLOCKED'").get()?.n).toBe(1);
+});
+it('follows the product trailing-slash redirect without leaving robots scope',async()=>{
+  inventory();await auditKnownStores(env);await startCatalogRun(env,store().id,'admin');
+  await runCatalogTick(env,store().id,async input=>{
+    const url=String(input);
+    if(url===known||url===fresh)return new Response(null,{status:301,headers:{location:url+'/'}});
+    if(url===known+'/'||url===fresh+'/')return new Response(page(url));
+    return crawler()(input);
+  });
+  expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items WHERE listing_json IS NOT NULL').get()?.n).toBe(2);
 });
 it('does not reset imported items or revive missing items when a later scan fails',async()=>{
   await audit();await approve();await importStoreCatalog(env,store().id);const before=db.prepare('SELECT * FROM inventory ORDER BY listing_key').all();
