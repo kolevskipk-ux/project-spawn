@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 
 const EVENT_TYPES=new Set(["LISTING_PUBLISHED","BECAME_BUYABLE","PRICE_DROP","CAMPAIGN_PUBLISHED"]);
-const ROUTING_KEYS=new Set(["pokemon-main","pokemon-30th","delta-reign","magic-hobbit"]);
+const ROUTING_KEYS=new Set(["pokemon-main","pokemon-30th","delta-reign","magic-hobbit","ascended-heroes"]);
 const TERMINAL_STATUSES=new Set(["DELIVERED","SUPPRESSED"]);
 
 export interface CustomerEventAck { event_id:string; status:"DELIVERED"|"FAILED"|"SUPPRESSED"; error?:string|null; }
@@ -43,6 +43,10 @@ export async function handleCustomerEvents(request:Request,url:URL,env:Env):Prom
   for(const row of page){
     if(![1,2,3].includes(Number(row.schema_version))||!EVENT_TYPES.has(String(row.event_type))||!ROUTING_KEYS.has(String(row.routing_key)))continue;
     let payload:unknown;try{payload=JSON.parse(String(row.payload_json));}catch{continue;}
+    if(payload&&typeof payload==='object'&&!Array.isArray(payload)){
+      const item=payload as Record<string,unknown>;
+      if(item.watch_category==='ascended_heroes'||/\bascended[\s-]+heroes\b/i.test(String(item.product_name??''))){row.routing_key='ascended-heroes';item.routing_key='ascended-heroes';item.watch_category='ascended_heroes';}
+    }
     events.push({event_id:row.event_id,schema_version:row.schema_version,event_type:row.event_type,listing_key:row.listing_key,source_observation_id:row.source_observation_id,routing_key:row.routing_key,payload,occurred_at:row.occurred_at,created_at:row.created_at});
   }
   return response({schema_version:3,events,next_cursor:rows.results.length>limit?String(page.at(-1)?.event_id||cursor):null});
