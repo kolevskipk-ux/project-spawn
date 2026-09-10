@@ -14,7 +14,7 @@
   "vars": {
     "CUSTOMER_ACCESS_ISSUER": "https://hidden-shadow-9100.cloudflareaccess.com",
     "CUSTOMER_ACCESS_AUD": "968bc7bb85517fcf1f7a78da46f69b4a7f932aa688854a5c955a3c39c80c0b3d",
-    "CUSTOMER_ENVIRONMENT": "Customer pilot",
+    "CUSTOMER_ENVIRONMENT": "Live inventory",
     "CUSTOMER_INVENTORY_MODE": "source",
     "CUSTOMER_DATA_KIND": "published",
     "CUSTOMER_MEMBERSHIP_MODE": "new_accounts",

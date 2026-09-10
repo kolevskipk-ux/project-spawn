@@ -31,6 +31,14 @@ beforeEach(()=>{
 });
 afterEach(()=>db.close());
 describe('approved customer publication feed',()=>{
+ it('filters by TCG and limits set options to that game',async()=>{
+  db.exec("UPDATE inventory SET watch_category='mtg_tcg',print_series='Magic Test Set' WHERE listing_key='customer-pilot-demo-1'");
+  const magic=await list('?tcg=Magic%3A+The+Gathering');
+  expect(magic.rows.map(r=>r.id)).toContain('customer-pilot-demo-1');
+  expect(magic.facets.every(f=>f.set_name==='Magic Test Set')).toBe(true);
+  expect((await list('?tcg=Pok%C3%A9mon')).rows.map(r=>r.id)).not.toContain('customer-pilot-demo-1');
+  expect((await list('?tcg=Pok%C3%A9mon&set=Magic+Test+Set')).rows).toHaveLength(0);
+ });
  it('exposes only published projection fields and supports combined filters',async()=>{
   db.exec("UPDATE monitoring_candidates SET status='PENDING' WHERE source_listing_key='customer-pilot-demo-4'");
   const result=await list();expect(result.rows).toHaveLength(3);expect(Object.keys(result.rows[0]).sort()).toEqual(['id','title','set_name','retailer','language','price_mxn','availability','observed_at','references'].sort());

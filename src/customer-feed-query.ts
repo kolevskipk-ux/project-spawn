@@ -5,7 +5,7 @@ const priceAt = `CASE WHEN ${useVerifiedPrice} THEN i.pricing_observed_at ELSE p
 const price = `CASE WHEN ${useVerifiedPrice} THEN i.price_mxn ELSE p.observed_price_mxn END`;
 const storeVisible=`EXISTS(SELECT 1 FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.id=i.listing_key AND t.acknowledgement_at IS NOT NULL AND s.status='APPROVED' AND s.marketplace=0 AND NOT ${storeSuppressionSql} AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_listing_key=t.id OR c.source_url=t.url) AND c.status='REJECTED'))`;
 const visible = `WITH eligible AS (
- SELECT i.listing_key id,i.title,COALESCE(i.print_series,'Unspecified') set_name,i.retailer,i.language,
+ SELECT i.listing_key id,i.title,COALESCE(i.print_series,'Unspecified') set_name,CASE WHEN i.watch_category LIKE 'mtg%' THEN 'Magic: The Gathering' WHEN i.watch_category IN ('pokemon_tcg','30th_celebration','ascended_heroes','delta_reign','prismatic_evolutions') THEN 'Pokémon' ELSE 'Other' END tcg,i.retailer,i.language,
  CASE WHEN (${price})>=0 AND julianday(${priceAt}) BETWEEN julianday(?)-1 AND julianday(?) THEN ${price} ELSE NULL END price_mxn,
  CASE WHEN julianday(${observed}) BETWEEN julianday(?)-1 AND julianday(?)
    AND COALESCE(r.lifecycle_state,'ACTIVE') IN ('ACTIVE','SOLD_OUT') THEN i.status ELSE 'unknown' END availability,
@@ -28,11 +28,12 @@ const visible = `WITH eligible AS (
 
 export function customerInventoryStatements(db:D1Database,url:URL,now=new Date()) {
  const stamp=now.toISOString(),q=(url.searchParams.get('q')??'').trim().slice(0,100),set=(url.searchParams.get('set')??'').slice(0,100),store=(url.searchParams.get('store')??'').slice(0,100);
+ const tcg=(url.searchParams.get('tcg')??'').slice(0,100);
  const availability=['available','sold_out','unknown'].includes(url.searchParams.get('availability')??'')?url.searchParams.get('availability')!:'';
  const page=Math.min(1000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
  // A single D1 transaction gives rows and filter options the same publication state.
  return [
-  db.prepare(`${visible} SELECT id,title,set_name,retailer,language,price_mxn,availability,observed_at,_availability_state,_product_id,_category,_fulfilment,_price_at,_reference FROM eligible WHERE (?='' OR instr(lower(title),lower(?))>0) AND (?='' OR set_name=?) AND (?='' OR retailer=?) AND (?='' OR availability=?) ORDER BY title,id LIMIT 25 OFFSET ?`).bind(stamp,stamp,stamp,stamp,stamp,q,q,set,set,store,store,availability,availability,(page-1)*24),
-  db.prepare(`${visible} SELECT DISTINCT set_name,retailer FROM eligible ORDER BY set_name,retailer LIMIT 1000`).bind(stamp,stamp,stamp,stamp,stamp)
+  db.prepare(`${visible} SELECT id,title,set_name,tcg,retailer,language,price_mxn,availability,observed_at,_availability_state,_product_id,_category,_fulfilment,_price_at,_reference FROM eligible WHERE (?='' OR tcg=?) AND (?='' OR instr(lower(title),lower(?))>0) AND (?='' OR set_name=?) AND (?='' OR retailer=?) AND (?='' OR availability=?) ORDER BY title,id LIMIT 25 OFFSET ?`).bind(stamp,stamp,stamp,stamp,stamp,tcg,tcg,q,q,set,set,store,store,availability,availability,(page-1)*24),
+  db.prepare(`${visible} SELECT DISTINCT set_name,tcg,retailer FROM eligible WHERE (?='' OR tcg=?) ORDER BY set_name,retailer LIMIT 1000`).bind(stamp,stamp,stamp,stamp,stamp,tcg,tcg)
  ];
 }
