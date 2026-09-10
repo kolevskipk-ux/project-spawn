@@ -18,6 +18,20 @@ beforeAll(async()=>{const pair=await generateKeyPair('RS256');keys.publicKey=pai
 beforeEach(()=>{db=new DatabaseSync(':memory:');db.exec(readFileSync('customer-migrations/0001_customer_pilot.sql','utf8'));db.exec(readFileSync('scripts/seed-customer-staging.sql','utf8'));env={CUSTOMER_DB:adapter(),CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging · sample data'};});
 afterEach(()=>{vi.restoreAllMocks();db.close();});
 describe('customer pilot isolation',()=>{
+ it('permits the Discord OAuth form redirect while rejecting cross-origin link submissions',async()=>{
+  db.exec(readFileSync('customer-migrations/0004_discord_membership.sql','utf8'));
+  await join();
+  Object.assign(env,{DISCORD_APPLICATION_ID:'1537592665535942711',DISCORD_GUILD_ID:'1537592665535942709',DISCORD_CLIENT_SECRET:'fixture',DISCORD_BOT_TOKEN:'fixture',DISCORD_REDIRECT_URI:'https://customers.example.test/app/discord/callback'});
+  const onboarding=await customerFetch(await request('/app/onboarding'),env);
+  expect(onboarding.headers.get('content-security-policy')).toContain("form-action 'self' https://discord.com;");
+  expect((await customerFetch(await request('/app/discord/start',undefined,{method:'POST',origin:'https://attacker.test'}),env)).status).toBe(403);
+  const response=await customerFetch(await request('/app/discord/start',undefined,{method:'POST'}),env);
+  expect(response.status).toBe(303);
+  const destination=new URL(response.headers.get('location')!);
+  expect(destination.origin+destination.pathname).toBe('https://discord.com/oauth2/authorize');
+  expect(destination.searchParams.get('scope')).toBe('identify');
+  expect(destination.searchParams.get('state')).toBeTruthy();
+ });
  it('requires terms only for new accounts and never revokes existing members for non-acknowledgment',async()=>{
   db.exec(readFileSync('customer-migrations/0004_discord_membership.sql','utf8'));
   await join();
