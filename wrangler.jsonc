@@ -19,6 +19,8 @@
     ]
   },
   "vars": {
+    "PRIVACY_MAIL_ENABLED": "true",
+    "PRIVACY_MAIL_FORWARD_TO": "phil.kolevski@gmail.com",
     "OPENAI_MODEL": "gpt-5.6-terra",
     "TRUSTED_STORE_AUTO_APPROVAL_ENABLED": "false",
     "AMAZON_PENDING_AUTOMATION_ENABLED": "false",

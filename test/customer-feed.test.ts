@@ -90,7 +90,7 @@ describe('customer access management',()=>{
   db.exec("UPDATE customer_members SET status='REVOKED',updated_by='test',updated_at=CURRENT_TIMESTAMP,change_reason='Test pause'");
   expect((await customer.fetch(await request('/app',buyer,undefined,undefined,'customers'),customers)).status).toBe(403);
   expect((await customer.fetch(await request('/app/support',buyer,undefined,undefined,'customers'),customers)).status).toBe(200);
-  const form={kind:'account_removal',message:'<script>please remove</script>'};
+  const form={kind:'account_removal',message:'<script>please remove</script>',support_consent:'yes',support_consent_version:'PP-SUPPORT-TRANSFER-0.3.3'};
   expect((await customer.fetch(await request('/app/support',buyer,form,'https://attacker.test','customers'),customers)).status).toBe(403);
   expect((await customer.fetch(await request('/app/support',buyer,form,undefined,'customers'),customers)).status).toBe(303);
   expect(db.prepare('SELECT count(*) n FROM customer_support').get()?.n).toBe(1);

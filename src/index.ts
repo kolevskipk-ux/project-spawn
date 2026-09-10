@@ -1,3 +1,4 @@
+import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
 import {inventoryIdentities} from './inventory-identities';
 import {inventoryDiagnostics,diagnosticsPage} from './inventory-diagnostics';
 import {approvalNote} from './approval-note';
@@ -520,10 +521,11 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
   return Number(values.hour)===4&&Number(values.minute)===5;
 }
 
-export default { fetch: handleFetch, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){
+    ctx.waitUntil(deliverPrivacyMailAlerts(env).catch(()=>console.error('Privacy mail alert retry failed')));
     if(!quiet&&env.STORE_CATALOG_FAST_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
     return;
   }

@@ -1,3 +1,5 @@
+import {SUPPORT_CONSENT_VERSION} from '../src/support-consent';
+const consent={version:SUPPORT_CONSENT_VERSION,accepted:true};
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
@@ -5,18 +7,34 @@ import {saveSupport,deliverSupport,supportWebhook,type SupportEnv} from '../src/
 let db:DatabaseSync,env:SupportEnv;
 beforeEach(()=>{
  db=new DatabaseSync(':memory:');
- for(const name of ['0001_customer_pilot.sql','0002_customer_access_audit.sql','0003_customer_support.sql'])db.exec(readFileSync('customer-migrations/'+name,'utf8'));
+ for(const name of ['0001_customer_pilot.sql','0002_customer_access_audit.sql','0003_customer_support.sql','0005_support_consent.sql'])db.exec(readFileSync('customer-migrations/'+name,'utf8'));
  db.exec("INSERT INTO customer_members(id,email,status,created_at) VALUES('member','test@example.test','ACTIVE','2026-01-01')");
  env={CUSTOMER_DB:{prepare(sql:string){let params:unknown[]=[];return {bind(...p:unknown[]){params=p;return this;},first:async()=>db.prepare(sql).get(...params as never[])??null,run:async()=>db.prepare(sql).run(...params as never[])}}} as unknown as D1Database};
 });
 afterEach(()=>{vi.unstubAllGlobals();db.close();});
+it('requires an affirmative current consent before storing or delivering a ticket',async()=>{
+ const send=vi.fn();vi.stubGlobal('fetch',send);
+ for(const value of [undefined,{version:SUPPORT_CONSENT_VERSION,accepted:false},{version:'stale',accepted:true}])
+  await expect(saveSupport(env,'member','general','Private message',value)).rejects.toThrow('consent');
+ expect(db.prepare('SELECT count(*) n FROM customer_support').get()?.n).toBe(0);
+ expect(send).not.toHaveBeenCalled();
+});
+it('never retroactively consents old queued tickets, including administrator retries',async()=>{
+ db.exec("INSERT INTO customer_support(id,customer_id,kind,message,created_at) VALUES('old','member','general','Legacy','2026-01-01')");
+ const send=vi.fn();vi.stubGlobal('fetch',send);
+ await deliverSupport(env,'old','admin');expect(send).not.toHaveBeenCalled();
+ expect(db.prepare("SELECT delivery_status FROM customer_support WHERE id='old'").get()?.delivery_status).toBe('PENDING');
+ const id=await saveSupport(env,'member','general','New',consent);
+ const receipt=db.prepare('SELECT consent_version,consent_at,created_at FROM customer_support WHERE id=?').get(id!);
+ expect(receipt?.consent_version).toBe(SUPPORT_CONSENT_VERSION);expect(receipt?.consent_at).toBe(receipt?.created_at);
+});
 it('preserves requests without a webhook and limits submissions atomically',async()=>{
- for(let i=0;i<5;i++)expect(await saveSupport(env,'member','access','Help')).toBeTruthy();
- expect(await saveSupport(env,'member','access','Sixth')).toBeNull();
+ for(let i=0;i<5;i++)expect(await saveSupport(env,'member','access','Help',consent)).toBeTruthy();
+ expect(await saveSupport(env,'member','access','Sixth',consent)).toBeNull();
  expect(db.prepare("SELECT count(*) n FROM customer_support WHERE delivery_status='FAILED'").get()?.n).toBe(5);
 });
 it('retries failed delivery, prevents concurrent and already-sent duplicates, and suppresses mentions',async()=>{
- const id=(await saveSupport(env,'member','general','@everyone help'))!;
+ const id=(await saveSupport(env,'member','general','@everyone help',consent))!;
  env.CUSTOMER_SUPPORT_WEBHOOK_URL='https://discord.com/api/webhooks/123/fake-token';
  const send=vi.fn(async(_url:string,options:RequestInit)=>{
    expect(options.redirect).toBe('manual');const payload=JSON.parse(String(options.body));expect(payload.allowed_mentions).toEqual({parse:[]});expect(JSON.stringify(payload)).not.toContain('test@example.test');
@@ -30,14 +48,14 @@ it('retries failed delivery, prevents concurrent and already-sent duplicates, an
 it('stores safe errors and never puts the secret in the request record',async()=>{
  env.CUSTOMER_SUPPORT_WEBHOOK_URL='https://discord.com/api/webhooks/123/secret-token';
  vi.stubGlobal('fetch',vi.fn(async()=>{throw Error(env.CUSTOMER_SUPPORT_WEBHOOK_URL);}));
- const id=await saveSupport(env,'member','account_removal','Remove my account');
+ const id=await saveSupport(env,'member','account_removal','Remove my account',consent);
  expect(id).toBeTruthy();const row=db.prepare('SELECT * FROM customer_support').get();expect(row?.delivery_status).toBe('FAILED');expect(JSON.stringify(row)).not.toContain('secret-token');
  for(const url of ['http://discord.com/api/webhooks/123/token','https://attacker.test/api/webhooks/123/token','https://discord.com/api/webhooks/123/token?x=y','https://discord.com@attacker.test/api/webhooks/123/token'])expect(supportWebhook(url)).toBeNull();
 });
 it('rejects a redirect without following it or marking delivery successful',async()=>{
  env.CUSTOMER_SUPPORT_WEBHOOK_URL='https://discord.com/api/webhooks/123/fake-token';
  const send=vi.fn(async(_url:string,options:RequestInit)=>{expect(options.redirect).toBe('manual');return new Response(null,{status:302,headers:{location:'https://attacker.test'}});});
- vi.stubGlobal('fetch',send);await saveSupport(env,'member','general','Test redirect');
+ vi.stubGlobal('fetch',send);await saveSupport(env,'member','general','Test redirect',consent);
  expect(send).toHaveBeenCalledTimes(1);
  expect(db.prepare('SELECT delivery_status,last_error FROM customer_support').get()).toEqual({delivery_status:'FAILED',last_error:'Discord delivery failed (302)'});
 });

@@ -1,4 +1,6 @@
 export interface Env {
+  PRIVACY_MAIL_ENABLED?: string;
+  PRIVACY_MAIL_FORWARD_TO?: string;
   SPAWN_DB: D1Database;
   CUSTOMER_DB?: D1Database;
   CUSTOMER_SUPPORT_WEBHOOK_URL?: string;
