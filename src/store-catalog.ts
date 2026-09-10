@@ -1,3 +1,4 @@
+import {shopifyProductSchema} from './product-page-evidence';
 import type {Env,Listing} from './types';
 import {normalizeVendor,printSeries} from './garfield';
 import {canonicalizeUrl} from './inventory';
@@ -53,6 +54,19 @@ async function enqueue(env:Env,run:Run,store:Store,urls:string[],kind:string) {
   }
   const count=await env.SPAWN_DB.prepare('SELECT COUNT(*) n FROM store_catalog_pages WHERE run_id=?').bind(run.id).first<{n:number}>();
   if((count?.n??0)>=MAX_PAGES)await env.SPAWN_DB.prepare("UPDATE store_catalog_runs SET note='Catalog page limit reached; coverage is partial' WHERE id=?").bind(run.id).run();
+}
+export async function queueApprovedStoreDiscovery(env:Env,candidateId:string,sourceUrl:string){
+ const origin=catalogOrigin(sourceUrl);if(!origin)return false;
+ const store=await env.SPAWN_DB.prepare("SELECT * FROM store_acquisitions WHERE origin=? AND status='APPROVED' AND marketplace=0").bind(origin).first<Store>();
+ if(!store||await storeSuppressed(env,store))return false;
+ const url=catalogUrl(sourceUrl,origin);if(!url)return false;
+ if(await env.SPAWN_DB.prepare('SELECT 1 FROM store_discovery_handoffs WHERE candidate_id=? AND store_id=?').bind(candidateId,store.id).first())return true;
+ const runId=await startCatalogRun(env,store.id,'approved-store-discovery');
+ await env.SPAWN_DB.batch([
+  env.SPAWN_DB.prepare("INSERT INTO store_catalog_pages(run_id,url,kind) VALUES(?,?,'PAGE') ON CONFLICT(run_id,url) DO UPDATE SET state=CASE WHEN store_catalog_pages.state='FAILED' THEN 'PENDING' ELSE store_catalog_pages.state END").bind(runId,url),
+  env.SPAWN_DB.prepare("INSERT OR IGNORE INTO store_discovery_handoffs(candidate_id,store_id,url,queued_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM store_acquisitions WHERE id=? AND status='APPROVED' AND revision=?)").bind(candidateId,store.id,url,new Date().toISOString(),store.id,store.revision)
+ ]);
+ return true;
 }
 export async function startCatalogRun(env:Env,id:string,actor:string,now=new Date()) {
   const store=await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(id).first<Store>();
@@ -126,7 +140,15 @@ async function processPage(env:Env,run:Run,store:Store,page:{url:string;kind:str
         if(feed.products.length===250){const next=new URL(page.url);next.searchParams.set('page',String(Number(next.searchParams.get('page'))+1));await enqueue(env,run,store,[next.href],'FEED');}
         detail=`Found ${feed.products.length} products; direct pages required for variant, currency and stock evidence`;
       } else {
-        const found=await recordProduct(env,run,store,page.url,result.text);
+        let productHtml=result.text;
+        if(!catalogProduct(productHtml,page.url,store.retailer)&&/Shopify|shopify/.test(productHtml)&&/^\/products\/[\w-]+$/.test(new URL(page.url).pathname)){
+          const productUrl=new URL(page.url);productUrl.pathname+='.js';productUrl.search='';
+          if(policy&&robotsAllows(policy,productUrl.href)){
+            const data=await boundedFetch(productUrl.href,fetchFn,u=>robotsAllows(policy,u));
+            if(data.status===200){const schema=shopifyProductSchema(JSON.parse(data.text),page.url,productHtml);if(schema)productHtml+=schema;}
+          }
+        }
+        const found=await recordProduct(env,run,store,page.url,productHtml);
         detail=found?'Product recorded':'No attributable product JSON-LD; coverage needs review';
         // Bounded storefront/category navigation supplements sitemaps and feeds.
         const links=[...result.text.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["']/gi)].map(m=>catalogUrl(m[1].replace(/&amp;/g,'&'),store.origin)).filter((url):url is string=>Boolean(url&&/\/(products|collections|categoria|category|product|producto)\//.test(new URL(url).pathname)));
@@ -166,6 +188,10 @@ export async function importStoreCatalog(env:Env,storeId:string) {
       targetInsert(env,store,listing,key,now)
     ]);
     imported+=results[1].meta.changes;
+    await env.SPAWN_DB.batch([
+      env.SPAWN_DB.prepare("UPDATE monitoring_candidates SET status='ACCEPTED',disposition='visibility_only',reviewed_by='auto:approved-store',review_reason='Approved store catalog ingestion',reviewed_at=?,published_at=? WHERE status='PENDING' AND candidate_id IN (SELECT candidate_id FROM store_discovery_handoffs WHERE store_id=? AND url=?) AND EXISTS(SELECT 1 FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.id=? AND s.status='APPROVED' AND s.revision=?)").bind(now,now,store.id,item.url,key,store.revision),
+      env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) SELECT c.candidate_id,'PUBLISHED','visibility_only','Approved store catalog ingestion','auto:approved-store',? FROM monitoring_candidates c JOIN store_discovery_handoffs h ON h.candidate_id=c.candidate_id WHERE h.store_id=? AND h.url=? AND c.status='ACCEPTED' AND c.reviewed_by='auto:approved-store' AND NOT EXISTS(SELECT 1 FROM listing_publication_decisions d WHERE d.candidate_id=c.candidate_id AND d.decision='PUBLISHED')").bind(now,store.id,item.url)
+    ]);
   }
   const backlog=(await env.SPAWN_DB.prepare(`SELECT i.listing_json,i.listing_key FROM store_catalog_items i WHERE i.store_id=? AND i.imported_at IS NOT NULL AND i.listing_json IS NOT NULL AND i.listing_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=i.listing_key) LIMIT 40`).bind(store.id).all<{listing_json:string;listing_key:string}>()).results;
   for(const item of backlog)await targetInsert(env,{...store,baseline_completed_at:null},JSON.parse(item.listing_json),item.listing_key,new Date().toISOString()).run();
@@ -190,6 +216,10 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
     if(!store)return;
     await env.SPAWN_DB.prepare('UPDATE store_acquisitions SET last_tick_at=? WHERE id=?').bind(new Date().toISOString(),store.id).run();
     if(['REJECTED','PAUSED'].includes(store.status)||await storeSuppressed(env,store))return;
+    if(store.status==='APPROVED'){
+      const discoveries=(await env.SPAWN_DB.prepare("SELECT candidate_id,source_url FROM monitoring_candidates WHERE status='PENDING' AND source_url LIKE ? AND NOT EXISTS(SELECT 1 FROM store_discovery_handoffs h WHERE h.candidate_id=monitoring_candidates.candidate_id) ORDER BY discovered_at LIMIT 40").bind(store.origin+'/%').all<{candidate_id:string;source_url:string}>()).results;
+      for(const item of discoveries)await queueApprovedStoreDiscovery(env,item.candidate_id,item.source_url);
+    }
     const running=await env.SPAWN_DB.prepare("SELECT id FROM store_catalog_runs WHERE store_id=? AND status='RUNNING'").bind(store.id).first<{id:string}>();
     if(!running&&store.status==='APPROVED'&&store.next_due_at&&store.next_due_at>new Date().toISOString()) {await importStoreCatalog(env,store.id);return;}
     const runId=running?.id??await startCatalogRun(env,store.id,'scheduled-catalog');
@@ -197,7 +227,7 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
       const active=await env.SPAWN_DB.prepare('SELECT status FROM store_acquisitions WHERE id=?').bind(store.id).first<{status:string}>();
       if(!active||['REJECTED','PAUSED'].includes(active.status)||await storeSuppressed(env,store))return;
       const run=await env.SPAWN_DB.prepare("SELECT * FROM store_catalog_runs WHERE id=? AND status='RUNNING'").bind(runId).first<Run>();if(!run)break;
-      const page=await env.SPAWN_DB.prepare("SELECT url,kind FROM store_catalog_pages WHERE run_id=? AND state='PENDING' ORDER BY CASE WHEN kind='ROBOTS' THEN 0 WHEN kind='PAGE' AND (url LIKE '%/products/%' OR url LIKE '%/product/%' OR url LIKE '%/producto/%') THEN 1 WHEN kind='FEED' THEN 2 WHEN kind='SITEMAP' THEN 3 ELSE 4 END,url LIMIT 1").bind(run.id).first<{url:string;kind:string}>();
+      const page=await env.SPAWN_DB.prepare("SELECT url,kind FROM store_catalog_pages WHERE run_id=? AND state='PENDING' ORDER BY CASE WHEN kind='ROBOTS' THEN 0 WHEN EXISTS(SELECT 1 FROM store_discovery_handoffs h WHERE h.url=store_catalog_pages.url) THEN 0.5 WHEN kind='PAGE' AND (url LIKE '%/products/%' OR url LIKE '%/product/%' OR url LIKE '%/producto/%') THEN 1 WHEN kind='FEED' THEN 2 WHEN kind='SITEMAP' THEN 3 ELSE 4 END,url LIMIT 1").bind(run.id).first<{url:string;kind:string}>();
       if(!page) {
         const failure=await env.SPAWN_DB.prepare("SELECT COUNT(*) n FROM store_catalog_pages WHERE run_id=? AND state IN ('FAILED','BLOCKED')").bind(run.id).first<{n:number}>();
         const partial=Boolean(failure?.n||run.note);

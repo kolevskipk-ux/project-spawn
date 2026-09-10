@@ -39,3 +39,17 @@ export function assessProductEvidence(status:number,html:string,url:string,title
  if(observations.some(o=>o!.outcome!==first.outcome||o!.priceMxn!==first.priceMxn))return unknown('variant_offers_conflict');
  return {...first,evidence:JSON.stringify({parser:'exact-product-jsonld-v1',product:String(product.name),sku:product.sku??null,availability:first.outcome,currency:first.priceMxn===null?null:'MXN',price:first.priceMxn})};
 }
+
+// Public Shopify product endpoint; only the exact product/selected variant is used.
+export function shopifyProductSchema(value:unknown,url:string,html:string):string|null {
+ const p=value as {handle?:string;url?:string;title?:string;description?:string;variants?:Array<{id:number;sku?:string;available?:boolean;price?:number}>};
+ const page=new URL(url),match=page.pathname.match(/^\/products\/([\w-]+)$/);
+ if(!p||!match||p.handle!==match[1]||typeof p.title!=='string'||!Array.isArray(p.variants)||p.variants.length>100)return null;
+ if(p.url&&new URL(p.url,page.origin).pathname!==page.pathname)return null;
+ const variants=page.searchParams.has('variant')?p.variants.filter(v=>String(v.id)===page.searchParams.get('variant')):p.variants;
+ if(variants.length!==1||typeof variants[0].available!=='boolean')return null;
+ const v=variants[0],preorder=/preventa|pre[ -]?order|pre[ -]?sale/i.test(p.description??'');
+ const mxn=/data-currency=["']MXN["']|"currency"\s*:\s*"MXN"|"active"\s*:\s*"MXN"/.test(html);
+ const product={'@type':'Product',url,name:p.title,sku:v.sku,offers:{'@type':'Offer',url,availability:'https://schema.org/'+(preorder?'PreOrder':v.available?'InStock':'OutOfStock'),...(mxn&&Number.isSafeInteger(v.price)&&v.price!>0?{price:v.price!/100,priceCurrency:'MXN'}:{})}};
+ return '<script type="application/ld+json">'+JSON.stringify(product).replace(/</g,'\u003c')+'</script>';
+}

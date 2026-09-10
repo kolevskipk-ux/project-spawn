@@ -1,3 +1,6 @@
+import {deliverDiscoveryApprovalRequest} from '../src/verification';
+import {queueApprovedStoreDiscovery} from '../src/store-catalog';
+import {shopifyProductSchema} from '../src/product-page-evidence';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
@@ -318,4 +321,31 @@ it('retains sold-out/preorder products and quarantines ambiguous variants or unk
   expect(catalogProduct(page(fresh,'Unrelated product'),fresh,'Cards')?.listing).toBeNull();
   expect(catalogProduct(page(fresh,undefined,undefined,[{availability:'https://schema.org/InStock',price:'10',priceCurrency:'MXN'},{availability:'https://schema.org/OutOfStock',price:'20',priceCurrency:'MXN'}]),fresh,'Cards')?.listing).toBeNull();
   expect(catalogProduct('<title>Robot check</title>'+page(),fresh,'Cards')?.listing).toBeNull();
+});
+
+it('hands an approved-store discovery to ingestion without sending an admin approval alert',async()=>{
+ await audit();await approve();
+ const candidate='d'.repeat(64),at=new Date().toISOString();
+ db.prepare("INSERT INTO monitoring_candidates(candidate_id,source,source_listing_key,source_url,product_name,vendor,vendor_key,print_series,product_family,language,discovered_at,status,review_eligible) VALUES(?,'search','discovered',?,'Delta Reign English Booster Bundle','Cards','cards','Delta Reign','Delta Reign','english',?,'PENDING',1)").run(candidate,fresh,at);
+ db.prepare("INSERT INTO discovery_approval_notifications(candidate_id,status,created_at) VALUES(?,'PENDING',?)").run(candidate,at);
+ const send=vi.fn();expect((await deliverDiscoveryApprovalRequest(env,candidate,send)).status).toBe('queued-store-ingestion');expect(send).not.toHaveBeenCalled();
+ expect(db.prepare('SELECT COUNT(*) n FROM store_discovery_handoffs').get()?.n).toBe(1);
+ expect(await queueApprovedStoreDiscovery(env,candidate,fresh)).toBe(true);
+ expect(db.prepare('SELECT COUNT(*) n FROM store_discovery_handoffs').get()?.n).toBe(1);
+});
+it('imports exact Shopify product JSON when page JSON-LD is absent and retains preorder uncertainty',async()=>{
+ const url=origin+'/products/pokemon-30th-collection';
+ const data={handle:'pokemon-30th-collection',url:'/products/pokemon-30th-collection',title:'Pokemon 30th Celebration Collection English',description:'PREVENTA: shipping in November',variants:[{id:123,sku:'fixture',available:true,price:69900}]};
+ const schema=shopifyProductSchema(data,url,'data-currency="MXN"');expect(schema).not.toBeNull();
+ const parsed=catalogProduct(schema!,url,'Cards');expect(parsed?.listing).toMatchObject({availability_state:'preorder_placeholder',price_mxn:null});
+ expect(shopifyProductSchema({...data,handle:'different'},url,'')).toBeNull();
+ expect(shopifyProductSchema({...data,variants:[...data.variants,{id:124,available:false}]},url,'')).toBeNull();
+ await audit();await approve();
+ const candidate='e'.repeat(64);
+ db.prepare("INSERT INTO monitoring_candidates(candidate_id,source,source_listing_key,source_url,product_name,vendor,vendor_key,print_series,product_family,language,discovered_at,status,review_eligible) VALUES(?,'search','shopify',?,'Pokemon 30th Celebration Collection','Cards','cards','30th Celebration','30th Celebration','english',?,'PENDING',1)").run(candidate,url,new Date().toISOString());
+ db.prepare('UPDATE store_acquisitions SET categories_json=?').run(JSON.stringify(['delta_reign','30th_celebration']));
+ await queueApprovedStoreDiscovery(env,candidate,url);
+ await runCatalogTick(env,store().id,async input=>String(input).endsWith('.js')?Response.json(data):String(input)===url?new Response('<html>Shopify data-currency="MXN"</html>'):crawler()(input));
+ expect(db.prepare('SELECT availability_state FROM inventory WHERE canonical_url=?').get(url)?.availability_state).toBe('preorder_placeholder');
+ expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_targets WHERE url=?').get(url)?.n).toBe(1);
 });

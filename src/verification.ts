@@ -1,3 +1,4 @@
+import {queueApprovedStoreDiscovery} from './store-catalog';
 import {approvalNote} from './approval-note';
 import { catalogProductId } from "./catalog";
 import type { Env, Listing } from "./types";
@@ -67,6 +68,7 @@ export async function deliverDiscoveryApprovalRequest(env:Env,candidateId:string
     FROM discovery_approval_notifications n JOIN monitoring_candidates c ON c.candidate_id=n.candidate_id
     WHERE n.candidate_id=? AND n.status!='DELIVERED' AND c.status='PENDING' AND c.review_eligible=1`).bind(candidateId).first<Record<string,unknown>>();
   if(!row)return {ok:true as const,status:"already-delivered-or-missing"};
+  if(await queueApprovedStoreDiscovery(env,candidateId,String(row.source_url)))return {ok:true as const,status:"queued-store-ingestion"};
   const now=new Date().toISOString();
   if(!env.OPS_DISCORD_WEBHOOK_URL){
     await env.SPAWN_DB.prepare("UPDATE discovery_approval_notifications SET status='PENDING_MISSING_ROUTE',attempts=attempts+1,last_attempt_at=?,last_error='OPS_DISCORD_WEBHOOK_URL_NOT_CONFIGURED' WHERE candidate_id=?").bind(now,candidateId).run();
@@ -88,7 +90,7 @@ export async function deliverDiscoveryApprovalRequest(env:Env,candidateId:string
 export async function retryDiscoveryApprovalRequests(env:Env,limit=25){
   const rows=await env.SPAWN_DB.prepare(`SELECT n.candidate_id FROM discovery_approval_notifications n
     JOIN monitoring_candidates c ON c.candidate_id=n.candidate_id
-    WHERE n.status!='DELIVERED' AND c.source!='codex_seed'
+    WHERE n.status!='DELIVERED' AND c.source!='codex_seed' AND NOT EXISTS(SELECT 1 FROM store_discovery_handoffs h JOIN store_acquisitions s ON s.id=h.store_id WHERE h.candidate_id=c.candidate_id AND s.status='APPROVED')
     ORDER BY COALESCE(n.last_attempt_at,n.created_at) ASC LIMIT ?`).bind(limit).all<{candidate_id:string}>();
   for(const row of rows.results)await deliverDiscoveryApprovalRequest(env,row.candidate_id).catch(()=>undefined);
 }
