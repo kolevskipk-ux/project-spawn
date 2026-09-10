@@ -52,6 +52,16 @@ it('assigns only the configured marker role and removes it for revoked accounts'
  await syncInventoryRoles(env);expect(calls.some(c=>c.startsWith('DELETE '))).toBe(true);
  env.DISCORD_REQUIRED_ROLE_ID=role;await expect(syncInventoryRoles(env)).rejects.toThrow('Separate');
 });
+it('preserves the role for existing accounts without inventing consent while requiring new accounts to accept',async()=>{
+ linked();env.DISCORD_ROLE_SYNC_ENABLED='true';env.DISCORD_INVENTORY_ROLE_ID=role;
+ env.CUSTOMER_MEMBERSHIP_MODE='new_accounts';env.CUSTOMER_TERMS_REQUIRED_FROM='2026-09-10T00:47:12.000Z';
+ const methods:string[]=[];vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const url=String(input);if(url.endsWith('/roles/'+role)){methods.push(init!.method!);return new Response(null,{status:204});}return url.endsWith('/roles')?Response.json([{id:role,permissions:'0',managed:false}]):Response.json({roles:[]});}));
+ await syncInventoryRoles(env);expect(methods).toEqual(['PUT']);
+ expect(db.prepare('SELECT COUNT(*) AS n FROM customer_terms_acceptances').get()?.n).toBe(0);
+ db.prepare('UPDATE customer_members SET created_at=?').run(env.CUSTOMER_TERMS_REQUIRED_FROM);
+ await syncInventoryRoles(env);expect(methods).toEqual(['PUT','DELETE']);
+ accepted();await syncInventoryRoles(env);expect(methods).toEqual(['PUT','DELETE','PUT']);
+});
 it('verifies Discord signatures and confines private replies to the configured server',async()=>{
  const pair=await crypto.subtle.generateKey('Ed25519',true,['sign','verify']) as CryptoKeyPair;env.DISCORD_PUBLIC_KEY=Buffer.from(await crypto.subtle.exportKey('raw',pair.publicKey)).toString('hex');env.CUSTOMER_PUBLIC_URL='https://customer.example';
  const request=async(guildId=guild)=>{const raw=JSON.stringify({type:2,application_id:app,guild_id:guildId,data:{name:'inventory'}}),stamp=String(now.getTime()/1000),signature=Buffer.from(await crypto.subtle.sign('Ed25519',pair.privateKey,new TextEncoder().encode(stamp+raw))).toString('hex');return new Request('https://customer.example/discord/interactions',{method:'POST',headers:{'x-signature-ed25519':signature,'x-signature-timestamp':stamp},body:raw});};

@@ -31,7 +31,7 @@ export async function syncInventoryRoles(env:CustomerEnv){
  // A zero-permission marker role can receive channel-specific view permissions.
  // It must never grant server-wide moderation or administrator powers.
  if(!role||role.managed||role.permissions!=='0')throw new Error('Inventory Access must be an unmanaged role with zero server-wide permissions');
- const rows=(await env.CUSTOMER_DB.prepare(`SELECT m.id,m.email,m.status,l.discord_user_id FROM customer_members m JOIN customer_discord_links l ON l.customer_id=m.id LEFT JOIN customer_discord_role_sync s ON s.customer_id=m.id WHERE l.guild_id=? ORDER BY COALESCE(s.last_attempt_at,''),m.id LIMIT 20`).bind(env.DISCORD_GUILD_ID!).all<CustomerMember&{discord_user_id:string}>()).results;
+ const rows=(await env.CUSTOMER_DB.prepare(`SELECT m.id,m.email,m.status,m.created_at,l.discord_user_id FROM customer_members m JOIN customer_discord_links l ON l.customer_id=m.id LEFT JOIN customer_discord_role_sync s ON s.customer_id=m.id WHERE l.guild_id=? ORDER BY COALESCE(s.last_attempt_at,''),m.id LIMIT 20`).bind(env.DISCORD_GUILD_ID!).all<CustomerMember&{discord_user_id:string}>()).results;
  let processed=0;
  for(const member of rows){
   const entitlement=await customerEntitlement(env,member),at=new Date().toISOString();

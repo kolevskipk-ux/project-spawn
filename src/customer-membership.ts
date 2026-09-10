@@ -50,6 +50,8 @@ export async function customerEntitlement(env:CustomerEnv,member:CustomerMember,
  if(status!=='MEMBER'&&!withinGrace)return {allowed:false,reason:status==='NOT_MEMBER'?'join_server':'retry_discord'};
  if(env.DISCORD_FREE_ACCESS_ENABLED!=='true'&&(!env.DISCORD_REQUIRED_ROLE_ID||!roles.includes(env.DISCORD_REQUIRED_ROLE_ID)))return {allowed:false,reason:'required_role'};
  const accepted=env.CUSTOMER_TERMS_VERSION&&await env.CUSTOMER_DB.prepare('SELECT 1 FROM customer_terms_acceptances WHERE customer_id=? AND terms_version=?').bind(member.id,env.CUSTOMER_TERMS_VERSION).first();
- if(!accepted)return {allowed:false,reason:'accept_terms'};
+ // Existing accounts were invited to review voluntarily; silence is not consent.
+ const existingAccount=env.CUSTOMER_MEMBERSHIP_MODE==='new_accounts'&&Number.isFinite(Date.parse(member.created_at??''))&&Number.isFinite(Date.parse(env.CUSTOMER_TERMS_REQUIRED_FROM??''))&&Date.parse(member.created_at!)<Date.parse(env.CUSTOMER_TERMS_REQUIRED_FROM!);
+ if(!accepted&&!existingAccount)return {allowed:false,reason:'accept_terms'};
  return {allowed:true,reason:withinGrace?'temporary_grace':'member'};
 }
