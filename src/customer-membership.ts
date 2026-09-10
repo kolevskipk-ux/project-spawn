@@ -17,11 +17,11 @@ export async function finishDiscordLink(env:CustomerEnv,member:CustomerMember,ur
  const claimed=await env.CUSTOMER_DB.prepare('UPDATE customer_discord_states SET consumed_at=? WHERE state_hash=? AND customer_id=? AND consumed_at IS NULL AND expires_at>? RETURNING customer_id').bind(new Date().toISOString(),await hash(url.searchParams.get('state')!),member.id,new Date().toISOString()).first();
  if(!claimed)throw new Error('Discord link expired or already used');
  const response=await fetch('https://discord.com/api/oauth2/token',{method:'POST',redirect:'error',signal:AbortSignal.timeout(7000),headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.DISCORD_APPLICATION_ID!,client_secret:env.DISCORD_CLIENT_SECRET!,grant_type:'authorization_code',code:url.searchParams.get('code')!,redirect_uri:env.DISCORD_REDIRECT_URI!})});
- if(!response.ok)throw new Error('Discord authorization failed');
+ if(!response.ok){const detail=await response.json().catch(()=>({})) as {error?:string};const reason=['invalid_client','invalid_grant','invalid_request'].includes(detail.error??'')?detail.error:'http_'+response.status;throw new Error('discord_token_'+reason);}
  const token=await response.json() as {access_token?:string};if(!token.access_token)throw new Error('Missing Discord authorization');
  try{
   const user=await fetch('https://discord.com/api/v10/users/@me',{headers:{authorization:'Bearer '+token.access_token},redirect:'error',signal:AbortSignal.timeout(7000)});
-  if(!user.ok)throw new Error('Discord identity unavailable');const data=await user.json() as {id?:string};if(!snowflake(data.id))throw new Error('Invalid Discord identity');
+  if(!user.ok)throw new Error('discord_identity_http_'+user.status);const data=await user.json() as {id?:string};if(!snowflake(data.id))throw new Error('Invalid Discord identity');
   const existing=await env.CUSTOMER_DB.prepare('SELECT discord_user_id FROM customer_discord_links WHERE customer_id=?').bind(member.id).first<{discord_user_id:string}>();
   // Relinking to a different person requires support; do not orphan access roles on the previous identity.
   if(existing&&existing.discord_user_id!==data.id)throw new Error('Contact support to change your linked Discord account');

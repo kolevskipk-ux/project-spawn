@@ -15,7 +15,7 @@ async function request(path='/app',email='customer@example.test',options:{method
 }
 async function join(email='customer@example.test'){return customerFetch(await request('/app/join',email,{method:'POST'}),env);}
 beforeAll(async()=>{const pair=await generateKeyPair('RS256');keys.publicKey=pair.publicKey;privateKey=pair.privateKey;});
-beforeEach(()=>{db=new DatabaseSync(':memory:');db.exec(readFileSync('customer-migrations/0001_customer_pilot.sql','utf8'));db.exec(readFileSync('scripts/seed-customer-staging.sql','utf8'));env={CUSTOMER_DB:adapter(),CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging · sample data'};});
+beforeEach(()=>{db=new DatabaseSync(':memory:');db.exec(readFileSync('customer-migrations/0001_customer_pilot.sql','utf8'));db.exec(readFileSync('scripts/seed-customer-staging.sql','utf8'));db.exec(readFileSync('customer-migrations/0006_legal_document_views.sql','utf8')); env={CUSTOMER_DB:adapter(),CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging · sample data'};});
 afterEach(()=>{vi.restoreAllMocks();db.close();});
 describe('customer pilot isolation',()=>{
  it('permits the Discord OAuth form redirect while rejecting cross-origin link submissions',async()=>{
@@ -64,6 +64,10 @@ describe('customer pilot isolation',()=>{
   expect((await accept('yes')).status).toBe(400);
   // Exercise receipt/access behavior independently of the unapproved document bundle.
   vi.spyOn(legal,'legalReady').mockReturnValue(true);
+  expect((await accept('yes')).status).toBe(400);
+  await customerFetch(await request('/app/legal/terms?lang=en'),env);
+  expect((await accept('yes')).status).toBe(400);
+  await customerFetch(await request('/app/legal/privacy?lang=es'),env);
   expect((await accept('yes')).status).toBe(303);
   expect((await customerFetch(await request(),env)).status).toBe(200);
   env.CUSTOMER_TERMS_VERSION='v2';expect((await customerFetch(await request(),env)).headers.get('location')).toBe('/app/onboarding');
