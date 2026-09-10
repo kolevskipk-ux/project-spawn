@@ -1,9 +1,9 @@
 import type {CustomerEnv} from './customer';
-export type CustomerMember={id:string;email:string;status:string};
+export type CustomerMember={id:string;email:string;status:string;created_at?:string};
 type Link={customer_id:string;discord_user_id:string;guild_id:string;membership_status:string;checked_at:string|null;verified_at:string|null;roles_json:string};
 const snowflake=(s:unknown)=>typeof s==='string'&&/^\d{17,20}$/.test(s);
 const hash=async(s:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('');
-export function membershipRequired(env:CustomerEnv,member:CustomerMember){return env.CUSTOMER_MEMBERSHIP_MODE==='enforced'||env.CUSTOMER_MEMBERSHIP_MODE==='pilot'&&(env.CUSTOMER_MEMBERSHIP_PILOT_EMAILS??'').split(',').map(s=>s.trim().toLowerCase()).includes(member.email);}
+export function membershipRequired(env:CustomerEnv,member:CustomerMember){return env.CUSTOMER_MEMBERSHIP_MODE==='new_accounts'&&(!member.created_at||!env.CUSTOMER_TERMS_REQUIRED_FROM||Date.parse(member.created_at)>=Date.parse(env.CUSTOMER_TERMS_REQUIRED_FROM))||env.CUSTOMER_MEMBERSHIP_MODE==='enforced'||env.CUSTOMER_MEMBERSHIP_MODE==='pilot'&&(env.CUSTOMER_MEMBERSHIP_PILOT_EMAILS??'').split(',').map(s=>s.trim().toLowerCase()).includes(member.email);}
 export function discordConfigured(env:CustomerEnv){return snowflake(env.DISCORD_APPLICATION_ID)&&snowflake(env.DISCORD_GUILD_ID)&&Boolean(env.DISCORD_CLIENT_SECRET&&env.DISCORD_BOT_TOKEN)&&/^https:\/\/[^/]+\/app\/discord\/callback$/.test(env.DISCORD_REDIRECT_URI??'');}
 export async function startDiscordLink(env:CustomerEnv,member:CustomerMember){
  if(!discordConfigured(env))throw new Error('Discord linking is not configured');

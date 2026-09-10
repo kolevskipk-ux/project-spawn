@@ -1,3 +1,4 @@
+import * as legal from '../src/customer-legal';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {afterEach,beforeAll,beforeEach,describe,expect,it,vi} from 'vitest';
@@ -15,8 +16,23 @@ async function request(path='/app',email='customer@example.test',options:{method
 async function join(email='customer@example.test'){return customerFetch(await request('/app/join',email,{method:'POST'}),env);}
 beforeAll(async()=>{const pair=await generateKeyPair('RS256');keys.publicKey=pair.publicKey;privateKey=pair.privateKey;});
 beforeEach(()=>{db=new DatabaseSync(':memory:');db.exec(readFileSync('customer-migrations/0001_customer_pilot.sql','utf8'));db.exec(readFileSync('scripts/seed-customer-staging.sql','utf8'));env={CUSTOMER_DB:adapter(),CUSTOMER_ACCESS_ISSUER:issuer,CUSTOMER_ACCESS_AUD:'customers',CUSTOMER_ENVIRONMENT:'Staging · sample data'};});
-afterEach(()=>db.close());
+afterEach(()=>{vi.restoreAllMocks();db.close();});
 describe('customer pilot isolation',()=>{
+ it('requires terms only for new accounts and never revokes existing members for non-acknowledgment',async()=>{
+  db.exec(readFileSync('customer-migrations/0004_discord_membership.sql','utf8'));
+  await join();
+  env.CUSTOMER_TERMS_REQUIRED_FROM='2026-09-10T00:47:12.000Z';env.CUSTOMER_TERMS_VERSION='release-test';
+  db.prepare('UPDATE customer_members SET created_at=?').run('2026-09-09T00:00:00.000Z');
+  expect((await customerFetch(await request(),env)).status).toBe(200);
+  expect(db.prepare('SELECT status FROM customer_members').get()?.status).toBe('ACTIVE');
+  db.prepare('UPDATE customer_members SET created_at=?').run('2026-09-10T00:47:12.000Z');
+  expect((await customerFetch(await request(),env)).headers.get('location')).toBe('/app/onboarding');
+  expect((await customerFetch(await request('/app/support'),env)).status).toBe(200);
+  const id=String(db.prepare('SELECT id FROM customer_members').get()?.id);
+  db.prepare('INSERT INTO customer_terms_acceptances VALUES(?,?,?,1)').run(id,'release-test',new Date().toISOString());
+  expect((await customerFetch(await request(),env)).status).toBe(200);
+  expect(db.prepare('SELECT status FROM customer_members').get()?.status).toBe('ACTIVE');
+ });
  it('gates inventory behind membership and explicit adult/terms acceptance without hiding account help',async()=>{
   db.exec(readFileSync('customer-migrations/0004_discord_membership.sql','utf8'));
   await join();env.CUSTOMER_MEMBERSHIP_MODE='enforced';
@@ -30,6 +46,10 @@ describe('customer pilot isolation',()=>{
   expect((await accept('no')).status).toBe(400);
   expect((await accept('yes','https://attacker.test')).status).toBe(403);
   expect(db.prepare('SELECT COUNT(*) n FROM customer_terms_acceptances').get()?.n).toBe(0);
+  // The bundled candidate must remain unavailable even with publication configured.
+  expect((await accept('yes')).status).toBe(400);
+  // Exercise receipt/access behavior independently of the unapproved document bundle.
+  vi.spyOn(legal,'legalReady').mockReturnValue(true);
   expect((await accept('yes')).status).toBe(303);
   expect((await customerFetch(await request(),env)).status).toBe(200);
   env.CUSTOMER_TERMS_VERSION='v2';expect((await customerFetch(await request(),env)).headers.get('location')).toBe('/app/onboarding');

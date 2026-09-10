@@ -2,12 +2,18 @@ import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import type {CustomerEnv} from '../src/customer';
-import {customerEntitlement,startDiscordLink,finishDiscordLink} from '../src/customer-membership';
+import {customerEntitlement,startDiscordLink,finishDiscordLink,membershipRequired} from '../src/customer-membership';
 import {discordInteraction,syncInventoryRoles} from '../src/customer-discord';
 let db:DatabaseSync,env:CustomerEnv;
 const member={id:'customer',email:'member@example.test',status:'ACTIVE'},now=new Date('2026-09-09T20:00:00Z'),guild='1537592665535942709',user='1537592665535942710',app='1537592665535942711',role='1537592665535942712';
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(now);db=new DatabaseSync(':memory:');for(const name of readdirSync('customer-migrations').filter(f=>f.endsWith('.sql')).sort())db.exec(readFileSync('customer-migrations/'+name,'utf8'));const storage={prepare(sql:string){let args:unknown[]=[];return {bind(...p:unknown[]){args=p;return this;},async first(){return db.prepare(sql).get(...args as never[])??null;},async all(){return {results:db.prepare(sql).all(...args as never[])};},async run(){return db.prepare(sql).run(...args as never[]);}};}};env={CUSTOMER_DB:storage,DISCORD_APPLICATION_ID:app,DISCORD_GUILD_ID:guild,DISCORD_CLIENT_SECRET:'fixture',DISCORD_BOT_TOKEN:'fixture',DISCORD_REDIRECT_URI:'https://customer.example/app/discord/callback',CUSTOMER_TERMS_VERSION:'v1',DISCORD_FREE_ACCESS_ENABLED:'true'} as unknown as CustomerEnv;db.prepare("INSERT INTO customer_members(id,email,status,created_at) VALUES(?,?,'ACTIVE',?)").run(member.id,member.email,now.toISOString());vi.stubGlobal('fetch',vi.fn(async()=>Response.json({roles:[]})));});
 afterEach(()=>{db.close();vi.unstubAllGlobals();vi.useRealTimers();});
+it('limits the new-account rollout to the activation cohort without requiring existing member acknowledgment',()=>{
+ env.CUSTOMER_MEMBERSHIP_MODE='new_accounts';env.CUSTOMER_TERMS_REQUIRED_FROM='2026-09-10T00:47:12.000Z';
+ expect(membershipRequired(env,{...member,created_at:'2026-09-09T00:00:00.000Z'})).toBe(false);
+ expect(membershipRequired(env,{...member,created_at:'2026-09-10T00:47:12.000Z'})).toBe(true);
+ expect(membershipRequired(env,{...member,created_at:'2026-09-11T00:00:00.000Z'})).toBe(true);
+});
 function linked(){db.prepare("INSERT INTO customer_discord_links(customer_id,discord_user_id,guild_id,linked_at) VALUES(?,?,?,?)").run(member.id,user,guild,now.toISOString());}
 function accepted(){db.prepare('INSERT INTO customer_terms_acceptances VALUES(?,?,?,1)').run(member.id,'v1',now.toISOString());}
 it('requires linking and terms, allows all members in free mode, then enforces the qualifying role',async()=>{

@@ -1,0 +1,77 @@
+{
+  "package": "PP-LEGAL-0.3.6",
+  "status": "approved_release",
+  "readyForPublication": true,
+  "publicationAuthorized": true,
+  "productionPublicationVerified": false,
+  "effectiveDate": "2026-09-09",
+  "effectiveTimezone": "America/Mexico_City",
+  "existingMembersRequireAcknowledgement": false,
+  "newAccountsAcceptAfterActivation": true,
+  "termsVersion": "PP-TERMS-0.3.6",
+  "privacyVersion": "PP-PRIVACY-0.3.6",
+  "supportTransferVersion": "PP-SUPPORT-TRANSFER-0.3.3",
+  "operator": "Aztlan Engineering",
+  "address": "Sabadonas 53 PA, La Concordia, Naucalpan, Edo Mex, 53126",
+  "email": "sales@aztlan-eng.com",
+  "supportURL": "https://customers.aztlan-eng.com/app/support",
+  "evidenceRevision": 3,
+  "mailboxAccess": "Philip only (human users)",
+  "authorizedCodexBrowserAssistance": true,
+  "openAIAccountDataControlsVerified": false,
+  "additionalMailForwardingReported": false,
+  "mailExportsReported": false,
+  "mailSettingsIndependentlyAudited": false,
+  "operatorOwner": "Philip",
+  "approvedClosedCaseMaximumDays": 90,
+  "approvedSupportMode": "separate_consent_with_email_alternative",
+  "opsAlertsLiveVerified": true,
+  "supportConsentDeployed": true,
+  "supportConsentRecordedAtomically": true,
+  "retentionScheduleApproved": true,
+  "policyAdoptionScope": "retention_schedule_approved_ops_condition_met",
+  "contactSpellingConfirmed": true,
+  "contactRoutingVerified": true,
+  "originalInboxCopyVerified": false,
+  "sendAsVerified": false,
+  "contactDeliveryStatus": "routing_verified_original_copy_not_established",
+  "emailRouting": {
+    "provider": "Cloudflare Email Routing",
+    "destinationStatus": "Verified",
+    "routingStatus": "Enabled",
+    "ruleStatus": "Active",
+    "destinationType": "personal Gmail"
+  },
+  "suppliedEmail": "sales@aztlan-eng.com",
+  "pending": [
+    "Narrow provider contractual/recipient-obligation review, including OpenAI account controls",
+    "Actual configuration and v0.3.6 integration checks",
+    "Main-task activation and announcement verification"
+  ],
+  "documents": {
+    "TERMS_ES.md": {
+      "version": "PP-TERMS-0.3.6",
+      "sha256": "c3f4a7f14348dbbb5a7500ce951add6b4fcd4acfd1dbe49303138ae7f1c35894",
+      "unresolved": [],
+      "htmlBytes": 10568
+    },
+    "TERMS_EN.md": {
+      "version": "PP-TERMS-0.3.6",
+      "sha256": "44a497d0c24aff81dbe8cf8b9177d3f61badf531c5ad3396ca76dc14b184b847",
+      "unresolved": [],
+      "htmlBytes": 9542
+    },
+    "PRIVACY_ES.md": {
+      "version": "PP-PRIVACY-0.3.6",
+      "sha256": "2aec13db4924e88406eb6d722e1f851ca0072a16b44a18e3c358bb7c06cb5d6c",
+      "unresolved": [],
+      "htmlBytes": 23276
+    },
+    "PRIVACY_EN.md": {
+      "version": "PP-PRIVACY-0.3.6",
+      "sha256": "f35299551580f496961315bdbfb3223f49e41c2ac48898cd3996aebc83bf8dc8",
+      "unresolved": [],
+      "htmlBytes": 21088
+    }
+  }
+}
