@@ -13,15 +13,22 @@ export async function startDiscordLink(env:CustomerEnv,member:CustomerMember){
  const url=new URL('https://discord.com/oauth2/authorize');url.search=new URLSearchParams({client_id:env.DISCORD_APPLICATION_ID!,redirect_uri:env.DISCORD_REDIRECT_URI!,response_type:'code',scope:'identify',state}).toString();return url.href;
 }
 export async function finishDiscordLink(env:CustomerEnv,member:CustomerMember,url:URL){
+ let stage='configuration';
+ try{
  if(!discordConfigured(env)||!url.searchParams.get('code')||!url.searchParams.get('state'))throw new Error('Invalid Discord callback');
+ stage='state';
  const claimed=await env.CUSTOMER_DB.prepare('UPDATE customer_discord_states SET consumed_at=? WHERE state_hash=? AND customer_id=? AND consumed_at IS NULL AND expires_at>? RETURNING customer_id').bind(new Date().toISOString(),await hash(url.searchParams.get('state')!),member.id,new Date().toISOString()).first();
  if(!claimed)throw new Error('Discord link expired or already used');
+ stage='token_request';
  const response=await fetch('https://discord.com/api/oauth2/token',{method:'POST',redirect:'error',signal:AbortSignal.timeout(7000),headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.DISCORD_APPLICATION_ID!,client_secret:env.DISCORD_CLIENT_SECRET!,grant_type:'authorization_code',code:url.searchParams.get('code')!,redirect_uri:env.DISCORD_REDIRECT_URI!})});
  if(!response.ok){const detail=await response.json().catch(()=>({})) as {error?:string};const reason=['invalid_client','invalid_grant','invalid_request'].includes(detail.error??'')?detail.error:'http_'+response.status;throw new Error('discord_token_'+reason);}
+ stage='token_response';
  const token=await response.json() as {access_token?:string};if(!token.access_token)throw new Error('Missing Discord authorization');
  try{
+  stage='identity_request';
   const user=await fetch('https://discord.com/api/v10/users/@me',{headers:{authorization:'Bearer '+token.access_token},redirect:'error',signal:AbortSignal.timeout(7000)});
-  if(!user.ok)throw new Error('discord_identity_http_'+user.status);const data=await user.json() as {id?:string};if(!snowflake(data.id))throw new Error('Invalid Discord identity');
+  if(!user.ok)throw new Error('discord_identity_http_'+user.status);stage='identity_response';const data=await user.json() as {id?:string};if(!snowflake(data.id))throw new Error('Invalid Discord identity');
+  stage='save_link';
   const existing=await env.CUSTOMER_DB.prepare('SELECT discord_user_id FROM customer_discord_links WHERE customer_id=?').bind(member.id).first<{discord_user_id:string}>();
   // Relinking to a different person requires support; do not orphan access roles on the previous identity.
   if(existing&&existing.discord_user_id!==data.id)throw new Error('Contact support to change your linked Discord account');
@@ -30,6 +37,7 @@ export async function finishDiscordLink(env:CustomerEnv,member:CustomerMember,ur
   // Tokens are used only to prove identity and are never retained in D1.
   await fetch('https://discord.com/api/oauth2/token/revoke',{method:'POST',redirect:'error',signal:AbortSignal.timeout(5000),headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.DISCORD_APPLICATION_ID!,client_secret:env.DISCORD_CLIENT_SECRET!,token:token.access_token})}).catch(()=>{});
  }
+ }catch(error){if(error instanceof Error&&error.message.startsWith('discord_'))throw error;throw new Error('discord_stage_'+stage);}
 }
 export async function customerEntitlement(env:CustomerEnv,member:CustomerMember,now=new Date()){
  if(member.status!=='ACTIVE')return {allowed:false,reason:'revoked'};

@@ -38,9 +38,9 @@ it('limits outage grace and immediately denies explicit departure and admin revo
 it('binds OAuth state to the customer and prevents replay without retaining tokens',async()=>{
  const authorize=new URL(await startDiscordLink(env,member)),callback=new URL(env.DISCORD_REDIRECT_URI!);callback.search=new URLSearchParams({state:authorize.searchParams.get('state')!,code:'fixture-code'}).toString();
  expect(authorize.searchParams.get('scope')).toBe('identify');
- await expect(finishDiscordLink(env,{...member,id:'other'},callback)).rejects.toThrow('expired');
+ await expect(finishDiscordLink(env,{...member,id:'other'},callback)).rejects.toThrow('discord_stage_state');
  const api=vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/token')?Response.json({access_token:'private-token'}):String(input).endsWith('/@me')?Response.json({id:user}):new Response(null,{status:200}));vi.stubGlobal('fetch',api);
- await finishDiscordLink(env,member,callback);await expect(finishDiscordLink(env,member,callback)).rejects.toThrow('already used');
+ await finishDiscordLink(env,member,callback);await expect(finishDiscordLink(env,member,callback)).rejects.toThrow('discord_stage_state');
  expect(db.prepare('SELECT discord_user_id FROM customer_discord_links').get()?.discord_user_id).toBe(user);
  expect(api.mock.calls.some(c=>String(c[0]).endsWith('/revoke'))).toBe(true);
 });
@@ -69,3 +69,4 @@ it('verifies Discord signatures and confines private replies to the configured s
  expect((await discordInteraction(await request('1537592665535942799'),env)).status).toBe(403);
  expect((await discordInteraction(new Request('https://customer.example/discord/interactions',{method:'POST',body:'{}'}),env)).status).toBe(401);
 });
+

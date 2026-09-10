@@ -119,7 +119,7 @@ export async function customerFetch(request: Request, env: CustomerEnv): Promise
   }
   if(path==='/app/discord/callback'){
     try{await finishDiscordLink(env,member,url);return redirect('/app/onboarding');}
-    catch(error){const diagnostic=error instanceof Error&&/^discord_(token_(invalid_client|invalid_grant|invalid_request|http_[0-9]{3})|identity_http_[0-9]{3})$/.test(error.message)?error.message:'link_incomplete';return page(env,'Link not completed','<h1>Discord link not completed</h1><p>The link expired, authorization failed, or this Discord account is already linked. Try again or contact support to change your linked account.</p><p>Diagnostic: '+escape(diagnostic)+'</p><a href="/app/onboarding">Return to onboarding</a>',member,400);}
+    catch(error){const diagnostic=error instanceof Error&&/^discord_(token_(invalid_client|invalid_grant|invalid_request|http_[0-9]{3})|identity_http_[0-9]{3}|stage_(configuration|state|token_request|token_response|identity_request|identity_response|save_link))$/.test(error.message)?error.message:'link_incomplete';return page(env,'Link not completed','<h1>Discord link not completed</h1><p>The link expired, authorization failed, or this Discord account is already linked. Try again or contact support to change your linked account.</p><p>Diagnostic: '+escape(diagnostic)+'</p><a href="/app/onboarding">Return to onboarding</a>',member,400);}
   }
   if(path==='/app/legal/terms'||path==='/app/legal/privacy'){
     if(!legalReady(env))return redirect('/app/onboarding');
