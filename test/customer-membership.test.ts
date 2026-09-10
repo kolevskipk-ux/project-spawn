@@ -43,6 +43,7 @@ it('binds OAuth state to the customer and prevents replay without retaining toke
  await finishDiscordLink(env,member,callback);await expect(finishDiscordLink(env,member,callback)).rejects.toThrow('discord_stage_state');
  expect(db.prepare('SELECT discord_user_id FROM customer_discord_links').get()?.discord_user_id).toBe(user);
  expect(api.mock.calls.some(c=>String(c[0]).endsWith('/revoke'))).toBe(true);
+ for(const call of api.mock.calls as unknown as [RequestInfo|URL,RequestInit][])expect(call[1].redirect).toBe('manual');
 });
 it('assigns only the configured marker role and removes it for revoked accounts',async()=>{
  linked();accepted();env.DISCORD_ROLE_SYNC_ENABLED='true';env.DISCORD_INVENTORY_ROLE_ID=role;

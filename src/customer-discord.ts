@@ -24,7 +24,7 @@ export async function syncInventoryRoles(env:CustomerEnv){
  if(env.DISCORD_ROLE_SYNC_ENABLED!=='true')return {enabled:false};
  if(!env.DISCORD_BOT_TOKEN||!/^\d{17,20}$/.test(env.DISCORD_GUILD_ID??'')||!/^\d{17,20}$/.test(env.DISCORD_INVENTORY_ROLE_ID??'')||env.DISCORD_INVENTORY_ROLE_ID===env.DISCORD_REQUIRED_ROLE_ID)throw new Error('Separate inventory role configuration required');
  const api=`https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}`,headers={authorization:'Bot '+env.DISCORD_BOT_TOKEN};
- const response=await fetch(api+'/roles',{headers,redirect:'error',signal:AbortSignal.timeout(5000)});
+ const response=await fetch(api+'/roles',{headers,redirect:'manual',signal:AbortSignal.timeout(5000)});
  if(!response.ok)return {enabled:true,error:'role_lookup_'+response.status};
  const roles=await response.json() as {id:string;permissions:string;managed:boolean}[];
  const role=roles.find(r=>r.id===env.DISCORD_INVENTORY_ROLE_ID);
@@ -38,7 +38,7 @@ export async function syncInventoryRoles(env:CustomerEnv){
   // Re-read admin status immediately before role changes; a revoked account never gains a role.
   const current=await env.CUSTOMER_DB.prepare('SELECT status FROM customer_members WHERE id=?').bind(member.id).first<{status:string}>();
   const desired=entitlement.allowed&&current?.status==='ACTIVE';
-  const changed=await fetch(`${api}/members/${member.discord_user_id}/roles/${env.DISCORD_INVENTORY_ROLE_ID}`,{method:desired?'PUT':'DELETE',headers,redirect:'error',signal:AbortSignal.timeout(5000)}).catch(()=>null);
+  const changed=await fetch(`${api}/members/${member.discord_user_id}/roles/${env.DISCORD_INVENTORY_ROLE_ID}`,{method:desired?'PUT':'DELETE',headers,redirect:'manual',signal:AbortSignal.timeout(5000)}).catch(()=>null);
   const success=Boolean(changed?.ok||!desired&&changed?.status===404),error=success?null:changed?'discord_http_'+changed.status:'discord_unavailable';
   await env.CUSTOMER_DB.prepare(`INSERT INTO customer_discord_role_sync(customer_id,last_attempt_at,last_success_at,desired,last_error) VALUES(?,?,?,?,?) ON CONFLICT(customer_id) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,last_success_at=COALESCE(excluded.last_success_at,customer_discord_role_sync.last_success_at),desired=excluded.desired,last_error=excluded.last_error`).bind(member.id,at,success?at:null,Number(desired),error).run();
   processed++;if(changed?.status===429)break;
