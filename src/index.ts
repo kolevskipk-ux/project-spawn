@@ -30,6 +30,7 @@ import {authenticateOperator, boardAuthorized, mutationAllowed, operationsPath, 
 import {operationsError, operationsHeaders, operationsRoute, wrapExistingPage} from './operations';
 import {reserveSearch,settleSearch,yieldStatement,searchReviewStatement,SEARCH_MAX_TOOL_CALLS,SEARCH_MAX_OUTPUT_TOKENS,type SearchResponse} from './search-accounting';
 import {recordSearchAudit,searchResponseEvidence} from './search-audit';
+import {dropRecoveryRoute,retryDropSearches} from './drop-recovery';
 import {buildSearchPlan} from './search-plan';
 import {runCatalogTick} from './store-catalog';
 import {sendAmazonApprovalDigest} from './amazon-approval-digest';
@@ -479,7 +480,8 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   return json({ error: "not_found" }, 404);
 }
 
-async function handleFetch(request: Request, env: Env): Promise<Response> {
+async function handleFetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const recovery=await dropRecoveryRoute(request,env,ctx);if(recovery)return recovery;
   const url = new URL(request.url);
   if (env.OPS_AUTH_MODE !== 'access' || !operationsPath(url.pathname)) return handleRoutes(request, env);
   const operator = await authenticateOperator(request, env);
@@ -525,6 +527,7 @@ export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: 
   const now=new Date();
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){
+    ctx.waitUntil(retryDropSearches(env).catch(()=>console.error('Drop recovery retry failed')));
     ctx.waitUntil(deliverPrivacyMailAlerts(env).catch(()=>console.error('Privacy mail alert retry failed')));
     if(!quiet&&env.STORE_CATALOG_FAST_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));
     return;

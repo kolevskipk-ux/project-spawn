@@ -1,4 +1,6 @@
 export interface Env {
+  AMAZON_DROP_SEARCH_ENABLED?: string;
+  AMAZON_DROP_SEARCH_BUDGET_USD?: string;
   PRIVACY_MAIL_ENABLED?: string;
   PRIVACY_MAIL_FORWARD_TO?: string;
   SPAWN_DB: D1Database;

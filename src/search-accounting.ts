@@ -41,7 +41,8 @@ export function estimateSearchCost(payload: SearchResponse): {microusd:number;we
   return {microusd,webCalls};
 }
 
-export async function reserveSearch(env:Env, scanId:string, now:Date):Promise<void> {
+export async function reserveSearch(env:Env, scanId:string, now:Date, reserveMicroUsd=SEARCH_RESERVE_MICROUSD):Promise<void> {
+  if(!Number.isSafeInteger(reserveMicroUsd)||reserveMicroUsd<=0||reserveMicroUsd>SEARCH_RESERVE_MICROUSD)throw new OperationalGuardError('search_budget_review_required',429);
   if (env.OPENAI_MODEL !== 'gpt-5.6-terra') throw new OperationalGuardError('search_pricing_unconfigured',429);
   const month=searchMonth(now,env.SPAWN_TIMEZONE);
   // Once the first opening balance is reconciled, future months start at zero.
@@ -52,7 +53,7 @@ export async function reserveSearch(env:Env, scanId:string, now:Date):Promise<vo
     SELECT ?,month,?,? FROM search_budget_months WHERE month=?
     AND opening_microusd + COALESCE((SELECT SUM(COALESCE(estimated_microusd,reserved_microusd)) FROM search_accounting WHERE month=?),0) + ? <= ?
     AND NOT EXISTS(SELECT 1 FROM search_accounting WHERE estimated_microusd > reserved_microusd)`)
-    .bind(scanId,SEARCH_RESERVE_MICROUSD,PRICING_VERSION,month,month,SEARCH_RESERVE_MICROUSD,SEARCH_BUDGET_MICROUSD).run();
+    .bind(scanId,reserveMicroUsd,PRICING_VERSION,month,month,reserveMicroUsd,SEARCH_BUDGET_MICROUSD).run();
   if (!inserted.meta.changes) throw new OperationalGuardError('search_budget_review_required',429);
 }
 
