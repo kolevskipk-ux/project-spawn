@@ -19,8 +19,8 @@
     ]
   },
   "vars": {
-    "AMAZON_DROP_SEARCH_ENABLED": "false",
-    "AMAZON_DROP_SEARCH_BUDGET_USD": "0",
+    "AMAZON_DROP_SEARCH_ENABLED": "true",
+    "AMAZON_DROP_SEARCH_BUDGET_USD": "150",
     "PRIVACY_MAIL_ENABLED": "true",
     "PRIVACY_MAIL_FORWARD_TO": "phil.kolevski@gmail.com",
     "OPENAI_MODEL": "gpt-5.6-terra",
