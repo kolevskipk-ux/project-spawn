@@ -61,3 +61,25 @@ it('rejects invented signals and sources for a different ASIN',()=>{
  expect(searchSignal(payload,asin).signal).toBe('POSSIBLY_BUYABLE');
 });
 
+it('records model and source rejection details without trusting annotations',()=>{
+ const payload={output:[{type:'web_search_call',status:'completed',action:{sources:[{url:'https://www.amazon.com.mx/dp/B0H77VYKSM?secret=omit'}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({asin,state:'BUYABLE'}),annotations:[{type:'url_citation',url:`https://www.amazon.com.mx/dp/${asin}`}]}]}]};
+ const result=searchSignal(payload,asin);
+ expect(result.signal).toBe('UNKNOWN');expect(result.diagnostics.reason).toBe('NO_EXACT_ASIN_SOURCE');
+ expect(result.diagnostics.sourceSamples.map(s=>s.reason)).toEqual(['NO_EXACT_ASIN_PATH','ANNOTATION_ONLY']);
+ expect(JSON.stringify(result)).not.toContain('secret=');expect(result.diagnostics.modelState).toBe('BUYABLE');
+});
+it('distinguishes empty evidence, malformed output, and model uncertainty',()=>{
+ expect(searchSignal({output:[]},asin).diagnostics.reason).toBe('NO_MODEL_OUTPUT');
+ expect(searchSignal({output:[{content:[{type:'output_text',text:'broken json'}]}]},asin).diagnostics.reason).toBe('MODEL_OUTPUT_INVALID');
+ expect(searchSignal({output:[{content:[{type:'output_text',text:JSON.stringify({asin,state:'UNKNOWN'})}]}]},asin).diagnostics.reason).toBe('MODEL_UNKNOWN');
+});
+it('bounds retained diagnostics and persists them for future paid jobs',async()=>{
+ const result=searchSignal({output:[{type:'web_search_call',status:'completed',action:{sources:Array.from({length:100},()=>({url:'https://example.com/'+'a'.repeat(1000)}))}},{content:[{type:'output_text',text:'x'.repeat(5000)}]}]},asin);
+ expect(result.diagnostics.sourceSamples).toHaveLength(20);expect(result.diagnostics.returnedSources).toBe(100);
+ expect(result.diagnostics.sourcesTruncated).toBe(true);expect(result.diagnostics.outputText).toHaveLength(1200);
+ expect(result.diagnostics.sourceSamples.every(s=>s.url.length<=500)).toBe(true);
+ await dropRecoveryRoute(request(),env,ctx(),now);await Promise.all(tasks);
+ const row=db.prepare('SELECT evidence_json FROM amazon_drop_jobs').get() as {evidence_json:string};
+ expect(JSON.parse(row.evidence_json).diagnostics.reason).toBe('MODEL_UNKNOWN');
+});
+

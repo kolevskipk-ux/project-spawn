@@ -56,15 +56,36 @@ export async function dropRecoveryRoute(request:Request,env:Env,ctx?:ExecutionCo
  return json({accepted:true,asin,windowStart,status:'PENDING'},202);
 }
 
-export function searchSignal(payload:any,asin:string):{signal:string;sources:string[]}{
- const sources:string[]=[];
- for(const item of payload.output||[])if(item.type==='web_search_call'&&item.status==='completed')for(const source of item.action?.sources||[]){
-   try{const url=new URL(source.url);if(['amazon.com.mx','www.amazon.com.mx'].includes(url.hostname)&&new RegExp(`/(?:dp|gp/product|gp/offer-listing)/${asin}(?:/|$)`).test(url.pathname))sources.push(url.href);}catch{}
+export function searchSignal(payload:any,asin:string){
+ const sources:string[]=[],sourceSamples:Array<{url:string;origin:string;reason:string}>=[];
+ let returnedSources=0;
+ const items=Array.isArray(payload.output)?payload.output:[];
+ const inspectSource=(raw:unknown,origin:string,completed:boolean)=>{
+   returnedSources++;let reason='INVALID_URL',display=String(raw??'').slice(0,500);
+   try{
+     const url=new URL(String(raw));display=(url.origin+url.pathname).slice(0,500);
+     reason=!['https:','http:'].includes(url.protocol)?'INVALID_PROTOCOL':!['amazon.com.mx','www.amazon.com.mx'].includes(url.hostname)?'OTHER_DOMAIN':
+       !new RegExp(`/(?:dp|gp/product|gp/offer-listing)/${asin}(?:/|$)`).test(url.pathname)?'NO_EXACT_ASIN_PATH':
+       origin!=='search_sources'?'ANNOTATION_ONLY':!completed?'TOOL_NOT_COMPLETED':'ACCEPTED';
+     if(reason==='ACCEPTED'&&sources.length<20&&!sources.includes(display))sources.push(display);
+   }catch{}
+   if(sourceSamples.length<20)sourceSamples.push({url:display,origin,reason});
+ };
+ for(const item of items){
+   if(item.type==='web_search_call')for(const source of Array.isArray(item.action?.sources)?item.action.sources:[])inspectSource(source.url,'search_sources',item.status==='completed');
+   for(const content of Array.isArray(item.content)?item.content:[])for(const annotation of Array.isArray(content.annotations)?content.annotations:[]){
+     if(annotation.type==='url_citation')inspectSource(annotation.url,'annotation',true);
+   }
  }
- const text=(payload.output||[]).flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text).join('');
- let result;try{result=JSON.parse(text);}catch{return {signal:'UNKNOWN',sources};}
- // Model output is untrusted, even with sources: Catch must verify live offers.
- return {signal:sources.length&&result.asin===asin&&result.state==='BUYABLE'?'POSSIBLY_BUYABLE':'UNKNOWN',sources};
+ const text=items.flatMap((item:any)=>Array.isArray(item.content)?item.content:[]).filter((item:any)=>item.type==='output_text'&&typeof item.text==='string').map((item:any)=>item.text).join('');
+ let result:any,reason='NO_MODEL_OUTPUT';
+ if(text){try{result=JSON.parse(text);reason=result?.asin!==asin?'MODEL_ASIN_MISMATCH':result?.state==='UNKNOWN'?'MODEL_UNKNOWN':result?.state!=='BUYABLE'?'MODEL_STATE_INVALID':!sources.length?'NO_EXACT_ASIN_SOURCE':'POSSIBLY_BUYABLE';}catch{reason='MODEL_OUTPUT_INVALID';}}
+ // Only existing accepted evidence can trigger Catch verification. Diagnostics
+ // retain rejection reasons without promoting snippets or annotations to proof.
+ return {signal:reason==='POSSIBLY_BUYABLE'?'POSSIBLY_BUYABLE':'UNKNOWN',sources,diagnostics:{schemaVersion:1,reason,
+   modelAsin:typeof result?.asin==='string'?result.asin.slice(0,50):null,modelState:typeof result?.state==='string'?result.state.slice(0,50):null,
+   outputText:text.slice(0,1200),outputTruncated:text.length>1200,returnedSources,sourceSamples,sourcesTruncated:returnedSources>sourceSamples.length,
+   toolStatuses:items.filter((item:any)=>item.type==='web_search_call').slice(0,12).map((item:any)=>String(item.status||'missing').slice(0,40))}};
 }
 
 export async function executeDropSearch(env:Env,id:string){
@@ -84,8 +105,11 @@ export async function executeDropSearch(env:Env,id:string){
    if(!response.ok)throw new Error(`API_HTTP_${response.status}`);
    const payload=await response.json() as SearchResponse;
    await settleSearch(env,id,payload);
-   if(payload.status!=='completed')throw new Error('SEARCH_INCOMPLETE');
    const signal=searchSignal(payload,job.asin);
+   if(payload.status!=='completed'){
+     await env.SPAWN_DB.prepare('UPDATE amazon_drop_jobs SET evidence_json=? WHERE id=?').bind(JSON.stringify(signal),id).run();
+     throw new Error('SEARCH_INCOMPLETE');
+   }
    await env.SPAWN_DB.prepare("UPDATE amazon_drop_jobs SET status='COMPLETED',finished_at=?,response_id=?,signal=?,evidence_json=? WHERE id=?").bind(new Date().toISOString(),payload.id||null,signal.signal,JSON.stringify(signal),id).run();
    await env.SPAWN_DB.prepare("UPDATE scan_runs SET status='succeeded' WHERE id=?").bind(id).run();
    if(signal.signal==='POSSIBLY_BUYABLE'){
