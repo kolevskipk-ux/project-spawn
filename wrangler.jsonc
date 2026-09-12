@@ -19,6 +19,7 @@
     ]
   },
   "vars": {
+    "INVENTORY_LINK_TRACKING_ENABLED": "true",
     "AMAZON_DROP_SEARCH_ENABLED": "false",
     "AMAZON_DROP_SEARCH_BUDGET_USD": "0",
     "PRIVACY_MAIL_ENABLED": "true",

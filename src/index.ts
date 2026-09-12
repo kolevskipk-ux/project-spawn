@@ -1,5 +1,7 @@
 import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
 import {inventoryIdentities} from './inventory-identities';
+import {inventoryRedirect,registerInventoryLinksRoute,inventoryClickReport} from './outbound-links';
+import {trackBoardLinks} from './board-links';
 import {inventoryDiagnostics,diagnosticsPage} from './inventory-diagnostics';
 import {approvalNote} from './approval-note';
 import {registerTrustedStore,runTrustedStoreApprovals} from './trusted-stores';
@@ -395,6 +397,11 @@ async function handleCatchIngest(request: Request, env: Env): Promise<Response> 
 
 async function handleRoutes(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const linkRegistration=await registerInventoryLinksRoute(request,env);if(linkRegistration)return linkRegistration;
+  if(request.method==='GET'&&url.pathname==='/dashboard/link-clicks.json'){
+    if(!boardAuthorized(request,url,env))return json({error:'unauthorized'},401);
+    return inventoryClickReport(env,url);
+  }
   if(request.method==='GET' && url.pathname==='/dashboard/inventory-diagnostics') {
     if(!boardAuthorized(request,url,env))return json({error:'unauthorized'},401);
     const id=(url.searchParams.get('id')??'').trim().toLowerCase();
@@ -456,7 +463,8 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/inventory") {
     if (!boardAuthorized(request,url,env)) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
     const [rows,hunt]=await Promise.all([boardRows(env),catchHuntSnapshot(env)]);
-    return new Response(renderBoard(rows, env.BOARD_ACCESS_TOKEN, new Date(), hunt), { headers: boardHeaders() });
+    const tracked=await trackBoardLinks(env,rows,hunt);
+    return new Response(renderBoard(tracked.rows, env.BOARD_ACCESS_TOKEN, new Date(), tracked.hunt), { headers: boardHeaders() });
   }
   if (request.method === "GET" && url.pathname === "/dashboard") {
     if (!boardAuthorized(request,url,env)) return new Response("Not found", { status:404, headers:{"cache-control":"no-store"} });
@@ -483,6 +491,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleFetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const outbound=await inventoryRedirect(request,env,ctx);if(outbound)return outbound;
   const recovery=await dropRecoveryRoute(request,env,ctx);if(recovery)return recovery;
   const url = new URL(request.url);
   if (env.OPS_AUTH_MODE !== 'access' || !operationsPath(url.pathname)) return handleRoutes(request, env);

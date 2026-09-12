@@ -1,4 +1,5 @@
 export interface Env {
+  INVENTORY_LINK_TRACKING_ENABLED?: string;
   WALMART_COLLECTOR_TOKEN?: string;
   AMAZON_DROP_SEARCH_ENABLED?: string;
   AMAZON_DROP_SEARCH_BUDGET_USD?: string;

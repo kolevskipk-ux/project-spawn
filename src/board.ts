@@ -5,6 +5,7 @@ import { printSeries } from "./garfield";
 import {compareReferences,type ReferenceProduct} from './reference-comparison';
 
 export interface BoardRow {
+  outbound_url?: string;
   diagnostic_id?: string;
   category_reference?: CategoryReference|null;
   revalidation_last_attempt_at?:string|null;
@@ -54,6 +55,7 @@ export interface BoardRow {
 }
 
 export interface CatchHuntRow {
+  outbound_url?: string;
   category_reference?:CategoryReference|null;
   language?:string;
   lastAttemptAt?:string|null;
@@ -217,7 +219,7 @@ function huntCard(row: CatchHuntRow, now: Date, setName = 'Unconfirmed set', inv
     ${diagnosticIdHtml(row.diagnostic_id)}
     <p>${escapeHtml(offer)}</p><p class="retailer">${escapeHtml(languageLabel(row.language??"unknown"))}</p><div class="meta"><span>Live monitored</span><span class="${fresh.stale || row.overdue ? "stale" : ""}">${escapeHtml(row.overdue ? `Overdue: ${row.overdueReason ?? "monitoring delayed"}` : fresh.text)}</span></div>
     ${categoryComparisonHtml({...inventory,title:row.name,language:row.language??"unknown",watch_category:inventory?.watch_category??"",category_reference:row.category_reference??inventory?.category_reference,price_mxn:buying?.priceMxn??null,price_verification_status:buying?"VERIFIED":"PENDING",pricing_observed_at:buying?row.buyingOptions?.checkedAt:null} as BoardRow,now)}<details class="note"><summary>Check details</summary><p>Last attempt: ${escapeHtml(row.lastAttemptAt??"Not recorded")}<br>Next main-page check due: ${escapeHtml(row.nextCheckAt??"Not scheduled")}<br>Buying Options checked: ${escapeHtml(row.buyingOptions?.checkedAt??"Not recorded")}</p></details>
-    <a class="buy" href="${escapeHtml(row.url)}" target="_blank" rel="noopener noreferrer">View on Amazon <span aria-hidden="true">↗</span></a></article>`;
+    <a class="buy" href="${escapeHtml(row.outbound_url||row.url)}" target="_blank" rel="noopener noreferrer">View on Amazon <span aria-hidden="true">↗</span></a></article>`;
 }
 
 function card(row: BoardRow, now: Date): string {
@@ -237,7 +239,7 @@ function card(row: BoardRow, now: Date): string {
     ${categoryComparisonHtml(row,now)}<details class="note"><summary>Historical reference details</summary>${referenceComparisonHtml(row,now)}</details>
     <div class="meta"><span>${escapeHtml(row.availability_freshness_status==="LIVE_MONITORED"?"Live monitored":row.refresh_enabled?"Daily refresh target":"Automatic refresh paused")} · <strong>${escapeHtml(label(row.language))}</strong></span><span class="${fresh.stale ? "stale" : ""}">${escapeHtml(fresh.text)}</span></div>
     <details class="note"><summary>Check details</summary><p>Last attempt: ${escapeHtml(row.revalidation_last_attempt_at??"Not recorded")}<br>Last result: ${escapeHtml(row.revalidation_last_outcome??"Not recorded")}<br>Next check due: ${escapeHtml(row.revalidation_due_at??"Not scheduled")}</p></details>
-    <a class="buy" href="${escapeHtml(row.canonical_url)}" target="_blank" rel="noopener noreferrer">View product <span aria-hidden="true">↗</span></a>
+    <a class="buy" href="${escapeHtml(row.outbound_url||row.canonical_url)}" target="_blank" rel="noopener noreferrer">View product <span aria-hidden="true">↗</span></a>
   </article>`;
 }
 

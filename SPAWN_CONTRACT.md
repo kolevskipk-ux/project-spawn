@@ -1,5 +1,15 @@
 # Project Spawn contract
 
+## Inventory click tracking amendment — implementation authorized 2026-09-12
+
+Philip authorized tracked inventory links while excluding Amazon hunt alerts.
+Spawn owns the authenticated destination registry, public immediate redirects,
+aggregate daily click counters and protected reporting. Catch registers links
+only for inventory and informational messages. Amazon hunt alerts remain direct.
+No customer identifiers or tracking cookies are added. Detailed scope, metric
+limits and staged activation are in `docs/inventory-link-tracking.md`.
+Implementation and local tests do not authorize production migration or activation.
+
 Status: approved operating contract with proposed cross-border inventory amendment
 Date: 2026-09-03
 Applies to: Project Spawn and its interfaces with the rest of Project Garfield

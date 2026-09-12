@@ -12,6 +12,7 @@ import {handleStoreMonitoring,nextStoreDigest} from '../src/store-monitoring';
 import {customerInventory} from '../src/customer-feed';
 import {approveStoresWithAdminInventory} from '../src/store-catalog';
 import {approvedInventoryOperations} from '../src/approved-inventory-operations';
+import {registerInventoryLinksRoute,inventoryRedirect} from '../src/outbound-links';
 // Exercise the real consumer against the real authenticated Spawn handler.
 const catchModule=new URL('../../catch-em-all/src/store-monitor.js',import.meta.url);
 let db:DatabaseSync,env:Env;
@@ -157,7 +158,8 @@ it.skipIf(!existsSync(catchModule))('takes an approved store through Catch obser
   await audit();await approve();await importStoreCatalog(env,store().id);
   env.CATCH_INGEST_SECRET='fixture';env.STORE_MONITORING_ENABLED='true';env.STORE_NOTIFICATIONS_ENABLED='true';
   const values=new Map(),sent:unknown[]=[];let availability='OutOfStock';
-  const catchEnv={CATCH_INGEST_SECRET:'fixture',STORE_MONITORING_ENABLED:'true',STORE_NOTIFICATIONS_ENABLED:'true',STATE:{get:async(k:string)=>values.get(k),put:async(k:string,v:string)=>values.set(k,v)},SPAWN_SERVICE:{fetch:async(url:string,init:RequestInit)=>handleStoreMonitoring(new Request(url,init),env)}};
+  env.INVENTORY_LINK_TRACKING_ENABLED='true';env.PUBLIC_BASE_URL='https://spawn.aztlan-eng.com';
+  const catchEnv={INVENTORY_LINK_TRACKING_ENABLED:'true',CATCH_INGEST_SECRET:'fixture',STORE_MONITORING_ENABLED:'true',STORE_NOTIFICATIONS_ENABLED:'true',STATE:{get:async(k:string)=>values.get(k),put:async(k:string,v:string)=>values.set(k,v)},SPAWN_SERVICE:{fetch:async(url:string,init:RequestInit)=>(await registerInventoryLinksRoute(new Request(url,init),env))||handleStoreMonitoring(new Request(url,init),env)}};
   const options={webhookForRoute:()=> 'https://discord.example/webhook',fetchFn:(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=String(input);
     if(url==='https://discord.example/webhook'){sent.push(JSON.parse(String(init?.body)));return new Response(null,{status:204});}
@@ -170,10 +172,14 @@ it.skipIf(!existsSync(catchModule))('takes an approved store through Catch obser
   expect(view.rows.some(r=>r.delivery_note?.includes('not verified'))).toBe(true);
   db.exec("UPDATE store_customer_events SET due_at='2000'");
   await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(1);
-  expect(JSON.stringify(sent[0])).toContain('Store now tracking');expect(JSON.stringify(sent[0])).not.toContain('/ops/');
+  expect(JSON.stringify(sent[0])).toContain('INVENTORY UPDATE — NOW TRACKING');expect(JSON.stringify(sent[0])).not.toContain('/ops/');
+  const tracked=JSON.stringify(sent[0]).match(/https:\/\/spawn.aztlan-eng.com\/r\/[a-f0-9]{64}/)?.[0];
+  expect(tracked).toBeTruthy();
+  expect((await inventoryRedirect(new Request(tracked!,{headers:{'user-agent':'Mozilla/5.0'}}),env))?.headers.get('location')).toBe(origin+'/');
+  expect(db.prepare('SELECT clicks FROM outbound_click_days').get()).toMatchObject({clicks:1});
   db.exec("UPDATE store_monitor_targets SET next_due_at='2000'");availability='InStock';
   await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(2);
-  expect(JSON.stringify(sent[1])).toContain('Hunt update');
+  expect(JSON.stringify(sent[1])).toContain('INVENTORY UPDATE — STOCK CHANGE');
   await runStoreMonitoring(catchEnv,options);expect(sent).toHaveLength(2);
 });
 it('groups known stores by exact origin without copying product approvals or reviving rejected stores',async()=>{
