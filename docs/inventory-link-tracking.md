@@ -1,6 +1,12 @@
 # Inventory click tracking
 
-Implemented locally on 2026-09-12. Production activation is pending.
+Production activated on 2026-09-12 before 09:00 America/Mexico_City,
+following Philip's explicit approval. Spawn code commit: `5bf50f5`; deployed
+Worker version: `b536d1a7-dcfe-4b12-a14b-3c2326d8cb84`. Catch code commit:
+`a92c926`; deployed Worker version: `860a7377-278e-4e8a-a5d1-3deb16035bc8`.
+Migration 0041 was applied first. An anonymous live redirect returned 302
+without Access sign-in and recorded the verification bot as automated. The
+synthetic link and its counter were removed after verification.
 
 Inventory Discord messages, listing publications, tracking notices, daily
 watchlists and existing product links on the inventory board use opaque
@@ -52,7 +58,8 @@ advertising or automatically share information with partners.
 ## Activation
 
 Keep database migration and Worker deployments as separate approved operations.
-Both repositories ship with `INVENTORY_LINK_TRACKING_ENABLED=false`.
+Both production Workers now have `INVENTORY_LINK_TRACKING_ENABLED=true`.
+The ordered activation steps used for this release are below.
 
 1. Apply Spawn migration `0041_inventory_link_clicks.sql`.
 2. Deploy Spawn's redirect handler before enabling Catch link generation.
