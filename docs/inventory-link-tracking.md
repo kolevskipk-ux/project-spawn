@@ -3,10 +3,19 @@
 Production activated on 2026-09-12 before 09:00 America/Mexico_City,
 following Philip's explicit approval. Spawn code commit: `5bf50f5`; deployed
 Worker version: `b536d1a7-dcfe-4b12-a14b-3c2326d8cb84`. Catch code commit:
-`a92c926`; deployed Worker version: `860a7377-278e-4e8a-a5d1-3deb16035bc8`.
+`60ff033`; final deployed Worker version: `3ea9bf7f-5d3e-473b-aa8f-d5a517dd0cc6`.
 Migration 0041 was applied first. An anonymous live redirect returned 302
 without Access sign-in and recorded the verification bot as automated. The
 synthetic link and its counter were removed after verification.
+
+The 09:00 digest delivered all five chunks across four routes using the new
+format, but its links fell back to direct URLs: Cloudflare Workers rejects
+`redirect: "error"`. The registration client now uses `manual` and rejects
+redirect status codes. This was reproduced and regression-tested in Miniflare's
+Worker runtime. A real Catch-to-Spawn registration succeeded at 09:07:15 Mexico
+City, followed by a verified 302 and automated-click count. Its synthetic data
+was removed and the one-time probe disabled. Today's digest was not resent;
+subsequent inventory links use tracking.
 
 Inventory Discord messages, listing publications, tracking notices, daily
 watchlists and existing product links on the inventory board use opaque
