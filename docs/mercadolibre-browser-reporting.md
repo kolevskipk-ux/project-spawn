@@ -1,6 +1,15 @@
 # Mercado Libre browser reporting to Spawn
 
-Implementation ready; not deployed or activated. Extension version 0.4.0.
+Deployed with Philip's approval on 2026-09-13. Extension version 0.4.0.
+
+Production migration 0042 applied successfully. Code release `044f8ad` was built
+from an isolated worktree, excluding unrelated local edits. Worker code deployment
+was `090418eb-c76c-4e0f-91c2-cf40e5617613`; the subsequent separate secret change
+activated version `e391d6b2-327e-4432-a312-33bdcff694e0`.
+The installed extension folder has the scoped credential; repository copies stay
+empty. Authenticated status returned 200, unauthenticated intake 401, malformed
+authenticated intake 400. No synthetic observations were inserted. A real
+extension receipt remains pending the user's extension reload and next check.
 
 The existing browser checks can send observations to Spawn rather than retaining
 them solely in local extension storage. This is not an integration with Mercado
@@ -32,7 +41,8 @@ TypeScript compilation passes. Eight new backend/transport tests and six existin
 Walmart tests pass (the local release artifact also contains a duplicate Walmart
 suite). Twenty-one isolated Edge extraction cases, scheduling/lease tests and
 popup startup/stalled-worker tests pass. All fixture browser requests are intercepted.
-Production delivery has not yet been tested.
+The isolated full release suite also passed: 302 tests, one skipped. Production
+authentication and validation were checked; real browser delivery remains pending.
 
 ## Approved rollout sequence
 
@@ -50,7 +60,7 @@ Production delivery has not yet been tested.
    production. This real receipt is the end-to-end release check.
 8. Keep the existing 30-minute extension schedule; no server cron activation.
 
-Until rollout, the staged extension's credential remains empty and checks stay
-local. Rollback: remove the ML credential from the installed extension and remove
+The installed extension now has its credential; reload it to activate reporting.
+Repository source credentials remain empty. Rollback: remove the ML credential from the installed extension and remove
 the server secret; preserve observation history. Walmart's credential, schedules,
 routes and existing data are unchanged.
