@@ -1,5 +1,26 @@
 # Project Spawn contract
 
+## Mercado Libre reporting amendment — implementation authorized 2026-09-13
+
+Philip requested wiring Mercado Libre reporting into Spawn after validating local
+sold-out checks. Spawn may accept authenticated browser observations for the five
+existing targets and expose protected latest-check status. Separate scoped
+credentials are required. Page-level sold-out evidence remains unverified seller
+inventory and does not create customer alerts or alter inventory records.
+Production migration, deployment and credential activation remain separate
+approval steps. Native Mercado Libre Notify Me messages are not connected by this
+extension reporting change. See `docs/mercadolibre-browser-reporting.md`.
+
+## Mercado Libre browser pilot — implementation authorized 2026-09-13
+
+Philip authorized extending the browser tracker to the five recovered original
+Mercado Libre product listings. The seller reference is MERCADOLIBRE HOME_MX
+(Tienda oficial Pokemon); a stable numeric seller ID still needs verification.
+The first stage is local extension observation with independent opt-in scheduling,
+no customer publication and no production database changes. Catalog winners and
+other sellers are not implicitly approved. Full fulfillment is not seller identity.
+See `collector/marketplace-extension/README.md` for scope and remaining release gates.
+
 ## Inventory click tracking amendment — implementation authorized 2026-09-12
 
 Philip authorized tracked inventory links while excluding Amazon hunt alerts.

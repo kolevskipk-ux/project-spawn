@@ -38,6 +38,7 @@ import {runCatalogTick} from './store-catalog';
 import {sendAmazonApprovalDigest} from './amazon-approval-digest';
 import {handleStoreMonitoring} from './store-monitoring';
 import {handleWalmartBrowser} from './walmart-browser';
+import {handleMercadoLibreBrowser} from './mercadolibre-browser';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -410,6 +411,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
     return diagnosticsPage(id,data,env.BOARD_ACCESS_TOKEN);
   }
   const walmartBrowser=await handleWalmartBrowser(request,env);if(walmartBrowser)return walmartBrowser;
+  const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;

@@ -1,0 +1,6 @@
+export const ALARM='walmart-warm';
+export const ITEMS=[{itemId:'00019621415869',url:'https://www.walmart.com.mx/ip/cartas-coleccionables-pokemon-tcg-30th-celebration-ultra-premium-day-o-night-collection-en-ingles-varios-modelos-1-pieza/00019621415869'},{itemId:'00019621415836',url:'https://www.walmart.com.mx/ip/cartas-coleccionables-pokemon-tcg-30th-celebration-ditto-premium-collection-en-ingles/00019621415836'}];
+export function exactItem(url,item){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='www.walmart.com.mx'&&u.pathname.startsWith('/ip/')&&u.pathname.endsWith('/'+item.itemId);}catch{return false;}}
+export function challengeUrl(url){try{const u=new URL(url);return u.hostname==='www.walmart.com.mx'&&u.pathname==='/blocked';}catch{return false;}}
+export function quiet(now=new Date()){const p=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Mexico_City',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now).split(':').map(Number),m=p[0]*60+p[1];return m>=125&&m<365;}
+export async function restoreAlarm(api){const {enabled}=await api.storage.local.get('enabled');if(enabled){if(!await api.alarms.get(ALARM))await api.alarms.create(ALARM,{delayInMinutes:30,periodInMinutes:30});}else await api.alarms.clear(ALARM);}

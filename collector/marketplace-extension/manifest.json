@@ -1,0 +1,8 @@
+{
+ "manifest_version":3,"name":"Garfield Marketplace Observer","version":"0.4.0",
+ "description":"Observe approved Walmart and recovered Mercado Libre listings with separate controls.",
+ "permissions":["activeTab","scripting","alarms","storage"],
+ "host_permissions":["https://spawn.aztlan-eng.com/*","https://www.walmart.com.mx/*","https://www.mercadolibre.com.mx/*","https://articulo.mercadolibre.com.mx/*"],
+ "background":{"service_worker":"background.js","type":"module"},
+ "action":{"default_popup":"popup.html","default_title":"Check marketplace offer"}
+}
