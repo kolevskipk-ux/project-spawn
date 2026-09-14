@@ -1,5 +1,24 @@
 # Mercado Libre browser reporting to Spawn
 
+## Operator possible-restock alerts
+
+Philip authorized adding private operator alerts after both real checks reached
+Spawn at 18:26 Mexico City time on September 13. Customer alerts remain disabled.
+Migration 0043 adds a durable alert outbox. The existing minute tick checks fresh
+observations (up to 45 minutes old), requires an earlier sold-out observation,
+and alerts only when an enabled purchase control and price are reported for the
+original listing with the matching product title. Missing tabs, blocked pages,
+unknown offer identities, seller mismatches and disappearing sold-out text alone
+do not trigger an alert. A new live DOM layout may still need extractor updates.
+
+Delivery uses the existing OPS_DISCORD_WEBHOOK_URL, with mentions disabled and
+explicit unverified seller/delivery wording. Each sold-out episode has one durable
+alert ID. Successful sends are not repeated by subsequent checks. Failed sends
+retry after a two-minute lease, only while fresh qualifying evidence remains.
+A crash after Discord accepts but before the receipt is saved can still duplicate
+a message (Discord webhook delivery is not exactly-once). Disable via
+MERCADOLIBRE_OPERATOR_ALERTS_ENABLED=false; this does not stop browser observations.
+
 Deployed with Philip's approval on 2026-09-13. Extension version 0.4.0.
 
 Production migration 0042 applied successfully. Code release `044f8ad` was built

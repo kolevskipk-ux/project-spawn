@@ -39,6 +39,7 @@ import {sendAmazonApprovalDigest} from './amazon-approval-digest';
 import {handleStoreMonitoring} from './store-monitoring';
 import {handleWalmartBrowser} from './walmart-browser';
 import {handleMercadoLibreBrowser} from './mercadolibre-browser';
+import {deliverMercadoLibreOperatorAlerts} from './mercadolibre-operator-alerts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
@@ -540,6 +541,7 @@ export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: 
   const now=new Date();
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){
+    ctx.waitUntil(deliverMercadoLibreOperatorAlerts(env).catch(()=>console.error('Mercado Libre operator alert pending retry')));
     ctx.waitUntil(retryDropSearches(env).catch(()=>console.error('Drop recovery retry failed')));
     ctx.waitUntil(deliverPrivacyMailAlerts(env).catch(()=>console.error('Privacy mail alert retry failed')));
     if(!quiet&&env.STORE_CATALOG_FAST_ENABLED==='true')ctx.waitUntil(runCatalogTick(env).catch(error=>console.error('Store catalog maintenance failed',error)));

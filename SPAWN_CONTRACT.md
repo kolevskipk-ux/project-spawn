@@ -1,5 +1,14 @@
 # Project Spawn contract
 
+## Mercado Libre operator alerts — authorized 2026-09-13
+
+Philip approved adding private possible-restock notifications after live browser
+reporting was confirmed. Spawn may notify the existing Ops Discord destination
+when fresh purchase-button and price evidence appears for the original product
+after a sold-out observation. Seller and delivery remain explicitly unverified;
+customer publication/alerts remain disabled. Durable episode deduplication and
+bounded retry use the existing minute tick. This is not native Notify Me forwarding.
+
 ## Mercado Libre reporting amendment — implementation authorized 2026-09-13
 
 Philip requested wiring Mercado Libre reporting into Spawn after validating local
