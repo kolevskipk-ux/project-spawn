@@ -2,6 +2,12 @@
 
 ## Operator possible-restock alerts
 
+Activated September 13 at approximately 18:30 Mexico City time. Migration 0043
+applied; code `1a39874`, Worker `9017faa2-ae3c-4e56-b7db-223f98e87735`.
+Four new transition/delivery tests and fourteen reporting/Walmart regression tests
+passed in the isolated release. No fabricated restock was sent to the Ops channel;
+the first actual qualifying offer will validate live alert delivery.
+
 Philip authorized adding private operator alerts after both real checks reached
 Spawn at 18:26 Mexico City time on September 13. Customer alerts remain disabled.
 Migration 0043 adds a durable alert outbox. The existing minute tick checks fresh
