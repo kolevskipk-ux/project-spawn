@@ -46,11 +46,25 @@ export async function approveStoresWithAdminInventory(env:Env) {
   }
   return approved;
 }
-async function enqueue(env:Env,run:Run,store:Store,urls:string[],kind:string) {
+export async function enqueue(env:Env,run:Pick<Run,'id'>,store:Store,urls:string[],kind:string) {
   const unique=[...new Set(urls.map(url=>catalogUrl(url,store.origin)).filter((url):url is string=>Boolean(url)))];
-  for(let offset=0;offset<Math.min(unique.length,MAX_PAGES);offset+=50) {
-    await env.SPAWN_DB.batch(unique.slice(offset,offset+50).map(url=>env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO store_catalog_pages(run_id,url,kind)
-      SELECT ?,?,? WHERE (SELECT COUNT(*) FROM store_catalog_pages WHERE run_id=?) < ?`).bind(run.id,url,kind,run.id,MAX_PAGES)));
+  for(let offset=0;offset<unique.length;offset+=500) {
+    // One capacity calculation per batch, within the same atomic statement as
+    // insertion. Concurrent discovery cannot spend the same remaining slots.
+    const result=await env.SPAWN_DB.prepare(`WITH capacity AS MATERIALIZED (
+      SELECT MAX(0, ?-COUNT(*)) slots FROM store_catalog_pages WHERE run_id=?
+    ), candidates AS MATERIALIZED (
+      SELECT value AS url FROM json_each(?)
+      WHERE NOT EXISTS(SELECT 1 FROM store_catalog_pages WHERE run_id=? AND url=value)
+      LIMIT (SELECT slots FROM capacity)
+    ) INSERT OR IGNORE INTO store_catalog_pages(run_id,url,kind)
+      SELECT ?,url,? FROM candidates`).bind(MAX_PAGES,run.id,JSON.stringify(unique.slice(offset,offset+500)),run.id,run.id,kind).run();
+    // At capacity, subsequent batches would only repeat work. A batch of
+    // duplicates can also insert nothing, so check capacity before stopping.
+    if(result.meta.changes<500){
+      const count=await env.SPAWN_DB.prepare('SELECT COUNT(*) n FROM store_catalog_pages WHERE run_id=?').bind(run.id).first<{n:number}>();
+      if((count?.n??0)>=MAX_PAGES)break;
+    }
   }
   const count=await env.SPAWN_DB.prepare('SELECT COUNT(*) n FROM store_catalog_pages WHERE run_id=?').bind(run.id).first<{n:number}>();
   if((count?.n??0)>=MAX_PAGES)await env.SPAWN_DB.prepare("UPDATE store_catalog_runs SET note='Catalog page limit reached; coverage is partial' WHERE id=?").bind(run.id).run();
@@ -62,11 +76,24 @@ export async function queueApprovedStoreDiscovery(env:Env,candidateId:string,sou
  const url=catalogUrl(sourceUrl,origin);if(!url)return false;
  if(await env.SPAWN_DB.prepare('SELECT 1 FROM store_discovery_handoffs WHERE candidate_id=? AND store_id=?').bind(candidateId,store.id).first())return true;
  const runId=await startCatalogRun(env,store.id,'approved-store-discovery');
+ await enqueue(env,{id:runId},store,[url],'PAGE');
+ if(!await env.SPAWN_DB.prepare('SELECT 1 FROM store_catalog_pages WHERE run_id=? AND url=?').bind(runId,url).first())return false;
  await env.SPAWN_DB.batch([
-  env.SPAWN_DB.prepare("INSERT INTO store_catalog_pages(run_id,url,kind) VALUES(?,?,'PAGE') ON CONFLICT(run_id,url) DO UPDATE SET state=CASE WHEN store_catalog_pages.state='FAILED' THEN 'PENDING' ELSE store_catalog_pages.state END").bind(runId,url),
+  env.SPAWN_DB.prepare("UPDATE store_catalog_pages SET state='PENDING' WHERE run_id=? AND url=? AND state='FAILED'").bind(runId,url),
   env.SPAWN_DB.prepare("INSERT OR IGNORE INTO store_discovery_handoffs(candidate_id,store_id,url,queued_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM store_acquisitions WHERE id=? AND status='APPROVED' AND revision=?)").bind(candidateId,store.id,url,new Date().toISOString(),store.id,store.revision)
  ]);
  return true;
+}
+
+export async function nextCatalogPage(env:Env,runId:string,storeId:string){
+  const robots=await env.SPAWN_DB.prepare("SELECT url,kind FROM store_catalog_pages WHERE run_id=? AND state='PENDING' AND kind='ROBOTS' ORDER BY url LIMIT 1").bind(runId).first<{url:string;kind:string}>();
+  if(robots)return robots;
+  const discovery=await env.SPAWN_DB.prepare(`SELECT p.url,p.kind FROM store_discovery_handoffs h
+    CROSS JOIN store_catalog_pages p ON p.run_id=? AND p.url=h.url
+    WHERE h.store_id=? AND p.state='PENDING' ORDER BY h.url LIMIT 1`).bind(runId,storeId).first<{url:string;kind:string}>();
+  if(discovery)return discovery;
+  return env.SPAWN_DB.prepare(`SELECT url,kind FROM store_catalog_pages WHERE run_id=? AND state='PENDING'
+    ORDER BY CASE WHEN kind='ROBOTS' THEN 0 WHEN kind='PAGE' AND (url LIKE '%/products/%' OR url LIKE '%/product/%' OR url LIKE '%/producto/%') THEN 1 WHEN kind='FEED' THEN 2 WHEN kind='SITEMAP' THEN 3 ELSE 4 END,url LIMIT 1`).bind(runId).first<{url:string;kind:string}>();
 }
 export async function startCatalogRun(env:Env,id:string,actor:string,now=new Date()) {
   const store=await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(id).first<Store>();
@@ -227,7 +254,7 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
       const active=await env.SPAWN_DB.prepare('SELECT status FROM store_acquisitions WHERE id=?').bind(store.id).first<{status:string}>();
       if(!active||['REJECTED','PAUSED'].includes(active.status)||await storeSuppressed(env,store))return;
       const run=await env.SPAWN_DB.prepare("SELECT * FROM store_catalog_runs WHERE id=? AND status='RUNNING'").bind(runId).first<Run>();if(!run)break;
-      const page=await env.SPAWN_DB.prepare("SELECT url,kind FROM store_catalog_pages WHERE run_id=? AND state='PENDING' ORDER BY CASE WHEN kind='ROBOTS' THEN 0 WHEN EXISTS(SELECT 1 FROM store_discovery_handoffs h WHERE h.url=store_catalog_pages.url) THEN 0.5 WHEN kind='PAGE' AND (url LIKE '%/products/%' OR url LIKE '%/product/%' OR url LIKE '%/producto/%') THEN 1 WHEN kind='FEED' THEN 2 WHEN kind='SITEMAP' THEN 3 ELSE 4 END,url LIMIT 1").bind(run.id).first<{url:string;kind:string}>();
+      const page=await nextCatalogPage(env,run.id,store.id);
       if(!page) {
         const failure=await env.SPAWN_DB.prepare("SELECT COUNT(*) n FROM store_catalog_pages WHERE run_id=? AND state IN ('FAILED','BLOCKED')").bind(run.id).first<{n:number}>();
         const partial=Boolean(failure?.n||run.note);
