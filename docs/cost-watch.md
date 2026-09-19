@@ -38,3 +38,10 @@ authorize automatic production changes, service shutdowns, or budget increases.
 
 Validation: 312 tests and TypeScript passed; test covers auth rejection, payload
 validation, routing, deduplication, conflicting receipt IDs and failed-send retries.
+
+Production activation completed September 19 at 17:30 Mexico City: migration 0045,
+source ad0354c, Worker a84f3847-6439-458f-92d1-603721a9ef58; scoped-secret activation
+created version 9b7f77b4-62be-4838-b35b-a259fa861691. The setup receipt
+setup-20260919 returned delivered after secret propagation; readyz returned ok.
+Heartbeat garfield-d1-cost-watch was updated to use this route every 30 minutes.
+Rollback Worker: 1e590e97-c33b-4341-9d29-45cc8f2ece58 (cost repair remains active).
