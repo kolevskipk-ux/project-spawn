@@ -1,4 +1,5 @@
 export interface Env {
+  COST_WATCH_TOKEN?: string;
   INVENTORY_LINK_TRACKING_ENABLED?: string;
   WALMART_COLLECTOR_TOKEN?: string;
   MERCADOLIBRE_COLLECTOR_TOKEN?: string;

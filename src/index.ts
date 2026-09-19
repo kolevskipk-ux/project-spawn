@@ -37,6 +37,7 @@ import {buildSearchPlan} from './search-plan';
 import {runCatalogTick} from './store-catalog';
 import {sendAmazonApprovalDigest} from './amazon-approval-digest';
 import {handleStoreMonitoring} from './store-monitoring';
+import {handleCostWatch} from './cost-watch';
 import {handleWalmartBrowser} from './walmart-browser';
 import {handleMercadoLibreBrowser} from './mercadolibre-browser';
 import {deliverMercadoLibreOperatorAlerts} from './mercadolibre-operator-alerts';
@@ -411,6 +412,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
     if(request.headers.get('accept')==='application/json')return json(data??{});
     return diagnosticsPage(id,data,env.BOARD_ACCESS_TOKEN);
   }
+  const costWatch=await handleCostWatch(request,env);if(costWatch)return costWatch;
   const walmartBrowser=await handleWalmartBrowser(request,env);if(walmartBrowser)return walmartBrowser;
   const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
