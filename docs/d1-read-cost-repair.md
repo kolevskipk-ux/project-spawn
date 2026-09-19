@@ -1,6 +1,7 @@
 # D1 read-cost repair — September 19, 2026
 
-Status: local release candidate; production has not changed.
+Status: approved by Philip and deployed September 19, 2026, approximately 17:23
+Mexico City time. Source release: 87595af0102102a84c5e670bdfcc1df51bafed58.
 
 Query Insights supplied by Philip showed 178.09B reads for 22,050,616 individual
 queue insertion attempts, 121.07B reads for next-page selection, and 86.86B reads
@@ -58,4 +59,22 @@ success. Browser recovery remains separately budget-blocked.
 
 Rollback: restore the previously active Worker version. The additive indexes can
 remain; old code is compatible with them. Record the live version before rollout.
-No production pause, migration, deployment or GitHub main push has been performed.
+## Production verification
+
+- Migration 0044 was the only pending migration and was applied separately;
+  six migration commands completed in approximately 5.65 seconds.
+- Worker version: 1e590e97-c33b-4341-9d29-45cc8f2ece58.
+- Previous version for rollback: 470c9269-5e26-4bdb-913c-57890acfa64a.
+- Deployment used the clean release checkout and `--keep-vars`; existing cron
+  expressions and bindings were retained. No monitoring baselines were reset.
+- `/healthz` and `/readyz` both returned `ok: true`.
+- All five indexes exist in production. EXPLAIN QUERY PLAN confirms the latest
+  accepted candidate lookup uses monitoring_candidates_listing_status_latest.
+- Scheduled catalog ticks were recorded at 23:23:44 UTC after deployment.
+- GitHub main was verified at source release 87595af before this documentation
+  update. The original unrelated working edits remain outside the release.
+- Initial remote D1 read returned transient error 7403; retry succeeded before
+  migration. No changes were attempted while that read failed.
+- Initial five-minute D1 Insights query returned an empty array. Production
+  billing reduction is not yet measured; local benchmark gains are not a live
+  savings claim. Browser budget settings were not changed.
