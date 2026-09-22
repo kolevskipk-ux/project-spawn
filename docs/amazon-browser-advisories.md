@@ -42,3 +42,21 @@ the live authenticated path but do not prove a real advisory reached Discord.
 Validation: Spawn 323 tests across 40 suites plus TypeScript; Catch full regression
 suite plus advisory validation, channel routing, suppression, failed-send retry and
 lost-ack deduplication tests. No synthetic product alerts are sent to customers.
+
+## Production activation evidence
+
+Activated September 22, 2026 at 02:31 UTC (September 21, 20:31 Mexico City).
+Migration 0047 applied successfully. Disabled deployments were verified before
+separate flag activation. Final versions:
+
+- Spawn: 6fc32c4b-7244-4989-9e0f-013327c697e6; source 4a9c6c6.
+- Catch: cfab344b-f7f7-4015-a485-7c5e7137936e; source 70f1b47.
+
+Both collector credentials returned HTTP 200, 14 saved products and
+customerAlertsEnabled=true. Malformed observations returned 400, unauthenticated
+status returned 401, and health/readiness returned 200. Catch's actual scheduled
+poll at 02:31:14.365 UTC succeeded with no eligible events. D1 showed all 14 episode
+states initialized and no queued advisories. Actual Discord delivery remains
+unobserved until the next eligible genuine signal; mocked delivery tests passed.
+All existing binding metadata matched pre-release versions exactly; the only new
+binding on either Worker was AMAZON_BROWSER_ADVISORIES_ENABLED=true.
