@@ -1,6 +1,16 @@
-# Amazon Edge signal intake — prepared, not deployed
+# Amazon Edge signal intake — activated September 21, 2026 (Mexico City)
 
-Branch: `codex/amazon-browser-signals`, based on the clean cost-containment release 91280c7. Extension 0.3.0 remains local by default. The cloud browser cap and all pause flags remain unchanged.
+Branch: `codex/amazon-browser-signals`, based on the clean cost-containment release 91280c7. Source release: 4dba0b3. Extension 0.3.0 source remains credential-free; the installed desktop copy and private laptop package are configured for reporting. The cloud browser cap and all pause flags remain unchanged.
+
+## Activation evidence
+
+Philip approved migration, separate deployment, credential setup and laptop packaging in this task. Migration 0046 was the only pending migration and applied in three commands. All 14 targets were verified published before deployment. Worker code version: eb72e8c9-6f9a-4be8-9664-1440b5a5f7ea; final secret-activated version: edf1a780-b1ef-4e57-a893-8360599eaef0. Previous Worker: 8c88fffb-8181-41ec-af8a-77623e2d1bdf.
+
+Separate desktop and laptop credentials were provisioned through Wrangler; neither credential is committed. The server assigns collector identity from the credential, ignoring client identity claims. Either credential can be independently revoked. Both authenticated status requests returned 200 with 14 targets; malformed observations returned 400; unauthenticated status returned 401. Health and readiness returned 200. No synthetic observation was inserted. A genuine extension receipt remains pending the desktop reload or laptop installation and first check.
+
+The private ZIP is `releases/Garfield-Amazon-Observer-Laptop-v0.3.0.zip`, outside this Git checkout, with eleven runtime/setup files and only the laptop-scoped credential. SHA-256: `2D6311605313036DC839A739FE4305ED0125F319C245F4E89CD2FE787267B26B`. Do not distribute publicly. Install by extracting and loading the folder containing manifest.json in Edge Developer mode.
+
+Validation: TypeScript, 318 backend tests, 25 isolated Edge DOM cases, scheduler and notification transition tests, and dry-run build passed before activation. The additional laptop-authentication test passed before deployment. Source is recorded on the feature branch; no main-branch push was performed.
 
 ## Contract
 
