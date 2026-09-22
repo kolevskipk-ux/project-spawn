@@ -1,4 +1,6 @@
 export interface Env {
+  AMAZON_COLLECTOR_TOKEN?: string;
+  AMAZON_LAPTOP_COLLECTOR_TOKEN?: string;
   COST_WATCH_TOKEN?: string;
   INVENTORY_LINK_TRACKING_ENABLED?: string;
   WALMART_COLLECTOR_TOKEN?: string;
