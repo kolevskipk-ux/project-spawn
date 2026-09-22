@@ -78,7 +78,7 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     const lease=crypto.randomUUID();
     await env.SPAWN_DB.prepare(`UPDATE store_customer_events SET lease_id=?,lease_until=?,attempts=attempts+1 WHERE id IN (SELECT e.id FROM store_customer_events e JOIN store_acquisitions s ON s.id=e.store_id WHERE s.status='APPROVED' AND e.delivered_at IS NULL AND e.expired_at IS NULL AND e.due_at<=? AND (e.lease_until IS NULL OR e.lease_until<?) AND NOT ${storeSuppressionSql} AND (e.target_id IS NULL OR EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=e.target_id AND NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=t.id AND admin.removed_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_listing_key=t.id OR c.source_url=t.url) AND c.status='REJECTED'))) ORDER BY e.due_at,e.id LIMIT 50)`)
       .bind(lease,new Date(+now+180000).toISOString(),at,at).run();
-    return Response.json({lease_id:lease,events:(await env.SPAWN_DB.prepare('SELECT * FROM store_customer_events WHERE lease_id=?').bind(lease).all()).results});
+    return Response.json({lease_id:lease,events:(await env.SPAWN_DB.prepare('SELECT e.*,s.retailer FROM store_customer_events e JOIN store_acquisitions s ON s.id=e.store_id WHERE e.lease_id=?').bind(lease).all()).results});
   }
   if(url.pathname.endsWith('/ack-events')) {
     if(!Array.isArray(body.ids)||body.ids.length>50||body.ids.some((id:unknown)=>typeof id!=='string')||typeof body.lease_id!=='string')return Response.json({error:'invalid_ack'},{status:400});
