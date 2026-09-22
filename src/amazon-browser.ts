@@ -36,7 +36,7 @@ export async function handleAmazonBrowser(request:Request,env:Env):Promise<Respo
      const observation=latest?JSON.parse(latest.evidence_json):null;
      rows.push({asin:item.asin,name:item.name,latest:observation,ageSeconds,stale:ageSeconds===null||ageSeconds>900});
    }
-   return Response.json({source:'amazon_edge',customerAlertsEnabled:false,inventoryUpdated:false,rows},{headers:{'cache-control':'no-store'}});
+   return Response.json({source:'amazon_edge',customerAlertsEnabled:env.AMAZON_BROWSER_ADVISORIES_ENABLED==='true',alertType:'unverified_advisory',inventoryUpdated:false,rows},{headers:{'cache-control':'no-store'}});
  }
  if(!path.endsWith('/observe')||request.method!=='POST')return new Response('Method not allowed',{status:405});
  const text=await request.text();if(text.length>4000)return new Response('Too large',{status:413});

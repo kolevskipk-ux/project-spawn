@@ -1,5 +1,14 @@
 # Project Spawn contract
 
+## Amazon browser customer advisories — production authorized 2026-09-21
+
+Philip approved integrating the saved Edge observations into production customer
+alerts. Spawn may queue fresh visible Buying Options signals for the 14 approved
+30th-anniversary Amazon products. Catch owns Discord delivery. These are explicitly
+unverified advisories and never promote inventory, prices or seller verification.
+Migration, Worker deployment and feature activation are executed separately.
+See `docs/amazon-browser-advisories.md` for eligibility, deduplication and rollback.
+
 ## Mercado Libre operator alerts — authorized 2026-09-13
 
 Philip approved adding private possible-restock notifications after live browser

@@ -40,6 +40,7 @@ import {handleStoreMonitoring} from './store-monitoring';
 import {handleCostWatch} from './cost-watch';
 import {handleWalmartBrowser} from './walmart-browser';
 import {handleAmazonBrowser} from './amazon-browser';
+import {handleAmazonBrowserAdvisories} from './amazon-browser-advisories';
 import {handleMercadoLibreBrowser} from './mercadolibre-browser';
 import {deliverMercadoLibreOperatorAlerts} from './mercadolibre-operator-alerts';
 
@@ -416,6 +417,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   const costWatch=await handleCostWatch(request,env);if(costWatch)return costWatch;
   const walmartBrowser=await handleWalmartBrowser(request,env);if(walmartBrowser)return walmartBrowser;
   const amazonBrowser=await handleAmazonBrowser(request,env);if(amazonBrowser)return amazonBrowser;
+  const amazonAdvisories=await handleAmazonBrowserAdvisories(request,env);if(amazonAdvisories)return amazonAdvisories;
   const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
