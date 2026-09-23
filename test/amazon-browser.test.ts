@@ -46,3 +46,11 @@ describe('Amazon browser signal intake',()=>{
   for(const [body,status] of [['{',400],[' '.repeat(4001),413]] as const)expect((await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer amazon'},body}),env))?.status).toBe(status);
  });
 });
+
+it('keeps validated featured-offer fields but never upgrades global inventory authority',()=>{
+ const body={...observation(),state:'available',reason:'VERIFIED_FEATURED_OFFER',buyingOptionsShown:false,priceMxn:329,seller:'Amazon México',purchaseEnabled:true};
+ expect(validateAmazonBrowserObservation(body)?.offer).toMatchObject({priceMxn:329,seller:'Amazon México',purchaseEnabled:true});
+ expect(validateAmazonBrowserObservation(body)?.availabilityState).toBe('unknown');
+ for(const patch of [{priceMxn:0},{priceMxn:'329'},{seller:''},{seller:'x'.repeat(121)},{purchaseEnabled:false}])expect(validateAmazonBrowserObservation({...body,...patch})).not.toHaveProperty('offer');
+ const {priceMxn,seller,purchaseEnabled,...legacy}=body;expect(validateAmazonBrowserObservation(legacy)).not.toBeNull();expect(validateAmazonBrowserObservation(legacy)).not.toHaveProperty('offer');
+});

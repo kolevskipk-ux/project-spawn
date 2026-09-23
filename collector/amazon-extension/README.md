@@ -1,3 +1,17 @@
+# Featured-offer transport — 0.3.3
+
+Fresh available observations now include the extracted price, seller, fulfilment label and purchase-control flag. Spawn validates and preserves these fields for browser-observed customer advisories after the corresponding backend release. Older observations without complete offer details remain diagnostic and are not promoted. No page HTML, cookies or account details are sent. Reload the extension after backend activation.
+
+# Extraction timeout fix — 0.3.2
+
+Product extraction now has a 15-second deadline. A timeout logs EXTRACTION_FAILED with TIMEOUT, records PAGE_CHECK_FAILED as an error (never sold out), and continues the sweep. Late results are ignored. This does not cancel script execution inside Edge or prove why injection stalled. Reload the extension once to release an already-stuck 0.3.1 worker, then refresh the dashboard. History and credentials are preserved.
+
+# Diagnostics update — 0.3.1
+
+Reload Garfield Amazon Observer in edge://extensions, then refresh its dashboard. Existing schedule, history and collector credentials are preserved. No new permissions are needed.
+
+The health summary distinguishes paused, missing or overdue alarms, stale completed passes and active or stalled checks. Expand Diagnostics to inspect the latest 30 events; Export history includes up to 500 events, the active step and the last progress timestamp. Events record worker/browser starts, alarm delays, busy/lease skips, reload/extraction stages, page error categories and intake outcomes. Logs remain local and exclude credentials, page contents and raw exception messages. A worker start is not proof of a crash; delayed alarms do not distinguish sleep from browser scheduling delays. Logging begins after reload and cannot reconstruct earlier interruptions. Diagnostic storage failures are swallowed so they do not stop checks.
+
 # Garfield Amazon Observer 0.3.0
 
 0.3.0 adds **Buying options shown — click to see offers**. This reports an enabled, visible control inside the matching product buybox, without clicking it or checking the offers. Local notifications occur on first detection and on confirmed absent → shown changes. Unknown/blocked checks preserve the previous signal to prevent duplicate notifications. This signal never replaces the last verified stock state and takes precedence over conflicting main-page unavailable text.

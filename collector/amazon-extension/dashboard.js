@@ -1,3 +1,4 @@
+import {healthSummary} from './diagnostics.js';
 import {ITEMS} from './items.js';
 const $=id=>document.getElementById(id);let snapshot={};
 const date=value=>value?new Date(value).toLocaleString():'Never';
@@ -7,6 +8,8 @@ async function refresh(){
   snapshot=await chrome.runtime.sendMessage({action:'status'});if(snapshot.error){message(snapshot.error);return;}
   $('toggle').textContent=snapshot.enabled?'Pause automatic checks':'Enable 5-minute checks';
   $('status').textContent=`${snapshot.enabled?'Monitoring enabled':'Automatic checks paused'} · Next check: ${date(snapshot.nextAt)} · Last complete pass: ${date(snapshot.lastRun?.completedAt)}`;
+  $('health').textContent=healthSummary(snapshot);
+  $('diagnostics').textContent=(snapshot.diagnostics||[]).slice(0,30).map(event=>JSON.stringify(event)).join('\n')||'No diagnostic events yet. Reload the extension to activate diagnostics.';
   $('cards').replaceChildren();
   for(const item of ITEMS){
     const entry=snapshot.history?.[item.asin],last=entry?.checks?.[0],verified=entry?.lastVerified;

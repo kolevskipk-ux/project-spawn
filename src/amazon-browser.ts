@@ -17,7 +17,9 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now()){
  // Client classifications are retained only as diagnostics, never stock authority.
  if(body.state==='available'&&(body.reason!=='VERIFIED_FEATURED_OFFER'||body.buyingOptionsShown!==false))return null;
  if(body.state==='sold_out'&&(body.reason!=='EXPLICIT_PRODUCT_UNAVAILABLE'||body.buyingOptionsShown!==false))return null;
- return {schemaVersion:1,source:'amazon_edge',id:body.id,asin:target.asin,url:target.url,observedAt:new Date(time).toISOString(),title:body.title,collectorState:body.state,reason:body.reason,buyingOptionsShown:body.buyingOptionsShown,
+ const offer=body.state==='available'&&body.purchaseEnabled===true&&typeof body.priceMxn==='number'&&Number.isFinite(body.priceMxn)&&body.priceMxn>0&&typeof body.seller==='string'&&body.seller.trim().length>0&&body.seller.length<=120
+   ?{priceMxn:body.priceMxn,seller:body.seller.trim(),fulfilledBy:typeof body.fulfilledBy==='string'?body.fulfilledBy.slice(0,120):null,purchaseEnabled:true}:null;
+ return {...(offer?{offer}:{}),schemaVersion:1,source:'amazon_edge',id:body.id,asin:target.asin,url:target.url,observedAt:new Date(time).toISOString(),title:body.title,collectorState:body.state,reason:body.reason,buyingOptionsShown:body.buyingOptionsShown,
    availabilityState:'unknown',label:signal?'Buying options shown — click to see offers':null};
 }
 

@@ -1,11 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Garfield Amazon Observer",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "description": "Local Amazon Mexico inventory pilot: 14 known 30th anniversary products, five-minute checks and evidence history.",
-  "permissions": ["alarms", "storage", "unlimitedStorage", "scripting", "notifications"],
-  "host_permissions": ["https://www.amazon.com.mx/*", "https://spawn.aztlan-eng.com/*"],
-  "background": {"service_worker": "background.js", "type": "module"},
-  "action": {"default_title": "Amazon monitoring dashboard"},
-  "icons": {"128": "icon.png"}
+  "permissions": [
+    "alarms",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.amazon.com.mx/*",
+    "https://spawn.aztlan-eng.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Amazon monitoring dashboard"
+  },
+  "icons": {
+    "128": "icon.png"
+  }
 }

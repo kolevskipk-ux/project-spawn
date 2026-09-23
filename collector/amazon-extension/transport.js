@@ -1,5 +1,5 @@
 export function intakeRecord(record){
-  return {schemaVersion:1,source:'amazon_edge',id:record.id,asin:record.asin,url:record.url,observedAt:record.observedAt,title:record.title||'',state:record.state,reason:record.reason,buyingOptionsShown:typeof record.buyingOptionsShown==='boolean'?record.buyingOptionsShown:null};
+  return {schemaVersion:1,source:'amazon_edge',id:record.id,asin:record.asin,url:record.url,observedAt:record.observedAt,title:record.title||'',state:record.state,reason:record.reason,...(record.state==='available'?{priceMxn:record.priceMxn,seller:record.seller,fulfilledBy:record.fulfilledBy,purchaseEnabled:record.purchaseEnabled}:{}),buyingOptionsShown:typeof record.buyingOptionsShown==='boolean'?record.buyingOptionsShown:null};
 }
 export async function sendObservation(record,token,fetchFn=fetch){
   if(!token)return {mode:'local',saved:false};

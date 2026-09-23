@@ -96,3 +96,35 @@ globalThis.setTimeout=originalSetTimeout;
 assert.equal(listeners.size,0);assert.equal(storage.leaseUntil,undefined);
 console.log('14-product sweeps passed: maximum two concurrent tabs, overlap prevention, per-product history, first-availability notifications and duplicate suppression.');
 console.log(`${cases} real-Edge DOM fixture cases passed; URL identity, history preservation, opt-in scheduling, missing tabs and lease checks passed. No live network requests.`);
+
+assert.equal(storage.activeRun,undefined);
+assert(storage.diagnostics.some(e=>e.type==='RUN_COMPLETED'&&e.count===14));
+assert(storage.diagnostics.some(e=>e.type==='RELOAD_COMPLETED'));
+assert(storage.diagnostics.some(e=>e.type==='RESULT'));
+assert(storage.diagnostics.length<=500);
+
+// A never-settling injection must not block later products or the next sweep.
+const late=[];
+globalThis.setTimeout=(fn,ms,...args)=>originalSetTimeout(fn,ms===15000?5:ms===2500?0:ms,...args);
+chrome.scripting.executeScript=async({args:[item]})=>{
+  if(item.asin===ITEMS[2].asin||item.asin===ITEMS[3].asin)return new Promise(resolve=>late.push(()=>resolve([{result:{asin:item.asin,state:'available',reason:'VERIFIED_FEATURED_OFFER'}}])));
+  return [{result:{asin:item.asin,url:item.url,state:'sold_out',reason:'EXPLICIT_PRODUCT_UNAVAILABLE'}}];
+};
+await run();
+assert.equal(storage.lastRun.results.length,14);
+assert.equal(storage.lastRun.results[2].state,'error');
+assert.equal(storage.lastRun.results[3].state,'error');
+assert.equal(storage.lastRun.results[13].state,'sold_out');
+assert(storage.diagnostics.some(e=>e.type==='EXTRACTION_FAILED'&&e.error==='TIMEOUT'));
+assert.equal(storage.leaseUntil,undefined);
+assert.equal(storage.activeRun,undefined);
+const saved=JSON.stringify(storage.history);late.forEach(resolve=>resolve());await new Promise(resolve=>originalSetTimeout(resolve,0));
+assert.equal(JSON.stringify(storage.history),saved,'Late extraction must not overwrite history');
+chrome.scripting.executeScript=async({args:[item]})=>[{result:{asin:item.asin,url:item.url,state:'sold_out',reason:'EXPLICIT_PRODUCT_UNAVAILABLE'}}];
+storage.enabled=true;await run(true);assert.equal(storage.lastRun.results.length,14);assert(storage.lastRun.results.every(r=>r.state==='sold_out'));
+globalThis.setTimeout=originalSetTimeout;
+console.log('Hung ETB/Bundle regression passed: bounded failure, remaining products checked, late results ignored, next automatic sweep succeeds.');
+
+const offerPayload=intakeRecord({...transportRecord,state:'available',priceMxn:329,seller:'Amazon México',fulfilledBy:'Amazon',purchaseEnabled:true});
+assert.equal(offerPayload.priceMxn,329);assert.equal(offerPayload.seller,'Amazon México');assert.equal(offerPayload.purchaseEnabled,true);
+assert.equal(intakeRecord({...transportRecord,state:'buying_options_shown',priceMxn:329,seller:'Amazon'}).priceMxn,undefined);
