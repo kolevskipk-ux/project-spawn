@@ -35,3 +35,10 @@ attempted listings is inconclusive. Do not expand or restart automatically.
 
 Rollback: remove the trial start variable or restore Worker
 46250fff-ef9f-4dad-8529-1dafd109b1d9. Leave saved evidence intact.
+Production deployment verified September 26, 2026: version
+14a2b466-b557-4933-9737-fe78c05a7e2c, source 5fcce7e. Live trial start binding
+matches the documented window; all three broad pause flags remain false.
+Both health endpoints returned HTTP 200 and ok=true. TypeScript and 332 tests
+passed. Cost watch updated to inspect the bounded trial evidence and notify on
+completion/stop. Source published on codex/contained-restart; direct main push
+was rejected by automatic approval review, so main has not been advanced.
