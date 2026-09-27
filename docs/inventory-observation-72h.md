@@ -42,3 +42,13 @@ Retirement rules in inventory-retirement-draft.md remain unimplemented.
 
 Rollback: remove INVENTORY_OBSERVATION_START or restore the prior deployment.
 Preserve all evidence; do not reset baselines or retry a stopped campaign.
+
+Deployment verification: source b62310f, production Worker
+b66010c9-c2a0-4811-ab08-ed613cc3e539. Live observation start verified;
+normal revalidation and both catalog flags remain false. Both health endpoints
+returned 200/ok. TypeScript passed; full regression 336 tests passed followed by
+9 targeted tests including one additional custom read/write budget test.
+Cost watch updated for 48h/final reports and observation-specific evidence.
+Rollback version 14a2b466-b557-4933-9737-fe78c05a7e2c.
+Automatic approval review rejected source branch publication; commits remain
+local on codex/inventory-observation-72h pending publication permission.
