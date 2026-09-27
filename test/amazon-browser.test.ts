@@ -54,3 +54,5 @@ it('keeps validated featured-offer fields but never upgrades global inventory au
  for(const patch of [{priceMxn:0},{priceMxn:'329'},{seller:''},{seller:'x'.repeat(121)},{purchaseEnabled:false}])expect(validateAmazonBrowserObservation({...body,...patch})).not.toHaveProperty('offer');
  const {priceMxn,seller,purchaseEnabled,...legacy}=body;expect(validateAmazonBrowserObservation(legacy)).not.toBeNull();expect(validateAmazonBrowserObservation(legacy)).not.toHaveProperty('offer');
 });
+
+it('accepts both approved Delta Reign identities',()=>{for(const [asin,title] of [['B0HG3MQDWP','Delta Reign Elite Trainer Box'],['B0HG3RVZLW','Delta Reign Booster Bundle']])expect(validateAmazonBrowserObservation({...observation(),asin,url:'https://www.amazon.com.mx/dp/'+asin,title})?.asin).toBe(asin);});

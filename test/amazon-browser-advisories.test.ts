@@ -3,10 +3,10 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {claimAmazonBrowserAdvisories,handleAmazonBrowserAdvisories} from '../src/amazon-browser-advisories';
 const asin='B0H77VYKSM',base=Date.parse('2026-09-22T02:00:00Z');
-function fixture(){
+function fixture(asin='B0H77VYKSM',category='30th_celebration'){
  const db=new DatabaseSync(':memory:');
  for(const file of ['0046_amazon_browser_observations.sql','0047_amazon_browser_advisories.sql'])db.exec(readFileSync(`migrations/${file}`,'utf8'));
- db.exec(`CREATE TABLE amazon_watchlist(asin TEXT PRIMARY KEY,lifecycle_status TEXT,watch_category TEXT); INSERT INTO amazon_watchlist VALUES('${asin}','PUBLISHED','30th_celebration');`);
+ db.exec(`CREATE TABLE amazon_watchlist(asin TEXT PRIMARY KEY,lifecycle_status TEXT,watch_category TEXT); INSERT INTO amazon_watchlist VALUES('${asin}','PUBLISHED','${category}');`);
  const prepare=(sql:string)=>{let args:any[]=[];return {bind(...v:any[]){args=v;return this;},async first(){return db.prepare(sql).get(...args)??null;},async run(){return db.prepare(sql).run(...args);}};};
  const env={CATCH_INGEST_SECRET:'catch',AMAZON_BROWSER_ADVISORIES_ENABLED:'true',SPAWN_DB:{prepare,async batch(stmts:any[]){db.exec('BEGIN');try{for(const stmt of stmts)await stmt.run();db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}}} as any;
  let seq=0;
@@ -105,3 +105,5 @@ it('carries a real extension offer through intake, outbox and the Catch Discord 
   expect(f.db.prepare('SELECT status FROM amazon_browser_advisories').get()?.status).toBe('DELIVERED');
  }finally{f.db.close();}
 });
+
+it('routes published Delta Reign observations to their own channel',async()=>{for(const asin of ['B0HG3MQDWP','B0HG3RVZLW']){const f=fixture(asin,'delta_reign');try{f.observe(1,0);const [event]=await f.poll(0);expect(event.routing_key).toBe('delta-reign');expect(event.asin).toBe(asin);await f.ack(event);expect(await f.poll(1)).toEqual([]);}finally{f.db.close();}}});

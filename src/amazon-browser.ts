@@ -1,5 +1,6 @@
 import type {Env} from './types';
-import {ITEMS,exact} from '../collector/amazon-extension/items.js';
+import {exact} from '../collector/amazon-extension/items.js';
+import {ITEMS} from './amazon-browser-targets';
 
 const reasons=new Set(['OFFER_UNCONFIRMED','WRONG_SITE','CHALLENGE_OR_SIGN_IN','PRODUCT_IDENTITY_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_PRODUCT_UNAVAILABLE','DELIVERY_UNAVAILABLE','VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','NO_VERIFIED_FEATURED_OFFER','BUYING_OPTIONS_CONTROL_VISIBLE','TAB_MISSING','REDIRECTED_OR_CHALLENGED','NO_RESULT','PAGE_CHECK_FAILED']);
 const states=new Set(['available','sold_out','buying_options_shown','unknown','blocked','error']);
@@ -44,7 +45,7 @@ export async function handleAmazonBrowser(request:Request,env:Env):Promise<Respo
  const text=await request.text();if(text.length>4000)return new Response('Too large',{status:413});
  let raw;try{raw=JSON.parse(text);}catch{return Response.json({error:'invalid_json'},{status:400});}
  const record=validateAmazonBrowserObservation(raw);if(!record)return Response.json({error:'invalid_observation'},{status:400});
- const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category='30th_celebration'").bind(record.asin).first();
+ const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(record.asin,ITEMS.find(item=>item.asin===record.asin)!.category).first();
  if(!published)return Response.json({error:'not_published'},{status:409});
  const evidence=JSON.stringify({...record,collector});
  await env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_observations(id,asin,observed_at,received_at,collector_state,buying_options_shown,evidence_json) VALUES(?,?,?,?,?,?,?)').bind(record.id,record.asin,record.observedAt,new Date().toISOString(),record.collectorState,record.buyingOptionsShown===null?null:Number(record.buyingOptionsShown),evidence).run();

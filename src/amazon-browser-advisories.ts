@@ -1,10 +1,10 @@
 import type {Env} from './types';
-import {ITEMS} from '../collector/amazon-extension/items.js';
+import {ITEMS} from './amazon-browser-targets';
 
 export async function claimAmazonBrowserAdvisories(env:Env,now=new Date()){
  const time=now.toISOString(),cutoff=new Date(now.getTime()-10*60000).toISOString(),cooldown=new Date(now.getTime()-60*60000).toISOString(),events=[];
  for(const item of ITEMS){
-  const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category='30th_celebration'").bind(item.asin).first();
+  const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(item.asin,item.category).first();
   if(!published)continue;
   const latest=await env.SPAWN_DB.prepare('SELECT id,observed_at,collector_state,evidence_json,buying_options_shown FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{id:string;observed_at:string;buying_options_shown:number|null;collector_state:string;evidence_json:string}>();
   if(!latest||latest.observed_at<cutoff||latest.observed_at>time||latest.buying_options_shown===null)continue;
@@ -31,7 +31,7 @@ export async function claimAmazonBrowserAdvisories(env:Env,now=new Date()){
    const original=await env.SPAWN_DB.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').bind(claimed.observation_id).first<{evidence_json:string}>();
    const originalOffer=original?JSON.parse(original.evidence_json).offer:null;
    const isFeatured=claimed.id.startsWith('amazon-featured:');
-   events.push({...claimed,claim_token:claimToken,kind:isFeatured?'FEATURED_OFFER_AVAILABLE':'BUYING_OPTIONS_SHOWN',routing_key:'pokemon-30th',url:item.url,product_name:item.name,stock_verified:false,...(isFeatured?{offer:originalOffer}:{})});
+   events.push({...claimed,claim_token:claimToken,kind:isFeatured?'FEATURED_OFFER_AVAILABLE':'BUYING_OPTIONS_SHOWN',routing_key:item.routingKey,url:item.url,product_name:item.name,stock_verified:false,...(isFeatured?{offer:originalOffer}:{})});
   }
  }
  return events;
