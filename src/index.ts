@@ -1,5 +1,6 @@
 import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
 import {runRevalidationTrial} from './revalidation-trial';
+import {runInventoryObservation} from './inventory-observation';
 import {inventoryIdentities} from './inventory-identities';
 import {inventoryRedirect,registerInventoryLinksRoute,inventoryClickReport} from './outbound-links';
 import {trackBoardLinks} from './board-links';
@@ -546,6 +547,7 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 
 export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
+  if(_controller.cron==='5 * * * *')ctx.waitUntil(runInventoryObservation(env,now).catch(error=>console.error('Inventory observation stopped',error)));
   if(_controller.cron==='5 * * * *')ctx.waitUntil(runRevalidationTrial(env,now).catch(error=>console.error('Revalidation trial stopped',error)));
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){

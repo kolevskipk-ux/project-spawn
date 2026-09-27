@@ -5,13 +5,14 @@ export function trialWindow(start:string|undefined,now:Date){
   const begin=Date.parse(start??'');
   return Number.isFinite(begin)&&now.getTime()>=begin&&now.getTime()<begin+6*3600000;
 }
-export function meteredDatabase(db:D1Database,initialReads=0){
+export function meteredDatabase(db:D1Database,initialReads=0,readLimit=TRIAL_READ_LIMIT,writeLimit=10_000){
   let reads=initialReads,writes=0;
   const originals=new WeakMap<object,D1PreparedStatement>();
   function account(result:D1Result){
     if(!Number.isFinite(result.meta?.rows_read)||!Number.isFinite(result.meta?.rows_written))throw new Error('trial_missing_metering');
     reads+=result.meta.rows_read;writes+=result.meta.rows_written;
-    if(reads>TRIAL_READ_LIMIT)throw new Error('trial_read_limit');
+    if(reads>readLimit)throw new Error('trial_read_limit');
+    if(writes>writeLimit)throw new Error('trial_write_limit');
     return result;
   }
   function wrap(statement:D1PreparedStatement):D1PreparedStatement{
@@ -31,7 +32,8 @@ export function meteredDatabase(db:D1Database,initialReads=0){
       const results=await target.batch(statements.map(s=>originals.get(s)??s));
       for(const r of results){reads+=r.meta.rows_read;writes+=r.meta.rows_written;}
       if(!Number.isFinite(reads)||!Number.isFinite(writes))throw new Error('trial_missing_metering');
-      if(reads>TRIAL_READ_LIMIT)throw new Error('trial_read_limit');
+      if(reads>readLimit)throw new Error('trial_read_limit');
+      if(writes>writeLimit)throw new Error('trial_write_limit');
       return results;
     };
     return ()=>{throw new Error('trial_unmetered_database_method');};

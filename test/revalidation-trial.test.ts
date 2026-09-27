@@ -3,6 +3,14 @@ import {trialWindow,meteredDatabase,runRevalidationTrial,TRIAL_READ_LIMIT} from 
 import type {Env} from '../src/types';
 const start='2026-09-27T00:00:00Z';
 describe('finite revalidation trial',()=>{
+  it('enforces custom read/write budgets and counts all completed batch statements',async()=>{
+    const stmt={bind(){return this;},run:async()=>({results:[],meta:{rows_read:8,rows_written:4}})};
+    const db={prepare:()=>stmt,batch:async()=>[{meta:{rows_read:8,rows_written:4}},{meta:{rows_read:9,rows_written:5}}]} as unknown as D1Database;
+    const meter=meteredDatabase(db,0,100,8);
+    await expect(meter.db.batch([meter.db.prepare('a'),meter.db.prepare('b')])).rejects.toThrow('trial_write_limit');
+    expect(meter.usage()).toEqual({reads:17,writes:9});
+    await expect(meteredDatabase(db,0,7,100).db.prepare('a').run()).rejects.toThrow('trial_read_limit');
+  });
   it('fails closed outside the six-hour window',async()=>{
     for(const date of ['2026-09-26T23:59:59Z','2026-09-27T06:00:00Z']){
       expect(trialWindow(start,new Date(date))).toBe(false);
