@@ -4,6 +4,13 @@ import {readFileSync} from 'node:fs';
 import {validateAmazonBrowserObservation,handleAmazonBrowser} from '../src/amazon-browser';
 const observation=()=>({schemaVersion:1,source:'amazon_edge',id:'00000000-0000-0000-0000-000000000001',asin:'B0H77VYKSM',url:'https://www.amazon.com.mx/dp/B0H77VYKSM',title:'Pokémon TCG 30th Celebration Ultra-Premium Collection Day',observedAt:new Date().toISOString(),state:'buying_options_shown',reason:'BUYING_OPTIONS_CONTROL_VISIBLE',buyingOptionsShown:true});
 describe('Amazon browser signal intake',()=>{
+ it('rejects server credentials shared with another collector or service',async()=>{
+  for(const key of ['AMAZON_COLLECTOR_TOKEN','AMAZON_LAPTOP_COLLECTOR_TOKEN','WALMART_COLLECTOR_TOKEN','MERCADOLIBRE_COLLECTOR_TOKEN','CATCH_INGEST_SECRET','RUN_TOKEN']){
+   const env={AMAZON_SERVER_COLLECTOR_TOKEN:'server',[key]:'server'} as any;
+   const response=await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/status',{headers:{authorization:'Bearer server'}}),env);
+   expect(response?.status).toBe(401);
+  }
+ });
  it('projects a signal without trusting client stock claims or private fields',()=>{
   const r=validateAmazonBrowserObservation({...observation(),priceMxn:3649,seller:'Amazon',availabilityState:'available',accountEmail:'private'});
   expect(r?.availabilityState).toBe('unknown');expect(r?.label).toBe('Buying options shown — click to see offers');expect(r).not.toHaveProperty('priceMxn');expect(r).not.toHaveProperty('accountEmail');
@@ -25,7 +32,7 @@ describe('Amazon browser signal intake',()=>{
   db.exec("CREATE TABLE amazon_watchlist(asin TEXT PRIMARY KEY,lifecycle_status TEXT,watch_category TEXT); INSERT INTO amazon_watchlist VALUES('B0H77VYKSM','PUBLISHED','30th_celebration');");
   // No inventory or outbox table exists: any accidental write to either fails.
   const prepare=(sql:string)=>{let args:any[]=[];return {bind(...v:any[]){args=v;return this;},async first(){return db.prepare(sql).get(...args)??null;},async run(){return db.prepare(sql).run(...args);}};};
-  const env={AMAZON_COLLECTOR_TOKEN:'amazon',AMAZON_LAPTOP_COLLECTOR_TOKEN:'laptop',SPAWN_DB:{prepare}} as any;
+  const env={AMAZON_COLLECTOR_TOKEN:'amazon',AMAZON_LAPTOP_COLLECTOR_TOKEN:'laptop',AMAZON_SERVER_COLLECTOR_TOKEN:'server',SPAWN_DB:{prepare}} as any;
   const send=(body:any)=>handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer amazon'},body:JSON.stringify(body)}),env);
   try{
    const base=observation();expect((await send(base))?.status).toBe(200);expect((await send(base))?.status).toBe(200);
@@ -36,6 +43,9 @@ describe('Amazon browser signal intake',()=>{
    expect(body.rows[0].latest.id).toBe(base.id);expect(body.rows[0].latest.availabilityState).toBe('unknown');expect(body.customerAlertsEnabled).toBe(false);expect(body.rows[1].stale).toBe(true);
    const laptop=await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer laptop'},body:JSON.stringify({...base,id:'00000000-0000-0000-0000-000000000004',collector:'forged'})}),env);
    expect(laptop?.status).toBe(200);expect(JSON.parse(String(db.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').get('00000000-0000-0000-0000-000000000004')?.evidence_json)).collector).toBe('laptop');
+   const serverId='00000000-0000-0000-0000-000000000005';
+   const server=await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer server'},body:JSON.stringify({...base,id:serverId,collector:'laptop'})}),env);
+   expect(server?.status).toBe(200);expect(JSON.parse(String(db.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').get(serverId)?.evidence_json)).collector).toBe('server');
    db.exec("UPDATE amazon_watchlist SET lifecycle_status='REJECTED'");expect((await send({...base,id:'00000000-0000-0000-0000-000000000003'}))?.status).toBe(409);
    const plan=db.prepare('EXPLAIN QUERY PLAN SELECT evidence_json,observed_at FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').all(base.asin);expect(JSON.stringify(plan)).toContain('amazon_browser_observations_latest');
   }finally{db.close();}

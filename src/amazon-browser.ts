@@ -28,9 +28,11 @@ export async function handleAmazonBrowser(request:Request,env:Env):Promise<Respo
  const path=new URL(request.url).pathname;
  if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status'].includes(path))return null;
  const authorization=request.headers.get('authorization');
- const collector=env.AMAZON_LAPTOP_COLLECTOR_TOKEN&&authorization===`Bearer ${env.AMAZON_LAPTOP_COLLECTOR_TOKEN}`?'laptop':'desktop';
- const token=collector==='laptop'?env.AMAZON_LAPTOP_COLLECTOR_TOKEN:env.AMAZON_COLLECTOR_TOKEN;
- if(!token||env.AMAZON_COLLECTOR_TOKEN===env.AMAZON_LAPTOP_COLLECTOR_TOKEN||[env.WALMART_COLLECTOR_TOKEN,env.MERCADOLIBRE_COLLECTOR_TOKEN,env.CATCH_INGEST_SECRET,env.RUN_TOKEN].includes(token)||authorization!==`Bearer ${token}`)return Response.json({error:'unauthorized'},{status:401});
+ const collectors=[['desktop',env.AMAZON_COLLECTOR_TOKEN],['laptop',env.AMAZON_LAPTOP_COLLECTOR_TOKEN],['server',env.AMAZON_SERVER_COLLECTOR_TOKEN]] as const;
+ const matches=collectors.filter(([,token])=>!!token&&authorization===`Bearer ${token}`);
+ if(matches.length!==1)return Response.json({error:'unauthorized'},{status:401});
+ const [collector,token]=matches[0];
+ if([env.WALMART_COLLECTOR_TOKEN,env.MERCADOLIBRE_COLLECTOR_TOKEN,env.CATCH_INGEST_SECRET,env.RUN_TOKEN].includes(token))return Response.json({error:'unauthorized'},{status:401});
  if(path.endsWith('/status')&&request.method==='GET'){
    const rows=[];
    for(const item of ITEMS){
