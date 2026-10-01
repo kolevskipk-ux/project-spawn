@@ -87,7 +87,7 @@ describe('Featured browser offers',()=>{
  });
 });
 
-it('carries a real extension offer through intake, outbox and the Catch Discord formatter',async()=>{
+it.each(['featured','panel'])('carries a %s offer through intake, outbox and the Catch Discord formatter',async(source)=>{
  const f=fixture();try{
   const {handleAmazonBrowser}=await import('../src/amazon-browser');
   const transportPath='../collector/amazon-extension/transport.js';
@@ -95,15 +95,16 @@ it('carries a real extension offer through intake, outbox and the Catch Discord 
   const {intakeRecord}=await import(transportPath);
   const {deliverBrowserAdvisories}=await import(catchPath);
   f.env.AMAZON_COLLECTOR_TOKEN='fixture-collector';
-  const now=Date.now(),record=intakeRecord({id:crypto.randomUUID(),asin,url:`https://www.amazon.com.mx/dp/${asin}`,title:'30th Ultra-Premium Collection Day',observedAt:new Date(now).toISOString(),state:'available',reason:'VERIFIED_FEATURED_OFFER',buyingOptionsShown:false,...featuredOffer});
+  const now=Date.now(),record=intakeRecord({id:crypto.randomUUID(),asin,url:`https://www.amazon.com.mx/dp/${asin}`,title:'30th Ultra-Premium Collection Day',observedAt:new Date(now).toISOString(),state:'available',reason:source==='panel'?'VERIFIED_AMAZON_MX_PANEL':'VERIFIED_FEATURED_OFFER',buyingOptionsShown:source==='panel',purchaseType:'preorder',...featuredOffer});
   const response=await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer fixture-collector'},body:JSON.stringify(record)}),f.env);
   expect(response?.status).toBe(200);
   const cache=new Map(),posts:any[]=[];
   const result=await deliverBrowserAdvisories({AMAZON_BROWSER_ADVISORIES_ENABLED:'true',CATCH_INGEST_SECRET:'catch',POKEMON_30TH_HUNT:'https://discord.com/api/webhooks/fixture/test',STATE:{get:async(k:string)=>cache.get(k),put:async(k:string,v:string)=>cache.set(k,v)}},{products:[{asin,name:'Day UPC',routingKey:'pokemon-30th'}],now:()=>now+1000,spawnFetch:async(path:string,init:any)=>path.endsWith('/claim')?Response.json({events:await f.poll((now+1000-base)/60000)}):handleAmazonBrowserAdvisories(new Request('https://spawn.test'+path,init),f.env),fetchFn:async(_url:string,init:any)=>{posts.push(JSON.parse(init.body));return new Response(null,{status:200});}});
   expect(result.results[0]).toMatchObject({status:'DELIVERED',acknowledged:true});
-  expect(posts[0].embeds[0].description).toContain('Amazon México');expect(posts[0].embeds[0].description).toContain('329');
+  expect(posts[0].embeds[0].description).toContain('Amazon México');expect(posts[0].embeds[0].description).toContain('329');expect(posts[0].embeds[0].description).toContain('Preorder');expect(posts[0].embeds[0].title).toContain('HIGH PRIORITY');if(source==='panel')expect(posts[0].embeds[0].description).toContain('Buying-options panel');
   expect(f.db.prepare('SELECT status FROM amazon_browser_advisories').get()?.status).toBe('DELIVERED');
  }finally{f.db.close();}
 });
 
 it('routes published Delta Reign observations to their own channel',async()=>{for(const asin of ['B0HG3MQDWP','B0HG3RVZLW']){const f=fixture(asin,'delta_reign');try{f.observe(1,0);const [event]=await f.poll(0);expect(event.routing_key).toBe('delta-reign');expect(event.asin).toBe(asin);await f.ack(event);expect(await f.poll(1)).toEqual([]);}finally{f.db.close();}}});
+

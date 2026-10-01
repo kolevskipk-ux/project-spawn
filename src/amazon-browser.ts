@@ -2,7 +2,7 @@ import type {Env} from './types';
 import {exact} from '../collector/amazon-extension/items.js';
 import {ITEMS} from './amazon-browser-targets';
 
-const reasons=new Set(['OFFER_UNCONFIRMED','WRONG_SITE','CHALLENGE_OR_SIGN_IN','PRODUCT_IDENTITY_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_PRODUCT_UNAVAILABLE','DELIVERY_UNAVAILABLE','VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','NO_VERIFIED_FEATURED_OFFER','BUYING_OPTIONS_CONTROL_VISIBLE','TAB_MISSING','REDIRECTED_OR_CHALLENGED','NO_RESULT','PAGE_CHECK_FAILED']);
+const reasons=new Set(['OFFER_UNCONFIRMED','WRONG_SITE','CHALLENGE_OR_SIGN_IN','PRODUCT_IDENTITY_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_PRODUCT_UNAVAILABLE','DELIVERY_UNAVAILABLE','VERIFIED_FEATURED_OFFER','VERIFIED_AMAZON_MX_PANEL','PRICE_OR_SELLER_UNCONFIRMED','NO_VERIFIED_FEATURED_OFFER','BUYING_OPTIONS_CONTROL_VISIBLE','TAB_MISSING','REDIRECTED_OR_CHALLENGED','NO_RESULT','PAGE_CHECK_FAILED']);
 const states=new Set(['available','sold_out','buying_options_shown','unknown','blocked','error']);
 export function validateAmazonBrowserObservation(body:any,now=Date.now()){
  if(!body||typeof body!=='object'||Array.isArray(body)||body.schemaVersion!==1||body.source!=='amazon_edge')return null;
@@ -12,15 +12,18 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now()){
  const time=Date.parse(body.observedAt);if(!Number.isFinite(time)||time>now+60000||now-time>600000)return null;
  if(!states.has(body.state)||!reasons.has(body.reason)||typeof body.title!=='string'||body.title.length>300)return null;
  if(body.buyingOptionsShown!==null&&typeof body.buyingOptionsShown!=='boolean')return null;
+ const panel=body.state==='available'&&body.reason==='VERIFIED_AMAZON_MX_PANEL';
  const signal=body.state==='buying_options_shown';
- if(signal!==(body.buyingOptionsShown===true)||signal!==(body.reason==='BUYING_OPTIONS_CONTROL_VISIBLE'))return null;
+ if((signal||panel)!==(body.buyingOptionsShown===true)||signal!==(body.reason==='BUYING_OPTIONS_CONTROL_VISIBLE'))return null;
  if(body.buyingOptionsShown!==null&&!new RegExp(target.titlePattern,'i').test(body.title))return null;
  // Client classifications are retained only as diagnostics, never stock authority.
- if(body.state==='available'&&(body.reason!=='VERIFIED_FEATURED_OFFER'||body.buyingOptionsShown!==false))return null;
+ if(body.state==='available'&&!panel&&(body.reason!=='VERIFIED_FEATURED_OFFER'||body.buyingOptionsShown!==false))return null;
  if(body.state==='sold_out'&&(body.reason!=='EXPLICIT_PRODUCT_UNAVAILABLE'||body.buyingOptionsShown!==false))return null;
  const offer=body.state==='available'&&body.purchaseEnabled===true&&typeof body.priceMxn==='number'&&Number.isFinite(body.priceMxn)&&body.priceMxn>0&&typeof body.seller==='string'&&body.seller.trim().length>0&&body.seller.length<=120
    ?{priceMxn:body.priceMxn,seller:body.seller.trim(),fulfilledBy:typeof body.fulfilledBy==='string'?body.fulfilledBy.slice(0,120):null,purchaseEnabled:true}:null;
- return {...(offer?{offer}:{}),schemaVersion:1,source:'amazon_edge',id:body.id,asin:target.asin,url:target.url,observedAt:new Date(time).toISOString(),title:body.title,collectorState:body.state,reason:body.reason,buyingOptionsShown:body.buyingOptionsShown,
+ if(panel&&(!offer||!/^amazon m[eé]xico$/i.test(offer.seller)))return null;
+ const qualifiedOffer=offer?{...offer,offerSource:panel?'panel':'featured',...(body.purchaseType==='preorder'||body.purchaseType==='purchase'?{purchaseType:body.purchaseType}:{})}:null;
+ return {...(qualifiedOffer?{offer:qualifiedOffer}:{}),schemaVersion:1,source:'amazon_edge',id:body.id,asin:target.asin,url:target.url,observedAt:new Date(time).toISOString(),title:body.title,collectorState:body.state,reason:body.reason,buyingOptionsShown:body.buyingOptionsShown,
    availabilityState:'unknown',label:signal?'Buying options shown — click to see offers':null};
 }
 
