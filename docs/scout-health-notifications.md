@@ -1,6 +1,6 @@
 # Scout health notifications
 
-Prepared October 3, 2026; not deployed or activated.
+Deployed and activated October 3, 2026. Active Worker version: 6998e7c3-8033-422c-94ae-5e369e5118d2. Health and readiness returned 200; heartbeat rejects unauthenticated requests with 401. First scheduled sample recorded at 18:35:02 UTC; all 16 products stale, inside the initial five-minute grace period. Edge 0.5.8 reload and heartbeat receipt remain pending.
 
 Spawn's existing minute cron independently monitors published Scout products. Fresh successful readings (sold out, buying options shown, or a validated offer) must be at most five minutes old for the four hot products and fifteen minutes for others. These are page-coverage measurements, never proof of stock. Errors, unknown and blocked observations do not refresh coverage.
 
