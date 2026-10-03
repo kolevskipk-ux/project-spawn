@@ -39,6 +39,7 @@ export interface Env {
   OPS_ENVIRONMENT?: string;
   CATCH_INGEST_SECRET?: string;
   CATCH_MONITOR_ENDPOINT?: string;
+  AMAZON_BROWSER_IMMEDIATE_ENABLED?: string;
   OPS_DISCORD_WEBHOOK_URL?: string;
   APPROVAL_DISCORD_ROLE_ID?: string;
   PUBLIC_RATE_LIMIT?: RateLimit;

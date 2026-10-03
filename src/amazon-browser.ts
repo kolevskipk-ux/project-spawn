@@ -1,3 +1,4 @@
+import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
 import {exact} from '../collector/amazon-extension/items.js';
 import {ITEMS} from './amazon-browser-targets';
@@ -27,7 +28,7 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now()){
    availabilityState:'unknown',label:signal?'Buying options shown — click to see offers':null};
 }
 
-export async function handleAmazonBrowser(request:Request,env:Env):Promise<Response|null>{
+export async function handleAmazonBrowser(request:Request,env:Env,ctx?:ExecutionContext):Promise<Response|null>{
  const path=new URL(request.url).pathname;
  if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status'].includes(path))return null;
  const authorization=request.headers.get('authorization');
@@ -57,5 +58,6 @@ export async function handleAmazonBrowser(request:Request,env:Env):Promise<Respo
  const receipt=await env.SPAWN_DB.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').bind(record.id).first<{evidence_json:string}>();
  if(!receipt)return Response.json({error:'observation_not_persisted'},{status:500});
  if(receipt.evidence_json!==evidence)return Response.json({error:'observation_id_conflict'},{status:409});
+ if(ctx&&['available','buying_options_shown','sold_out'].includes(record.collectorState))ctx.waitUntil(wakeBrowserDelivery(env,record.asin).catch(()=>console.error('Immediate browser delivery unavailable; scheduled fallback retained')));
  return Response.json({ok:true,id:record.id,availabilityState:'unknown',label:record.label,inventoryUpdated:false,customerAlertSent:false});
 }

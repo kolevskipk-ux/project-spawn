@@ -418,7 +418,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   }
   const costWatch=await handleCostWatch(request,env);if(costWatch)return costWatch;
   const walmartBrowser=await handleWalmartBrowser(request,env);if(walmartBrowser)return walmartBrowser;
-  const amazonBrowser=await handleAmazonBrowser(request,env);if(amazonBrowser)return amazonBrowser;
+
   const amazonAdvisories=await handleAmazonBrowserAdvisories(request,env);if(amazonAdvisories)return amazonAdvisories;
   const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
@@ -502,6 +502,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleFetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const amazonBrowser=await handleAmazonBrowser(request,env,ctx);if(amazonBrowser)return amazonBrowser;
   const outbound=await inventoryRedirect(request,env,ctx);if(outbound)return outbound;
   const recovery=await dropRecoveryRoute(request,env,ctx);if(recovery)return recovery;
   const url = new URL(request.url);

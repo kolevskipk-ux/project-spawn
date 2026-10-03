@@ -108,3 +108,5 @@ it.each(['featured','panel'])('carries a %s offer through intake, outbox and the
 
 it('routes published Delta Reign observations to their own channel',async()=>{for(const asin of ['B0HG3MQDWP','B0HG3RVZLW']){const f=fixture(asin,'delta_reign');try{f.observe(1,0);const [event]=await f.poll(0);expect(event.routing_key).toBe('delta-reign');expect(event.asin).toBe(asin);await f.ack(event);expect(await f.poll(1)).toEqual([]);}finally{f.db.close();}}});
 
+
+it('scoped immediate claims share the existing lease with scheduled polling',async()=>{const f=fixture();try{f.observe(1,0);expect(await claimAmazonBrowserAdvisories(f.env,new Date(base),'B000000000')).toEqual([]);const [first]=await claimAmazonBrowserAdvisories(f.env,new Date(base),'B0H77VYKSM');expect(first).toBeTruthy();expect(await f.poll(0)).toEqual([]);await f.ack(first);expect(await f.poll(1)).toEqual([]);}finally{f.db.close();}});
