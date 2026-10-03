@@ -1,3 +1,4 @@
+import {recordScoutHeartbeat} from './scout-health';
 import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
 import {exact} from '../collector/amazon-extension/items.js';
@@ -30,13 +31,14 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now()){
 
 export async function handleAmazonBrowser(request:Request,env:Env,ctx?:ExecutionContext):Promise<Response|null>{
  const path=new URL(request.url).pathname;
- if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status'].includes(path))return null;
+ if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status','/internal/amazon-browser/heartbeat'].includes(path))return null;
  const authorization=request.headers.get('authorization');
  const collectors=[['desktop',env.AMAZON_COLLECTOR_TOKEN],['laptop',env.AMAZON_LAPTOP_COLLECTOR_TOKEN],['server',env.AMAZON_SERVER_COLLECTOR_TOKEN]] as const;
  const matches=collectors.filter(([,token])=>!!token&&authorization===`Bearer ${token}`);
  if(matches.length!==1)return Response.json({error:'unauthorized'},{status:401});
  const [collector,token]=matches[0];
  if([env.WALMART_COLLECTOR_TOKEN,env.MERCADOLIBRE_COLLECTOR_TOKEN,env.CATCH_INGEST_SECRET,env.RUN_TOKEN].includes(token))return Response.json({error:'unauthorized'},{status:401});
+ if(path.endsWith('/heartbeat')){if(request.method!=='POST')return new Response('Method not allowed',{status:405});return recordScoutHeartbeat(request,env,collector);}
  if(path.endsWith('/status')&&request.method==='GET'){
    const rows=[];
    for(const item of ITEMS){
