@@ -52,7 +52,7 @@ describe('Scout health notifications',()=>{
  await monitorScoutHealth(f.env,new Date(seven),(async()=>{sends++;return new Response(null,{status:503});}) as any);
  let current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeTruthy();
  let message='';await monitorScoutHealth(f.env,new Date(seven+60000),(async(_url:any,init:any)=>{sends++;message=JSON.parse(init.body).content;return Response.json({id:'receipt',channel_id:'channel'});}) as any);
- expect(sends).toBe(2);expect(message).toContain('Fresh coverage recovered');
+ expect(sends).toBe(2);expect(message).toContain('Fresh coverage recovered');expect(message).toContain('https://spawn.aztlan-eng.com/ops/browser-fallback');expect(message.length).toBeLessThanOrEqual(2000);
  current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeNull();expect(current.incident).toBe(false);
  }finally{f.db.close();}});
  it('switches off paid fallback on stable Scout coverage without requiring a prior outage notice',async()=>{const f=fixture();try{
