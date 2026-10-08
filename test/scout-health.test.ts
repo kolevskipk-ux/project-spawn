@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {scoutHealthDecision,scoutDropWindow,recordScoutHeartbeat,monitorScoutHealth,type HealthState} from '../src/scout-health';
+import {scoutHealthDecision,scoutAlertHours,recordScoutHeartbeat,monitorScoutHealth,type HealthState} from '../src/scout-health';
 import {handleAmazonBrowser} from '../src/amazon-browser';
 const now=Date.parse('2026-10-03T20:00:00Z'),hot='B0H77VYKSM',warm='B0HG3RVZLW';
 const state:HealthState={armedAt:new Date(now-600000).toISOString(),incident:false,severity:null,notifiedSeverity:null,healthySamples:0,lastSampleAt:null};
@@ -13,18 +13,19 @@ function fixture(){const db=new DatabaseSync(':memory:');db.exec(readFileSync('m
  const observe=(time:number,status='sold_out',id=crypto.randomUUID())=>db.prepare('INSERT INTO amazon_browser_observations VALUES(?,?,?,?,?,?,?)').run(id,hot,new Date(time).toISOString(),new Date(time).toISOString(),status,0,'{}');return {db,env,set,observe};}
 describe('Scout health notifications',()=>{
  it('uses per-product freshness and does not equate activity with coverage',()=>{expect(scoutHealthDecision([target(hot,300001),target(warm,300001)],[],state,now).missing.map(x=>x.asin)).toEqual([hot]);expect(scoutHealthDecision([target(hot,0),target(warm,900001)],[],state,now).severity).toBe('partial');});
- it('suppresses recent notices but alerts on worsening coverage',()=>{const prior={...state,incident:true,notifiedSeverity:'partial',lastNotifiedAt:new Date(now-60000).toISOString(),lastDropWindow:scoutDropWindow(now)};expect(scoutHealthDecision([target(hot,400000),target(warm,0)],[],prior,now).alert).toBe(false);expect(scoutHealthDecision([target(hot,400000),target(warm,1000000)],[],prior,now).alert).toBe(true);});
- it('reminds during a continuing outage and escalates in each new hot window',()=>{
- const prior={...state,incident:true,notifiedSeverity:'offline',lastNotifiedAt:new Date(now-60000).toISOString(),lastDropWindow:scoutDropWindow(now)};
- expect(scoutHealthDecision([target(hot,400000)],[],prior,now).alert).toBe(false);
- expect(scoutHealthDecision([target(hot,400000)],[],prior,now+1800000).escalation).toBe(true);
- const outsideWindow=now+600000;
- expect(scoutHealthDecision([target(hot,400000)],[],{...prior,lastNotifiedAt:new Date(outsideWindow-1800000).toISOString()},outsideWindow).reminder).toBe(true);
- expect(scoutHealthDecision([target(warm,1000000)],[],prior,now+60000).escalation).toBe(false);
- expect(scoutHealthDecision([target(hot,0)],[],prior,now).alert).toBe(false);
- expect(scoutDropWindow(Date.parse('2026-10-06T08:30:00Z'))).toBeNull();
- expect(scoutDropWindow(Date.parse('2026-10-06T08:00:00Z'))).not.toBeNull();
- expect(scoutDropWindow(Date.parse('2026-10-06T12:00:00Z'))).toBeNull();
+ it('alerts immediately by day, escalates severity and does not repeat every 30 minutes',()=>{const prior={...state,incident:true,notifiedSeverity:'partial',lastNotifiedAt:new Date(now-60000).toISOString()};expect(scoutHealthDecision([target(hot,400000),target(warm,0)],[],prior,now).alert).toBe(false);expect(scoutHealthDecision([target(hot,400000),target(warm,1000000)],[],prior,now).alert).toBe(true);expect(scoutHealthDecision([target(hot,400000)],[],{...prior,notifiedSeverity:'offline'},now+1800000).alert).toBe(false);});
+ it('defers overnight outages to 07:00 even if they recovered, with exact local boundaries',()=>{
+ const at=(local:string)=>Date.parse(local+'-06:00');
+ expect(scoutAlertHours(at('2026-10-06T21:29:00')).overnight).toBe(false);
+ expect(scoutAlertHours(at('2026-10-06T21:30:00')).overnight).toBe(true);
+ expect(scoutAlertHours(at('2026-10-07T05:59:00')).overnight).toBe(true);
+ expect(scoutAlertHours(at('2026-10-07T06:00:00')).overnight).toBe(false);
+ const night=at('2026-10-06T22:00:00');
+ const d=scoutHealthDecision([{asin:hot,name:hot,observedAt:null}],[],{...state,armedAt:new Date(night-600000).toISOString()},night);
+ expect(d.alert).toBe(false);expect(d.overnightDueAt).toBe('2026-10-07T13:00:00.000Z');
+ const pending={...state,incident:true,overnightDueAt:d.overnightDueAt,overnightRecoveredAt:'2026-10-07T11:00:00Z'};
+ const six=at('2026-10-07T06:30:00');expect(scoutHealthDecision([{asin:hot,name:hot,observedAt:new Date(six).toISOString()}],[],pending,six).alert).toBe(false);
+ const seven=at('2026-10-07T07:00:00');expect(scoutHealthDecision([{asin:hot,name:hot,observedAt:new Date(seven).toISOString()}],[],pending,seven).morning).toBe(true);
  });
  it('does not recover across non-consecutive samples',()=>{
  expect(scoutHealthDecision([target(hot,0)],[],{...state,incident:true,notifiedSeverity:'offline',healthySamples:1,lastSampleAt:new Date(now-3600000).toISOString()},now).recovery).toBe(false);
@@ -41,5 +42,23 @@ describe('Scout health notifications',()=>{
  await monitorScoutHealth(f.env,new Date(now+60000),(async()=>Response.json({id:'message',channel_id:'channel'})) as any);
  expect(latest().messageId).toBe('message');expect(latest().channelId).toBe('channel');
  const events=f.db.prepare("SELECT value FROM worker_state WHERE key LIKE 'scout:health-event:%'").all();expect(events).toHaveLength(2);expect(JSON.stringify(events)).not.toContain('/api/webhooks/');
+ }finally{f.db.close();}});
+ it('retains a recovered overnight gap until 07:00 and retries a failed morning summary',async()=>{const f=fixture();let sends=0;try{
+ const night=Date.parse('2026-10-06T22:00:00-06:00');f.set('scout:health-state',{...state,armedAt:new Date(night-600000).toISOString()});
+ const send=async()=>{sends++;return Response.json({id:'receipt',channel_id:'channel'});};
+ await monitorScoutHealth(f.env,new Date(night),send as any);expect(sends).toBe(0);
+ const early=Date.parse('2026-10-07T04:00:00-06:00');f.observe(early);await monitorScoutHealth(f.env,new Date(early),send as any);await monitorScoutHealth(f.env,new Date(early+60000),send as any);expect(sends).toBe(0);
+ const seven=Date.parse('2026-10-07T07:00:00-06:00');f.observe(seven);
+ await monitorScoutHealth(f.env,new Date(seven),(async()=>{sends++;return new Response(null,{status:503});}) as any);
+ let current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeTruthy();
+ let message='';await monitorScoutHealth(f.env,new Date(seven+60000),(async(_url:any,init:any)=>{sends++;message=JSON.parse(init.body).content;return Response.json({id:'receipt',channel_id:'channel'});}) as any);
+ expect(sends).toBe(2);expect(message).toContain('Fresh coverage recovered');
+ current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeNull();expect(current.incident).toBe(false);
+ }finally{f.db.close();}});
+ it('switches off paid fallback on stable Scout coverage without requiring a prior outage notice',async()=>{const f=fixture();try{
+ f.set('scout:health-state',{...state,healthySamples:1,lastSampleAt:new Date(now-60000).toISOString()});
+ f.set('browser:paid-fallback',{enabled:true,id:'approval',expiresAt:new Date(now+3600000).toISOString()});f.observe(now);
+ await monitorScoutHealth(f.env,new Date(now),(async()=>new Response()) as any);
+ const policy=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='browser:paid-fallback'").get()?.value));expect(policy.enabled).toBe(false);expect(policy.disabledReason).toBe('scout_recovered');
  }finally{f.db.close();}});
 });

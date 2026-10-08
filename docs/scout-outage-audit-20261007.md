@@ -43,18 +43,21 @@ provided complete protection during the Scout gap.
 
 ## Proposed repair
 
-The existing cloud detector now has bounded reminders (30 minutes offline,
-60 minutes for other unresolved coverage), per-hot-window escalation and
-seven-day delivery attempt history in worker_state, including HTTP status and
-returned Discord receipt IDs. Explicit pause suppression remains bounded to
-two hours. Recovery requires consecutive fresh samples no more than 90 seconds
-apart. Notifications report coverage failures without inferring stock.
+Philip replaced the initial reminder proposal with immediate daytime notices
+and a 07:00 Mexico City summary for outages detected between 21:30 and 06:00,
+including gaps that recovered overnight. There are no periodic reminders.
+Seven-day delivery attempt history retains HTTP status and returned Discord
+receipt IDs. Explicit pause suppression remains bounded to two hours. Recovery
+requires consecutive fresh samples no more than 90 seconds apart. Notifications
+report coverage failures without inferring stock. A manually enabled, 15-browser-
+minute fallback approval expires after four hours and is revoked on Scout recovery.
 
 No schema migration or cron activation is required. Existing production vars,
 secrets and triggers must be retained during a separately approved code release.
 The proposal is on codex/scout-outage-escalation and is not deployed. TypeScript,
-all 354 tests in 44 suites and Worker dry-run bundling passed; the final corrected
-quiet-hour boundaries also passed the focused nine-test suite.
+all 359 tests in 45 suites and Worker dry-run bundling passed for the revised
+policy and browser-control implementation. All 14 Catch test scripts and its
+Worker dry-run bundling also passed. Neither paired release is deployed.
 
 Receipts in the parent workspace work directory: scout-outage-audit-20261007.json,
 scout-alert-audit-20261007.json and catch-outage-audit-20261007.json.

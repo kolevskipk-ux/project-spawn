@@ -1,4 +1,5 @@
 import {customerOperations} from './customer-operations';
+import {paidBrowserOperations} from './paid-browser-operations';
 import {customerSupportOperations} from './customer-support-operations';
 import type {Env} from './types';
 import {boardHeaders} from './board';
@@ -104,6 +105,7 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
   if (path === '/') return new Response(null,{status:302,headers:{location:'/ops','cache-control':'no-store'}});
   if (path === '/approvals' && url.searchParams.get('view') !== 'queue') return approvedInventoryOperations(request,env,operator);
   if (!path.startsWith('/ops')) return null;
+  if (path==='/ops/browser-fallback')return paidBrowserOperations(request,env,operator);
   if (path === '/ops/trusted-stores') return trustedStoreOperations(request,env,operator);
   if (path === '/ops/stores') return storeCatalogOperations(request,env,operator);
   if (path === '/ops/search/audit') return searchAuditOperations(request,env,operator);
@@ -151,7 +153,7 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
     content=`<section><h2>Vendor registry</h2>${table(['Vendor','Status','Updated (UTC)','Reason'],vendors.results.map(r=>[r.vendor_name,r.status,r.updated_at,r.reason]),'No vendor status records yet.')}</section>`;
   } else if(path==='/ops/health') {
     title='System health'; const recent=await env.SPAWN_DB.prepare('SELECT started_at,finished_at,status,error FROM scan_runs ORDER BY started_at DESC LIMIT 20').all<Record<string,unknown>>();
-    content=`<section><h2>Spawn</h2><p>Database reachable. Configuration: ${esc(env.SPAWN_CONFIG_VERSION)}.</p>${table(['Started (UTC)','Finished (UTC)','Result','Details'],recent.results.map(r=>[r.started_at,r.finished_at,r.status,r.error]),'No scans recorded.')}</section><section><h2>Catch and detailed diagnostics</h2><p>Inspect reported tracking coverage, enrichment, customer delivery, and pricing references.</p><a href="/dashboard">Open detailed diagnostics →</a></section>`;
+    content=`<section><h2>Spawn</h2><p>Database reachable. Configuration: ${esc(env.SPAWN_CONFIG_VERSION)}.</p>${table(['Started (UTC)','Finished (UTC)','Result','Details'],recent.results.map(r=>[r.started_at,r.finished_at,r.status,r.error]),'No scans recorded.')}</section><section><h2>Browser fallback</h2><p>Temporarily authorize 15 browser minutes during a Scout outage, with automatic switch-off on recovery.</p><a class="ops-primary" href="/ops/browser-fallback">Manage paid browser fallback</a></section><section><h2>Catch and detailed diagnostics</h2><p>Inspect reported tracking coverage, enrichment, customer delivery, and pricing references.</p><a href="/dashboard">Open detailed diagnostics →</a></section>`;
   } else return operationsError('Page not found.',404,operator,env);
   return response(operationsShell(title,content,operator,env,path));
 }

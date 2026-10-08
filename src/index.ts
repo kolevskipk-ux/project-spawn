@@ -1,4 +1,5 @@
 import {monitorScoutHealth} from './scout-health';
+import {handlePaidBrowserPolicy} from './paid-browser-fallback';
 import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
 import {runRevalidationTrial} from './revalidation-trial';
 import {runInventoryObservation} from './inventory-observation';
@@ -423,6 +424,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   const amazonAdvisories=await handleAmazonBrowserAdvisories(request,env);if(amazonAdvisories)return amazonAdvisories;
   const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
+  const paidBrowser=await handlePaidBrowserPolicy(request,env);if(paidBrowser)return paidBrowser;
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
   if (url.pathname === "/admin/seed-campaigns") {
