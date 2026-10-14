@@ -57,7 +57,9 @@
     "OPS_ENVIRONMENT": "Production · live data",
     "SCOUT_HEALTH_ALERTS_ENABLED": "true",
     "AMAZON_BROWSER_IMMEDIATE_ENABLED": "true",
-    "AMAZON_BROWSER_ADVISORIES_ENABLED": "true"
+    "AMAZON_BROWSER_ADVISORIES_ENABLED": "true",
+    "STORE_MONITOR_PILOT_ENABLED": "true",
+    "STORE_MONITOR_PILOT_UNTIL": "2026-10-15T01:53:47.969Z"
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"

@@ -19,8 +19,17 @@ function authorized(request:Request,env:Env){return Boolean(env.CATCH_INGEST_SEC
 function response(body:unknown,status=200){return Response.json(body,{status,headers:{"cache-control":"no-store"}});}
 
 export async function handleCustomerEvents(request:Request,url:URL,env:Env):Promise<Response|null>{
-  if(url.pathname!=="/internal/garfield/customer-events"&&url.pathname!=="/internal/garfield/customer-events/ack")return null;
+  if(!['/internal/garfield/customer-events','/internal/garfield/customer-events/ack','/internal/garfield/customer-events/reject'].includes(url.pathname))return null;
   if(!authorized(request,env))return response({error:"unauthorized"},401);
+  if(url.pathname.endsWith('/reject')){
+    if(request.method!=='POST')return response({error:'method_not_allowed'},405);
+    let body:any;try{body=await request.json();}catch{return response({error:'invalid_json'},400);}
+    if(!/^[a-f0-9]{64}$/i.test(String(body?.event_id||''))||!['invalid-contract','expired-evidence'].includes(body?.reason))return response({error:'invalid_rejection'},400);
+    const exists=await env.SPAWN_DB.prepare("SELECT event_id FROM customer_inventory_events WHERE event_id=? UNION ALL SELECT event_id FROM campaign_customer_events WHERE event_id=?").bind(body.event_id,body.event_id).first();
+    if(!exists)return response({error:'event_not_found'},404);
+    await env.SPAWN_DB.prepare('INSERT OR IGNORE INTO customer_event_rejections(event_id,reason,rejected_at) VALUES(?,?,?)').bind(body.event_id,body.reason,new Date().toISOString()).run();
+    return response({ok:true});
+  }
   if(url.pathname.endsWith("/ack")){
     if(request.method!=="POST")return response({error:"method_not_allowed"},405);
     let parsed:unknown;try{parsed=await request.json();}catch{return response({error:"invalid_json"},400);}
@@ -36,8 +45,8 @@ export async function handleCustomerEvents(request:Request,url:URL,env:Env):Prom
   if(request.method!=="GET")return response({error:"method_not_allowed"},405);
   const limit=Math.max(1,Math.min(50,Number(url.searchParams.get("limit"))||25)),cursor=String(url.searchParams.get("cursor")||"");
   if(cursor&&!/^[a-f0-9]{64}$/i.test(cursor))return response({error:"invalid_cursor"},400);
-  const rows=await env.SPAWN_DB.prepare(`SELECT event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at FROM customer_inventory_events WHERE NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=customer_inventory_events.listing_key AND admin.removed_at IS NOT NULL) AND delivery_status IN ('PENDING','FAILED') AND event_id>?
-    UNION ALL SELECT event_id,schema_version,event_type,'campaign:'||campaign_id listing_key,campaign_id source_observation_id,routing_key,payload_json,occurred_at,created_at FROM campaign_customer_events WHERE delivery_status IN ('PENDING','FAILED') AND event_id>?
+  const rows=await env.SPAWN_DB.prepare(`SELECT event_id,schema_version,event_type,listing_key,source_observation_id,routing_key,payload_json,occurred_at,created_at FROM customer_inventory_events WHERE NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=customer_inventory_events.listing_key AND admin.removed_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM customer_event_rejections rejection WHERE rejection.event_id=customer_inventory_events.event_id) AND delivery_status IN ('PENDING','FAILED') AND event_id>?
+    UNION ALL SELECT event_id,schema_version,event_type,'campaign:'||campaign_id listing_key,campaign_id source_observation_id,routing_key,payload_json,occurred_at,created_at FROM campaign_customer_events WHERE NOT EXISTS(SELECT 1 FROM customer_event_rejections rejection WHERE rejection.event_id=campaign_customer_events.event_id) AND delivery_status IN ('PENDING','FAILED') AND event_id>?
     ORDER BY event_id LIMIT ?`).bind(cursor,cursor,limit+1).all<Record<string,unknown>>();
   const page=rows.results.slice(0,limit),events=[];
   for(const row of page){
@@ -45,6 +54,11 @@ export async function handleCustomerEvents(request:Request,url:URL,env:Env):Prom
     let payload:unknown;try{payload=JSON.parse(String(row.payload_json));}catch{continue;}
     if(payload&&typeof payload==='object'&&!Array.isArray(payload)){
       const item=payload as Record<string,unknown>;
+      // Historical campaign payloads omitted these envelope identities. Supply
+      // them only when the durable campaign record and payload agree.
+      if(row.schema_version===3&&row.event_type==='CAMPAIGN_PUBLISHED'&&item.event_id===row.event_id&&item.event_type===row.event_type&&row.listing_key==='campaign:'+item.campaign_id&&row.source_observation_id===item.campaign_id){
+        item.listing_key??=row.listing_key;item.source_observation_id??=row.source_observation_id;
+      }
       if(item.watch_category==='ascended_heroes'||/\bascended[\s-]+heroes\b/i.test(String(item.product_name??''))){row.routing_key='ascended-heroes';item.routing_key='ascended-heroes';item.watch_category='ascended_heroes';}
     }
     events.push({event_id:row.event_id,schema_version:row.schema_version,event_type:row.event_type,listing_key:row.listing_key,source_observation_id:row.source_observation_id,routing_key:row.routing_key,payload,occurred_at:row.occurred_at,created_at:row.created_at});
