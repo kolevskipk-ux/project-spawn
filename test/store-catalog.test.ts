@@ -9,6 +9,7 @@ import {auditKnownStores,decideStore,importStoreCatalog,runCatalogTick,startCata
 import {catalogOrigin,catalogProduct,catalogUrl,candidateCatalogUrl,parseRobots,robotsAllows,sitemapLinks} from '../src/store-catalog-parser';
 import {storeCatalogOperations} from '../src/store-catalog-operations';
 import {handleStoreMonitoring,nextStoreDigest} from '../src/store-monitoring';
+import {storePilotOperations} from '../src/store-pilot-operations';
 import {customerInventory} from '../src/customer-feed';
 import {approveStoresWithAdminInventory} from '../src/store-catalog';
 import {approvedInventoryOperations} from '../src/approved-inventory-operations';
@@ -27,6 +28,29 @@ function adapter(){
 beforeEach(()=>{db=new DatabaseSync(':memory:');for(const name of readdirSync('migrations').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('migrations/'+name,'utf8'));env={SPAWN_DB:adapter(),STORE_CATALOG_SYNC_ENABLED:'false'} as unknown as Env;vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('Unexpected network');}));});
 afterEach(()=>{db.close();vi.unstubAllGlobals();});
 const origin='https://cards.example',known=origin+'/products/known',fresh=origin+'/products/delta-reign-new';
+
+it('leases only enrolled pilot targets and schedules successful observations ten minutes later',async()=>{
+ const at=new Date().toISOString();
+ db.prepare("INSERT INTO store_acquisitions(id,origin,retailer,vendor_key,status,created_at) VALUES('pilot-store',?,'Cards','cards','APPROVED',?)").run(origin,at);
+ for(let i=0;i<51;i++){
+  db.prepare("INSERT INTO store_monitor_targets(id,store_id,url,title,category,routing_key,created_at,next_due_at) VALUES(?,'pilot-store',?,'Pilot Cards','delta_reign','delta-reign',?,?)").run('pilot-'+i,origin+'/products/pilot-'+i,at,at);
+  if(i<50)db.prepare("INSERT INTO store_monitor_pilot VALUES(?,?,?,?)").run('pilot-'+i,at,'owner','healthy product');
+ }
+ env.STORE_MONITORING_ENABLED='true';env.CATCH_INGEST_SECRET='fixture';env.STORE_MONITOR_PILOT_ENABLED='true';env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()+3600000).toISOString();
+ const call=(path:string,body:unknown)=>handleStoreMonitoring(new Request('https://spawn.example/internal/garfield/store-monitor/'+path,{method:'POST',headers:{authorization:'Bearer fixture'},body:JSON.stringify(body)}),env);
+ const claim=await (await call('claim',{limit:12}))!.json() as any;
+ expect(claim.targets).toHaveLength(12);expect(claim.targets.every((t:any)=>t.pilot===1&&t.cadence_minutes===10&&t.id!=='pilot-50')).toBe(true);
+ const {validStoreTarget}=await import('../../catch-em-all/src/store-monitor.js');expect(validStoreTarget(claim.targets[0])).toBe(true);
+ const target=claim.targets[0];await call('observe',{id:target.id,lease_id:claim.lease_id,state:'sold_out',price_mxn:1000,evidence:'exact-product'});
+ const saved=db.prepare('SELECT * FROM store_monitor_targets WHERE id=?').get(target.id) as any;
+ expect(Date.parse(saved.next_due_at)-Date.parse(saved.last_observed_at)).toBe(600000);expect(saved.cadence_minutes).toBe(60);
+ await call('observe',{id:claim.targets[1].id,lease_id:claim.lease_id,state:'blocked',price_mxn:null,evidence:'access_blocked_http_429'});
+ expect((await (await call('claim',{limit:12}))!.json() as any).targets).toHaveLength(0);
+ expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_pilot').get()?.n).toBe(50);
+ env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()-1).toISOString();expect(await (await call('claim',{limit:12}))!.json()).toMatchObject({enabled:false});
+ const coverage=await storePilotOperations(new Request('https://spawn.example/ops/store-coverage'),env,{email:'owner',subject:'owner',role:'owner'});
+ expect(coverage.status).toBe(200);const html=await coverage.text();expect(html).toContain('Revisit minutes');expect(html).toContain('access_blocked_http_429');
+});
 function inventory(url=known,name='Cards',key='known'){db.prepare("INSERT INTO inventory(listing_key,canonical_url,retailer,title,watch_category,first_seen_at,last_seen_at,status,language,price_mxn) VALUES(?,?,?,'Curated name','delta_reign','2026-09-01','2026-09-01','sold_out','english',1200)").run(key,url,name);}
 function store(){return db.prepare('SELECT * FROM store_acquisitions WHERE origin=?').get(origin) as unknown as Store;}
 function page(url=fresh,name='Delta Reign English Booster Bundle',availability='InStock',offers?:unknown){return '<script type="application/ld+json">'+JSON.stringify({'@type':'Product',url,name,sku:'sku-'+url.split('/').at(-1),offers:offers??{'@type':'Offer',url,availability:'https://schema.org/'+availability,price:1000,priceCurrency:'MXN'}})+'</script>';}

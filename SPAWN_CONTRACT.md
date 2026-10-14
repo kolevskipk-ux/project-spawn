@@ -1,5 +1,13 @@
 # Project Spawn contract
 
+## Reliable store pilot — authorized October 13, 2026
+
+Spawn coordinates a 50–100-product, ten-minute, explicitly enrolled reliable-store
+pilot. Original catalog targets and baselines remain stored; broad discovery and
+revalidation remain paused. Coverage, maintenance candidates and rejected customer
+events are visible to authenticated operators. The pilot expires after a bounded
+day unless reviewed for measured allowance headroom. See docs/reliable-store-pilot.md.
+
 ## Amazon browser customer advisories — production authorized 2026-09-21
 
 Philip approved integrating the saved Edge observations into production customer

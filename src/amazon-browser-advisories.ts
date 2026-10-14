@@ -1,10 +1,10 @@
 import type {Env} from './types';
-import {ITEMS} from '../collector/amazon-extension/items.js';
+import {ITEMS} from './amazon-browser-targets';
 
-export async function claimAmazonBrowserAdvisories(env:Env,now=new Date()){
+export async function claimAmazonBrowserAdvisories(env:Env,now=new Date(),asin?:string){
  const time=now.toISOString(),cutoff=new Date(now.getTime()-10*60000).toISOString(),cooldown=new Date(now.getTime()-60*60000).toISOString(),events=[];
- for(const item of ITEMS){
-  const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category='30th_celebration'").bind(item.asin).first();
+ for(const item of ITEMS.filter(item=>!asin||item.asin===asin)){
+  const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(item.asin,item.category).first();
   if(!published)continue;
   const latest=await env.SPAWN_DB.prepare('SELECT id,observed_at,collector_state,evidence_json,buying_options_shown FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{id:string;observed_at:string;buying_options_shown:number|null;collector_state:string;evidence_json:string}>();
   if(!latest||latest.observed_at<cutoff||latest.observed_at>time||latest.buying_options_shown===null)continue;
@@ -31,7 +31,7 @@ export async function claimAmazonBrowserAdvisories(env:Env,now=new Date()){
    const original=await env.SPAWN_DB.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').bind(claimed.observation_id).first<{evidence_json:string}>();
    const originalOffer=original?JSON.parse(original.evidence_json).offer:null;
    const isFeatured=claimed.id.startsWith('amazon-featured:');
-   events.push({...claimed,claim_token:claimToken,kind:isFeatured?'FEATURED_OFFER_AVAILABLE':'BUYING_OPTIONS_SHOWN',routing_key:'pokemon-30th',url:item.url,product_name:item.name,stock_verified:false,...(isFeatured?{offer:originalOffer}:{})});
+   events.push({...claimed,claim_token:claimToken,kind:isFeatured?'FEATURED_OFFER_AVAILABLE':'BUYING_OPTIONS_SHOWN',routing_key:item.routingKey,url:item.url,product_name:item.name,stock_verified:false,...(isFeatured?{offer:originalOffer}:{})});
   }
  }
  return events;
@@ -44,7 +44,11 @@ export async function handleAmazonBrowserAdvisories(request:Request,env:Env):Pro
  if(request.method!=='POST')return new Response('Method not allowed',{status:405});
  if(path.endsWith('/claim')){
   if(env.AMAZON_BROWSER_ADVISORIES_ENABLED!=='true')return Response.json({events:[],enabled:false});
-  return Response.json({events:await claimAmazonBrowserAdvisories(env),enabled:true});
+  let asin:string|undefined;
+  const raw=await request.text();
+  if(raw.length>100)return Response.json({error:'too_large'},{status:413});
+  if(raw){try{const body=JSON.parse(raw);if(typeof body.asin!=='string'||!ITEMS.some(i=>i.asin===body.asin))return Response.json({error:'invalid_target'},{status:400});asin=body.asin;}catch{return Response.json({error:'invalid_json'},{status:400});}}
+  return Response.json({events:await claimAmazonBrowserAdvisories(env,new Date(),asin),enabled:true});
  }
  let body:any;try{const raw=await request.text();if(raw.length>1000)return new Response('Too large',{status:413});body=JSON.parse(raw);}catch{return Response.json({error:'invalid_json'},{status:400});}
  if(!body||typeof body.id!=='string'||body.id.length>160||typeof body.claim_token!=='string'||body.claim_token.length>64||!['DELIVERED','FAILED','SUPPRESSED'].includes(body.status))return Response.json({error:'invalid_ack'},{status:400});

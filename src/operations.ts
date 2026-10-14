@@ -1,4 +1,6 @@
 import {customerOperations} from './customer-operations';
+import {paidBrowserOperations} from './paid-browser-operations';
+import {storePilotOperations} from './store-pilot-operations';
 import {customerSupportOperations} from './customer-support-operations';
 import type {Env} from './types';
 import {boardHeaders} from './board';
@@ -19,7 +21,7 @@ const css = `
 @media(max-width:540px){.ops-metrics{grid-template-columns:1fr}.ops-form{display:grid}.ops-form textarea{min-width:0}.ops-topbar h1{font-size:1.3rem}}`;
 
 export function operationsShell(title: string, content: string, operator: Operator, env: Env, path: string, styles = ''): string {
-  const links = [['/ops','Overview'],['/approvals','Approved inventory'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/stores','Store acquisition'],['/ops/trusted-stores','Trusted stores'],['/ops/search','Search & budget'],['/ops/health','System health'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
+  const links = [['/ops','Overview'],['/approvals','Approved inventory'],['/inventory','Inventory'],['/ops/vendors','Vendors'],['/ops/stores','Store acquisition'],['/ops/trusted-stores','Trusted stores'],['/ops/search','Search & budget'],['/ops/health','System health'],['/ops/store-coverage','Store coverage'],['/ops/activity','Activity'],...(operator.role === 'owner' ? [['/ops/people','People & roles']] : []),...(env.CUSTOMER_DB && operator.role!=='viewer' ? [['/ops/customers','Customers'],['/ops/customer-support','Customer support']] : []),['/ops/account','My account']];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Garfield</title><meta name="robots" content="noindex,nofollow">${styles}<style>${css}</style></head><body><a class="skip" href="#workspace">Skip to content</a><aside class="ops-sidebar"><a class="ops-brand" href="/ops">GARFIELD<small>Operations</small></a><nav class="ops-nav" aria-label="Main navigation">${links.map(([href,label]) => `<a href="${href}"${path===href?' aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="ops-account"><strong>${esc(operator.email)}</strong>${esc(operator.role)}<br><a href="/cdn-cgi/access/logout">Sign out</a></div></aside><div class="ops-workspace"><header class="ops-topbar"><h1>${esc(title)}</h1><span class="ops-env">${esc(env.OPS_ENVIRONMENT ?? 'Environment not configured')}</span></header><main id="workspace" class="ops-content">${operator.role==='viewer'?'<p class="ops-alert">Read-only access. An administrator handles approval decisions.</p>':''}${content}</main></div></body></html>`;
 }
 
@@ -104,8 +106,10 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
   if (path === '/') return new Response(null,{status:302,headers:{location:'/ops','cache-control':'no-store'}});
   if (path === '/approvals' && url.searchParams.get('view') !== 'queue') return approvedInventoryOperations(request,env,operator);
   if (!path.startsWith('/ops')) return null;
+  if (path==='/ops/browser-fallback')return paidBrowserOperations(request,env,operator);
   if (path === '/ops/trusted-stores') return trustedStoreOperations(request,env,operator);
   if (path === '/ops/stores') return storeCatalogOperations(request,env,operator);
+  if (path === '/ops/store-coverage') return storePilotOperations(request,env,operator);
   if (path === '/ops/search/audit') return searchAuditOperations(request,env,operator);
   if (path === '/ops/search') return searchOperations(request,env,operator);
   if (path === '/ops/customers') return customerOperations(request,env,operator);
@@ -151,7 +155,7 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
     content=`<section><h2>Vendor registry</h2>${table(['Vendor','Status','Updated (UTC)','Reason'],vendors.results.map(r=>[r.vendor_name,r.status,r.updated_at,r.reason]),'No vendor status records yet.')}</section>`;
   } else if(path==='/ops/health') {
     title='System health'; const recent=await env.SPAWN_DB.prepare('SELECT started_at,finished_at,status,error FROM scan_runs ORDER BY started_at DESC LIMIT 20').all<Record<string,unknown>>();
-    content=`<section><h2>Spawn</h2><p>Database reachable. Configuration: ${esc(env.SPAWN_CONFIG_VERSION)}.</p>${table(['Started (UTC)','Finished (UTC)','Result','Details'],recent.results.map(r=>[r.started_at,r.finished_at,r.status,r.error]),'No scans recorded.')}</section><section><h2>Catch and detailed diagnostics</h2><p>Inspect reported tracking coverage, enrichment, customer delivery, and pricing references.</p><a href="/dashboard">Open detailed diagnostics →</a></section>`;
+    content=`<section><h2>Spawn</h2><p>Database reachable. Configuration: ${esc(env.SPAWN_CONFIG_VERSION)}.</p>${table(['Started (UTC)','Finished (UTC)','Result','Details'],recent.results.map(r=>[r.started_at,r.finished_at,r.status,r.error]),'No scans recorded.')}</section><section><h2>Browser fallback</h2><p>Temporarily authorize 15 browser minutes during a Scout outage, with automatic switch-off on recovery.</p><a class="ops-primary" href="/ops/browser-fallback">Manage paid browser fallback</a></section><section><h2>Catch and detailed diagnostics</h2><p>Inspect reported tracking coverage, enrichment, customer delivery, and pricing references.</p><a href="/dashboard">Open detailed diagnostics →</a></section>`;
   } else return operationsError('Page not found.',404,operator,env);
   return response(operationsShell(title,content,operator,env,path));
 }

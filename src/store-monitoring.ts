@@ -28,13 +28,22 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
   if(!body||typeof body!=='object'||Array.isArray(body))return Response.json({error:'invalid_body'},{status:400});
   const now=new Date(),at=now.toISOString();
   if(url.pathname.endsWith('/claim')) {
-    const limit=Math.min(100,Math.max(1,Math.floor(Number(body.limit)||30))),lease=crypto.randomUUID(),until=new Date(+now+180000).toISOString();
+    const pilot=env.STORE_MONITOR_PILOT_ENABLED==='true';
+    if(pilot){
+      const expiry=Date.parse(env.STORE_MONITOR_PILOT_UNTIL||'');
+      const count=await env.SPAWN_DB.prepare('SELECT COUNT(*) count FROM store_monitor_pilot').first<{count:number}>();
+      if(!Number.isFinite(expiry)||expiry<=+now||expiry>+now+86400000||!count||count.count<50||count.count>100)return Response.json({enabled:false,reason:'pilot_expired_or_invalid',targets:[],events:[]});
+    }
+    const limit=Math.min(pilot?12:100,Math.max(1,Math.floor(Number(body.limit)||30))),lease=crypto.randomUUID(),until=new Date(+now+180000).toISOString();
     await env.SPAWN_DB.prepare(`UPDATE store_monitor_targets SET lease_id=?,lease_until=?,last_attempt_at=? WHERE id IN (
-      SELECT t.id FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE ${active} AND t.next_due_at<=? AND (t.lease_until IS NULL OR t.lease_until<?)
+      SELECT t.id FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE ${active} ${pilot?`AND t.id IN (SELECT target_id FROM store_monitor_pilot) AND NOT EXISTS(
+        SELECT 1 FROM store_monitor_pilot held JOIN store_monitor_targets bad ON bad.id=held.target_id JOIN store_monitor_observations proof ON proof.receipt_id=bad.last_receipt
+        WHERE bad.store_id=t.store_id AND bad.failures>0 AND proof.evidence='access_blocked_http_429')`:''} AND t.next_due_at<=? AND (t.lease_until IS NULL OR t.lease_until<?)
       ORDER BY CASE t.priority WHEN 'hot' THEN 0 WHEN 'warm' THEN 1 ELSE 2 END,t.next_due_at,t.id LIMIT ?)`)
       .bind(lease,until,at,at,at,limit).run();
-    const targets=(await env.SPAWN_DB.prepare('SELECT t.*,s.origin,s.retailer FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.lease_id=?').bind(lease).all()).results;
-    return Response.json({schema_version:1,lease_id:lease,targets});
+    const rows=(await env.SPAWN_DB.prepare('SELECT t.*,s.origin,s.retailer FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.lease_id=?').bind(lease).all<Record<string,unknown>>()).results;
+    const targets=pilot?rows.map(t=>({...t,cadence_minutes:10,pilot:1})):rows;
+    return Response.json({schema_version:1,lease_id:lease,targets,mode:pilot?'reliable-store-pilot':'catalog'});
   }
   if(url.pathname.endsWith('/observe')) {
     if(typeof body.id!=='string'||typeof body.lease_id!=='string'||!['available','sold_out','unknown','blocked','error','preorder_placeholder'].includes(body.state)||typeof body.evidence!=='string'||body.evidence.length>4000||!(body.price_mxn==null||typeof body.price_mxn==='number'&&Number.isFinite(body.price_mxn)&&body.price_mxn>0))return Response.json({error:'invalid_observation'},{status:400});
@@ -43,6 +52,8 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     const t=await env.SPAWN_DB.prepare(`SELECT t.* FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.id=? AND t.lease_id=? AND t.lease_until>=? AND ${active}`).bind(body.id,body.lease_id,at).first<Target>();
     if(!t)return Response.json({error:'stale_or_inactive_target'},{status:409});
     const good=['available','sold_out','preorder_placeholder'].includes(body.state),price=body.state==='preorder_placeholder'?null:body.price_mxn??null;
+    const enrolled=env.STORE_MONITOR_PILOT_ENABLED==='true'&&await env.SPAWN_DB.prepare('SELECT target_id FROM store_monitor_pilot WHERE target_id=?').bind(t.id).first();
+    if(enrolled)t.cadence_minutes=10;
     const delay=good?t.cadence_minutes:Math.min(360,Math.max(t.cadence_minutes,5*2**Math.min(t.failures,6)));
     // The first statement revalidates the lease and approval inside the transaction.
     // Every subsequent write is conditional on this receipt being inserted.
@@ -68,15 +79,15 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     await env.SPAWN_DB.prepare(`UPDATE store_customer_events SET expired_at=?,lease_id=NULL,lease_until=NULL
       WHERE delivered_at IS NULL AND expired_at IS NULL AND kind='HUNT_UPDATE' AND EXISTS(
       SELECT 1 FROM store_monitor_targets t WHERE t.id=store_customer_events.target_id AND
-      (julianday(store_customer_events.created_at)+MAX(15,t.cadence_minutes*2)/1440.0<julianday(?)
+      (julianday(store_customer_events.created_at)+MAX(15,CASE WHEN ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'t.id IN (SELECT target_id FROM store_monitor_pilot)':'0'} THEN 20 ELSE t.cadence_minutes*2 END)/1440.0<julianday(?)
        OR t.state!=json_extract(store_customer_events.payload_json,'$.state')))` ).bind(at,at).run();
     // Announce usable coverage; isolated failures must not hold an entire store hostage.
-    const ready=(await env.SPAWN_DB.prepare(`SELECT s.id,s.origin,s.retailer FROM store_acquisitions s WHERE s.status='APPROVED' AND s.announced_at IS NULL AND s.baseline_completed_at IS NOT NULL AND EXISTS(SELECT 1 FROM store_monitor_targets WHERE store_id=s.id AND last_observed_at IS NOT NULL) LIMIT 20`).all<{id:string;origin:string;retailer:string}>()).results;
+    const ready=(await env.SPAWN_DB.prepare(`SELECT s.id,s.origin,s.retailer FROM store_acquisitions s WHERE ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'0=1 AND ':''} s.status='APPROVED' AND s.announced_at IS NULL AND s.baseline_completed_at IS NOT NULL AND EXISTS(SELECT 1 FROM store_monitor_targets WHERE store_id=s.id AND last_observed_at IS NOT NULL) LIMIT 20`).all<{id:string;origin:string;retailer:string}>()).results;
     for(const s of ready)await env.SPAWN_DB.batch([
       env.SPAWN_DB.prepare("INSERT OR IGNORE INTO store_customer_events(id,store_id,kind,routing_key,payload_json,created_at,due_at) VALUES(?,?,'STORE_TRACKING','pokemon-main',?,?,?)").bind(await storeDigest('store:'+s.id),s.id,JSON.stringify({title:s.retailer,state:'tracking',url:s.origin}),at,nextStoreDigest(now)),
       env.SPAWN_DB.prepare('UPDATE store_acquisitions SET announced_at=? WHERE id=?').bind(at,s.id)]);
     const lease=crypto.randomUUID();
-    await env.SPAWN_DB.prepare(`UPDATE store_customer_events SET lease_id=?,lease_until=?,attempts=attempts+1 WHERE id IN (SELECT e.id FROM store_customer_events e JOIN store_acquisitions s ON s.id=e.store_id WHERE s.status='APPROVED' AND e.delivered_at IS NULL AND e.expired_at IS NULL AND e.due_at<=? AND (e.lease_until IS NULL OR e.lease_until<?) AND NOT ${storeSuppressionSql} AND (e.target_id IS NULL OR EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=e.target_id AND NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=t.id AND admin.removed_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_listing_key=t.id OR c.source_url=t.url) AND c.status='REJECTED'))) ORDER BY e.due_at,e.id LIMIT 50)`)
+    await env.SPAWN_DB.prepare(`UPDATE store_customer_events SET lease_id=?,lease_until=?,attempts=attempts+1 WHERE id IN (SELECT e.id FROM store_customer_events e JOIN store_acquisitions s ON s.id=e.store_id WHERE ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'e.target_id IN (SELECT target_id FROM store_monitor_pilot) AND ':''} s.status='APPROVED' AND e.delivered_at IS NULL AND e.expired_at IS NULL AND e.due_at<=? AND (e.lease_until IS NULL OR e.lease_until<?) AND NOT ${storeSuppressionSql} AND (e.target_id IS NULL OR EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=e.target_id AND NOT EXISTS(SELECT 1 FROM inventory_admin_reviews admin WHERE admin.listing_key=t.id AND admin.removed_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_listing_key=t.id OR c.source_url=t.url) AND c.status='REJECTED'))) ORDER BY e.due_at,e.id LIMIT 50)`)
       .bind(lease,new Date(+now+180000).toISOString(),at,at).run();
     return Response.json({lease_id:lease,events:(await env.SPAWN_DB.prepare('SELECT e.*,s.retailer FROM store_customer_events e JOIN store_acquisitions s ON s.id=e.store_id WHERE e.lease_id=?').bind(lease).all()).results});
   }

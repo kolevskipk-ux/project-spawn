@@ -1,4 +1,8 @@
+import {monitorScoutHealth} from './scout-health';
+import {handlePaidBrowserPolicy} from './paid-browser-fallback';
 import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
+import {runRevalidationTrial} from './revalidation-trial';
+import {runInventoryObservation} from './inventory-observation';
 import {inventoryIdentities} from './inventory-identities';
 import {inventoryRedirect,registerInventoryLinksRoute,inventoryClickReport} from './outbound-links';
 import {trackBoardLinks} from './board-links';
@@ -416,10 +420,11 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
   }
   const costWatch=await handleCostWatch(request,env);if(costWatch)return costWatch;
   const walmartBrowser=await handleWalmartBrowser(request,env);if(walmartBrowser)return walmartBrowser;
-  const amazonBrowser=await handleAmazonBrowser(request,env);if(amazonBrowser)return amazonBrowser;
+
   const amazonAdvisories=await handleAmazonBrowserAdvisories(request,env);if(amazonAdvisories)return amazonAdvisories;
   const mercadoLibreBrowser=await handleMercadoLibreBrowser(request,env);if(mercadoLibreBrowser)return mercadoLibreBrowser;
   const storeMonitoring=await handleStoreMonitoring(request,env);if(storeMonitoring)return storeMonitoring;
+  const paidBrowser=await handlePaidBrowserPolicy(request,env);if(paidBrowser)return paidBrowser;
   const customerEvents=await handleCustomerEvents(request,url,env);if(customerEvents)return customerEvents;
   const pricingReview=await dashboardPricingReview(request,url,env);if(pricingReview)return pricingReview;
   if (url.pathname === "/admin/seed-campaigns") {
@@ -500,6 +505,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleFetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const amazonBrowser=await handleAmazonBrowser(request,env,ctx);if(amazonBrowser)return amazonBrowser;
   const outbound=await inventoryRedirect(request,env,ctx);if(outbound)return outbound;
   const recovery=await dropRecoveryRoute(request,env,ctx);if(recovery)return recovery;
   const url = new URL(request.url);
@@ -545,8 +551,11 @@ export function isEarlyAsinIntelligenceWindow(now:Date,timezone:string):boolean{
 
 export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
   const now=new Date();
+  if(_controller.cron==='5 * * * *')ctx.waitUntil(runInventoryObservation(env,now).catch(error=>console.error('Inventory observation stopped',error)));
+  if(_controller.cron==='5 * * * *')ctx.waitUntil(runRevalidationTrial(env,now).catch(error=>console.error('Revalidation trial stopped',error)));
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){
+    ctx.waitUntil(monitorScoutHealth(env,now).catch(()=>console.error('Scout health notification pending')));
     ctx.waitUntil(deliverMercadoLibreOperatorAlerts(env).catch(()=>console.error('Mercado Libre operator alert pending retry')));
     ctx.waitUntil(retryDropSearches(env).catch(()=>console.error('Drop recovery retry failed')));
     ctx.waitUntil(deliverPrivacyMailAlerts(env).catch(()=>console.error('Privacy mail alert retry failed')));
