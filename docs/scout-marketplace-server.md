@@ -35,3 +35,33 @@ build, separately enable/start scout-marketplace.service, inspect real readings
 and authenticated receipts, then document actual coverage. Any account verification
 or CAPTCHA must be handled by Philip. Unknown readings must never be reported as
 stock. Stop the separate service to roll back; Amazon monitoring remains independent.
+
+## Approved server activation — October 13, 2026
+
+Philip explicitly authorized merging Spawn #41 and Catch #34 into main and
+transferring the existing Walmart/Mercado Libre credentials to main@100.86.242.81.
+Both PRs merged successfully (Spawn 70ac199; Catch e2dd7fe). Credential transfer
+succeeded over Tailscale SSH with no values printed; both private files are 600.
+scout-marketplace.service is enabled and running with its own profile. Amazon's
+scout-amazon.service remains active and unchanged.
+
+Live commissioning found Firefox's newly created tabs initially lacked committed
+URLs and Walmart's offer area hydrated after document loading. Version 0.4.2 adds
+a bounded URL-commit wait, selects each product tab before its normal reload, and
+rechecks pending offer DOM for up to six seconds without another navigation.
+Mercado Libre /captcha/wall is explicitly a challenge; known challenged tabs are
+preserved for manual handling rather than reopened. Manual disablement survives
+service restarts. Every network request in 21 extraction fixtures was intercepted;
+scheduling/history/lease checks pass. Native Firefox lint has zero findings.
+
+At 2026-10-14T02:31:46.848Z Spawn accepted Walmart Ditto sold_out, MX$749, seller
+Walmart and postcode 53100. The UPC returned unknown with MX$3370 and the same
+seller/postcode: its purchase/stock evidence was inconclusive. All five Mercado
+Libre identities returned blocked / ACCOUNT_VERIFICATION, accepted by Spawn.
+No CAPTCHA was solved, seller approval inferred, or customer marketplace alert
+enabled. Philip must personally complete retailer verification in the server's
+marketplace Firefox profile before those pages can provide usable coverage.
+
+Both retailers retain separate 30-minute schedules and 02:05–06:05 Mexico City
+quiet hours. Configured credentials were preserved during the public-code update.
+The separate service can be stopped without stopping Amazon Scout.
