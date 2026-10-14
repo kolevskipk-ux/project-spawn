@@ -7,6 +7,11 @@ and Dino Cards (6). Candidates had a successful observation within 24 hours and
 zero consecutive failures. Approval, vendor suppression and item rejection checks
 remain enforced at claim and receipt time.
 
+A 429 observed on any pilot target holds its entire store out of further pilot
+claims for review, preserving enrollment and evidence. Initial production reads
+triggered this hold for Dino Cards; 69 targets across the other five stores remain
+eligible. This prevents the pilot from increasing requests against a rate limit.
+
 Scout owns browser acquisition for Amazon and the separately scoped marketplace
 collectors. Catch's stores-only mode stops scheduled Amazon, buying-options, drop
 search, Walmart and Mercado Libre acquisition, while preserving Scout advisory

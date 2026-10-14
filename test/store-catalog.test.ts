@@ -9,6 +9,7 @@ import {auditKnownStores,decideStore,importStoreCatalog,runCatalogTick,startCata
 import {catalogOrigin,catalogProduct,catalogUrl,candidateCatalogUrl,parseRobots,robotsAllows,sitemapLinks} from '../src/store-catalog-parser';
 import {storeCatalogOperations} from '../src/store-catalog-operations';
 import {handleStoreMonitoring,nextStoreDigest} from '../src/store-monitoring';
+import {storePilotOperations} from '../src/store-pilot-operations';
 import {customerInventory} from '../src/customer-feed';
 import {approveStoresWithAdminInventory} from '../src/store-catalog';
 import {approvedInventoryOperations} from '../src/approved-inventory-operations';
@@ -43,7 +44,12 @@ it('leases only enrolled pilot targets and schedules successful observations ten
  const target=claim.targets[0];await call('observe',{id:target.id,lease_id:claim.lease_id,state:'sold_out',price_mxn:1000,evidence:'exact-product'});
  const saved=db.prepare('SELECT * FROM store_monitor_targets WHERE id=?').get(target.id) as any;
  expect(Date.parse(saved.next_due_at)-Date.parse(saved.last_observed_at)).toBe(600000);expect(saved.cadence_minutes).toBe(60);
+ await call('observe',{id:claim.targets[1].id,lease_id:claim.lease_id,state:'blocked',price_mxn:null,evidence:'access_blocked_http_429'});
+ expect((await (await call('claim',{limit:12}))!.json() as any).targets).toHaveLength(0);
+ expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_pilot').get()?.n).toBe(50);
  env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()-1).toISOString();expect(await (await call('claim',{limit:12}))!.json()).toMatchObject({enabled:false});
+ const coverage=await storePilotOperations(new Request('https://spawn.example/ops/store-coverage'),env,{email:'owner',subject:'owner',role:'owner'});
+ expect(coverage.status).toBe(200);const html=await coverage.text();expect(html).toContain('Revisit minutes');expect(html).toContain('access_blocked_http_429');
 });
 function inventory(url=known,name='Cards',key='known'){db.prepare("INSERT INTO inventory(listing_key,canonical_url,retailer,title,watch_category,first_seen_at,last_seen_at,status,language,price_mxn) VALUES(?,?,?,'Curated name','delta_reign','2026-09-01','2026-09-01','sold_out','english',1200)").run(key,url,name);}
 function store(){return db.prepare('SELECT * FROM store_acquisitions WHERE origin=?').get(origin) as unknown as Store;}

@@ -36,7 +36,9 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     }
     const limit=Math.min(pilot?12:100,Math.max(1,Math.floor(Number(body.limit)||30))),lease=crypto.randomUUID(),until=new Date(+now+180000).toISOString();
     await env.SPAWN_DB.prepare(`UPDATE store_monitor_targets SET lease_id=?,lease_until=?,last_attempt_at=? WHERE id IN (
-      SELECT t.id FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE ${active} ${pilot?'AND t.id IN (SELECT target_id FROM store_monitor_pilot)':''} AND t.next_due_at<=? AND (t.lease_until IS NULL OR t.lease_until<?)
+      SELECT t.id FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE ${active} ${pilot?`AND t.id IN (SELECT target_id FROM store_monitor_pilot) AND NOT EXISTS(
+        SELECT 1 FROM store_monitor_pilot held JOIN store_monitor_targets bad ON bad.id=held.target_id JOIN store_monitor_observations proof ON proof.receipt_id=bad.last_receipt
+        WHERE bad.store_id=t.store_id AND bad.failures>0 AND proof.evidence='access_blocked_http_429')`:''} AND t.next_due_at<=? AND (t.lease_until IS NULL OR t.lease_until<?)
       ORDER BY CASE t.priority WHEN 'hot' THEN 0 WHEN 'warm' THEN 1 ELSE 2 END,t.next_due_at,t.id LIMIT ?)`)
       .bind(lease,until,at,at,at,limit).run();
     const rows=(await env.SPAWN_DB.prepare('SELECT t.*,s.origin,s.retailer FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.lease_id=?').bind(lease).all<Record<string,unknown>>()).results;
