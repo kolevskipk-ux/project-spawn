@@ -51,6 +51,26 @@ Validation: Spawn TypeScript and 361 tests pass; Catch's complete 14-script suit
 and the new acquisition-isolation test pass, including Worker runtime checks.
 Compile-only bundles passed for both Workers.
 
+Live release: migration 0048 applied; Catch 609e33a1-f756-4609-8ec1-4a906d89ff1f
+and Spawn 9f4efc0b-43ae-4592-b064-6fcf01c516b8 receive 100% traffic. Health and
+readiness returned ok. Of 75 enrolled targets, Dino Cards' six are held after 429s,
+leaving 69 eligible across five stores. First measured successful revisit gaps:
+10.78–11.09 minutes (33 repeats). The nominal ten-minute deadline is checked by
+the existing minute cron, so execution jitter adds up to roughly one minute.
+Twelve deadlines written by the last legacy sweep were expedited once after
+activation; stock state and alert baselines were preserved. The old campaign
+event is SUPPRESSED with acknowledgement 2026-10-14T02:00:54.785Z; no announcement
+was replayed. Refreshing analytics at 02:13 UTC still showed included headroom.
+
+Expiry: 2026-10-15T01:53:47.969Z, October 14 at 19:53 Mexico City. No automatic
+extension or cost-watch automation was created. Rollback versions: Spawn
+c77ca7fd-09a8-464f-89da-d7eb93ecf001 and Catch fb2e5bc4-43ca-45aa-bca8-b0dfa38ef897.
+PRs project-spawn #41 and catch-em-all #34 remain open: automatic approval review
+rejected the Catch main merge because explicit merge authorization is missing.
+Do not bypass that decision. Server marketplace preparation separately awaits
+explicit approval to transfer existing scoped credentials; see
+docs/scout-marketplace-server.md.
+
 Release order: record active versions; apply only 0048; deploy compatible Spawn;
 enroll reviewed products; deploy stores-only Catch; activate the dated Spawn pilot;
 verify natural checks and costs. Migration, version upload/deployment and
