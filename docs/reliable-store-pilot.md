@@ -61,6 +61,7 @@ Twelve deadlines written by the last legacy sweep were expedited once after
 activation; stock state and alert baselines were preserved. The old campaign
 event is SUPPRESSED with acknowledgement 2026-10-14T02:00:54.785Z; no announcement
 was replayed. Refreshing analytics at 02:13 UTC still showed included headroom.
+By 02:18 UTC all 69 eligible products had successful post-activation observations.
 
 Expiry: 2026-10-15T01:53:47.969Z, October 14 at 19:53 Mexico City. No automatic
 extension or cost-watch automation was created. Rollback versions: Spawn

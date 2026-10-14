@@ -25,7 +25,10 @@ stored in permission-600 configuration files, excluded from Git and tool output.
 Automatic approval review rejected this credential transfer because explicit
 authorization naming the credentials and server destination is missing. No server
 package, credential or service was installed by the rejected action. The prepared
-script work/prepare-marketplace-server.ps1 remains unexecuted.
+script work/prepare-marketplace-server.ps1 remains unexecuted. A separate permitted
+step staged only the non-secret package with empty credentials on the server;
+native web-ext lint returned zero errors, notices and warnings. No marketplace
+service was created or started. The blocked credential action was not bypassed.
 
 After approval: prepare files, run the existing server web-ext lint against the
 build, separately enable/start scout-marketplace.service, inspect real readings
