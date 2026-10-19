@@ -1,3 +1,27 @@
+# Operations release records
+
+## Current release checkpoint October 19 2026
+
+Spawn main includes PRs 41–45; the latest functional merge is `63d3c5d` (PR 45).
+Read-only deployment inspection confirmed Worker
+`201d3ed5-3a29-449c-a6d1-dd797bae5851` at 100% traffic, deployed at 22:07:57 UTC.
+Merge-triggered Cloudflare deployment and separately installed Scout packages
+must be recorded independently. Scout Amazon is 0.5.7; marketplace is 0.4.4.
+Catch remains release V8.9.0-rc.4 in stores-only mode, Worker
+`14647500-48c6-470a-8366-f7a4c9432fa9` at 100% traffic.
+
+The reliable-store pilot expired October 15 at 01:53:47.969 UTC; flags do not renew
+that window. Amazon recovery verification showed sixteen fresh server targets at
+October 19 22:30:50 UTC. Dynamic staged-ASIN enrollment is proposed only.
+
+See [functionality map](GARFIELD_FUNCTIONALITY.md), [Spawn state](SPAWN_STATE.md),
+[Scout state](docs/scout-server-state.md) and [pilot record](docs/reliable-store-pilot.md).
+These documentation edits do not deploy code, activate flags, renew schedules or
+change stored catalog/monitoring decisions. The earlier dated release records
+below remain historical evidence; their pending steps are not current status.
+
+## Historical September release record
+
 # Production release verification — 2026-09-05
 
 PR #34 merged as `463c75c`. Its Git tree matches the reviewed branch head `142f173`.

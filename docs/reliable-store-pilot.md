@@ -1,4 +1,34 @@
-# Reliable store pilot — October 13, 2026
+# Reliable store pilot
+
+## Final status reviewed October 19 2026
+
+**Expired.** The fixed window ended October 15 at 01:53:47.969 UTC (October 14,
+19:53 Mexico City). The Spawn pilot flag remains enabled, but the expiry gate
+prevents new claims. Catch remains stores-only; expiry does not restart its legacy
+Amazon/marketplace acquisition. Paid browser fallback is disabled. The dedicated
+pilot monitoring automation is paused after its final report. No extension is
+implied by this documentation.
+
+Of seventy-five enrolled products, six Dino Cards targets were held after HTTP 429.
+The sixty-nine retained targets across five stores all had successful observations:
+7,506 usable of 7,524 observations (99.76%), with eighteen transient errors.
+Eleven in-flight receipts completed about seventeen seconds after expiry, none
+later. These are final pilot results, not current ongoing store coverage.
+
+Measured surrounding account usage remained within included allowances at the
+October 19 audit. It includes setup and other workloads, so it cannot establish a
+pilot-only invoice or promise future zero cost. Review actual headroom before any
+new activation. Broad store catalog maintenance and general revalidation remain
+paused; scheduled market discovery continues.
+
+Spawn PRs 41 and 42 and Catch PR 34 are merged; the later Spawn 43–45 repairs and
+upgrades are also merged. Existing Walmart and Mercado Libre credentials were
+transferred under explicit authorization and the marketplace service is installed.
+The old pending-approval/transfer statements in the rollout history below are
+historical. See [Scout current state](scout-server-state.md) and the coordinated
+[functionality map](../GARFIELD_FUNCTIONALITY.md) for current releases and scope.
+
+## Historical rollout on October 13 and 14
 
 Philip authorized a 50–100-target ten-minute store pilot within existing Cloudflare
 allowances. Initial selection: 75 healthy named-hunt products across The Frog House
