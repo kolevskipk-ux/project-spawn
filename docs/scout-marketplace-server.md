@@ -78,9 +78,10 @@ or mapped verification URL before inspection. An unrelated saved tab is rejected
 
 Build with `node scripts/prepare-marketplace-server.mjs`. Existing private config
 files must be preserved when installing public files; generated credentials are
-blank. The local repair tests expect that generated package plus an Amazon repair
-package built by `node scripts/patch-amazon-server.mjs <existing-public-0.5.4-dir>`.
-Run `node tests/scout-server-reliability.mjs` and the marketplace extraction suite.
+blank. Build the Amazon public patch with
+`node scripts/patch-amazon-server.mjs <existing-public-0.5.4-dir>`.
+Run `node tests/scout-server-reliability.mjs` (self-contained) and the marketplace
+extraction suite.
 
 The Amazon server patch produces version 0.5.5 public files only. Its previous
 READ_FAILURES stop counted other sellers' featured offers and unverified option

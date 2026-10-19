@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import vm from 'node:vm';
 import {findItemTab} from '../collector/marketplace-extension/tab-lookup.js';
-import {summarize} from '../../work/Scout-Amazon-Repair-0.5.5/policy.js';
+import {readHealth} from '../collector/amazon-extension/read-health.js';
 const item={itemId:'approved',url:'https://store.invalid/approved'};
 const group={items:[item],patterns:['https://store.invalid/*'],exact:(u,i)=>u===i.url,challenge:u=>u?.startsWith('https://store.invalid/challenge')};
 let current={id:7,url:item.url};const api={tabs:{get:async()=>current}};
@@ -11,12 +14,14 @@ current={id:7,url:'https://unrelated.invalid'};assert.equal(await findItemTab(ap
 current={id:7,url:'https://store.invalid/challenge'};assert.equal((await findItemTab(api,group,item,[],{approved:7})).id,7);
 assert.equal((await findItemTab(api,group,item,[{id:8,url:'https://store.invalid/challenge?go_url='+encodeURIComponent(item.url)}],{})).id,8);
 const previousFailure=[{state:'sold_out'},...Array.from({length:3},()=>({state:'unknown',reason:'OTHER_SELLER_FEATURED'})),{state:'buying_options_shown',panelStatus:'unverified'}];
-assert.equal(summarize(previousFailure,1000,5).stopReason,null);
-assert.equal(summarize(previousFailure,1000,5).inconclusive,4);
-assert.equal(summarize([{state:'unknown',reason:'TAB_MISSING'}],1000,5).stopReason,'READ_FAILURES');
-assert.equal(summarize([{state:'error',reason:'PAGE_CHECK_FAILED'}],1000,5).stopReason,'READ_FAILURES');
-assert.equal(summarize([{state:'blocked'}],1000,5).stopReason,'CHALLENGE');
-const built=readFileSync(new URL('../../work/Scout-Marketplace-Server-0.4.3/background.js',import.meta.url),'utf8');
+assert.equal(readHealth(previousFailure).stopReason,null);
+assert.equal(readHealth(previousFailure).inconclusive,4);
+assert.equal(readHealth([{state:'unknown',reason:'TAB_MISSING'}]).stopReason,'READ_FAILURES');
+assert.equal(readHealth([{state:'error',reason:'PAGE_CHECK_FAILED'}]).stopReason,'READ_FAILURES');
+assert.equal(readHealth([{state:'blocked'}]).stopReason,'CHALLENGE');
+const temporary=mkdtempSync(join(tmpdir(),'scout-server-test-'));
+let built;
+try{execFileSync(process.execPath,['scripts/prepare-marketplace-server.mjs',temporary],{stdio:'pipe'});built=readFileSync(join(temporary,'background.js'),'utf8');}finally{rmSync(temporary,{recursive:true,force:true});}
 const startup=built.slice(built.indexOf('// One initialization per browser session'));
 const session={},state={marketplaceServerCommissioned:true,walmartEnabled:true,mercadolibreEnabled:false,tabIds:{approved:7}};
 let dashboards=[{id:10},{id:11},{id:12}],created=0,alarms=[];

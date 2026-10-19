@@ -6,12 +6,12 @@ const output=resolve(process.argv[3]||'../work/Scout-Amazon-Repair-0.5.5');
 mkdirSync(output,{recursive:true});
 function replaceRequired(text,before,after){if(!text.includes(before))throw Error('Unexpected server source; patch refused');return text.replace(before,after);}
 let policy=readFileSync(resolve(source,'policy.js'),'utf8').replace(/\r\n/g,'\n');
-policy=replaceRequired(policy,"const errors=results.filter(r=>['error','unknown'].includes(r.state)||r.panelStatus==='unverified').length,challenges=results.filter(r=>r.state==='blocked').length;",`// An inconclusive offer is not a failed read. Keep stock classification unknown.
- const readableUnknown=new Set(['OTHER_SELLER_FEATURED','NO_VERIFIED_FEATURED_OFFER','OFFER_UNCONFIRMED','PRICE_OR_SELLER_UNCONFIRMED']);
- const errors=results.filter(r=>r.state==='error'||r.state==='unknown'&&!readableUnknown.has(r.reason)).length,challenges=results.filter(r=>r.state==='blocked').length;
- const inconclusive=results.filter(r=>readableUnknown.has(r.reason)||r.panelStatus==='unverified').length;`);
+policy=replaceRequired(policy,"const errors=results.filter(r=>['error','unknown'].includes(r.state)||r.panelStatus==='unverified').length,challenges=results.filter(r=>r.state==='blocked').length;",'const {errors,inconclusive,challenges,stopReason}=readHealth(results);');
 policy=replaceRequired(policy,'errors,challenges,durationMs','errors,inconclusive,challenges,durationMs');
+policy=replaceRequired(policy,"stopReason:challenges?'CHALLENGE':errors/Math.max(1,results.length)>0.2?'READ_FAILURES':null",'stopReason');
+policy="import {readHealth} from './read-health.js';\n"+policy;
 writeFileSync(resolve(output,'policy.js'),policy);
+writeFileSync(resolve(output,'read-health.js'),readFileSync(new URL('../collector/amazon-extension/read-health.js',import.meta.url)));
 let background=readFileSync(resolve(source,'background.js'),'utf8').replace(/\r\n/g,'\n');
 background="import {HEALTH_ALARM,startHeartbeat,reportHeartbeat} from './health-heartbeat.js';\n"+background;
 background=replaceRequired(background,"browser.alarms.onAlarm.addListener(a=>{if(a.name===ALARM)","browser.alarms.onAlarm.addListener(a=>{if(a.name===HEALTH_ALARM){reportHeartbeat();return;}if(a.name===ALARM)");
