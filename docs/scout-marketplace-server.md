@@ -1,4 +1,13 @@
-# Scout marketplace server preparation — October 13, 2026
+# Scout server release history
+
+Current state, build/rollback procedure and activation boundaries are in
+[scout-server-state.md](scout-server-state.md). Reviewed October 19, 2026:
+Amazon 0.5.7 and marketplace 0.4.4 are installed; Spawn PRs 41–45 are merged.
+Credential transfer completed under explicit authorization. The earlier blocked
+transfer and preparation-only descriptions below are dated history, not current
+service status. The store pilot is expired; these server repairs did not renew it.
+
+## Historical preparation and activation
 
 The existing production marketplace receipts are not usable coverage: Mercado Libre
 reports TAB_MISSING and Walmart reports unknown. Amazon Scout remains operational
@@ -142,3 +151,20 @@ The two-preparation/one-reader pipeline is an isolated local experiment with no
 retailer traffic. Production concurrency remains one while Amazon is challenged;
 synthetic timing is not a production speed estimate. No store-pilot extension,
 seller-policy relaxation, or paid browser activation accompanies this upgrade.
+
+
+## Continuation release on October 19 2026
+
+PR 45 merged as `63d3c5d`. Amazon 0.5.7 adds the complete ordinary-shopping-gate
+continuation flow with Catch's stricter CAPTCHA/robot/form guards. Only the
+extractor, reader, product check and manifest changed. Pacing, read-health,
+background and heartbeat hashes remained unchanged; private config and profiles
+were preserved. One live canary succeeded before the exact misclassified-gate
+pause was released. Genuine challenge/manual pause protections remain intact.
+
+Fifteen offline guard/navigation cases and twenty seller-first DOM scenarios plus
+continuation/intake regressions passed. Three automatic batches accepted all
+sixteen readings without read errors/challenges/intake failures by 22:05:47 UTC;
+all sixteen remained fresh at 22:30:50 UTC. No live gate occurred during those
+checks, so live click recovery is not claimed. See the current state for the
+experimental pipeline, staged-ASIN proposal and remaining coverage gaps.

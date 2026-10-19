@@ -1,5 +1,11 @@
 # Project Spawn
 
+Current behavior and activation: [Garfield functionality map](GARFIELD_FUNCTIONALITY.md)
+and [Spawn state](SPAWN_STATE.md), reviewed October 19, 2026. Scout performs the
+enabled Amazon/marketplace browser acquisition. Catch remains in stores-only mode;
+the reliable-store pilot has expired. Dynamic staged-ASIN enrollment in Scout is
+proposed, not active. Historical release notes do not override these statuses.
+
 GitHub-backed Cloudflare Worker that performs three-hourly market discovery plus one bounded 04:05 early-ASIN sweep for Delta Reign and 30th Anniversary, maintains durable inventory and review state in D1, and serves protected operator views.
 
 The post-review responsibility boundary is documented in `SPAWN_CONTRACT.md`.

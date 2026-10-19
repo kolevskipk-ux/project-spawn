@@ -1,12 +1,24 @@
 # Project Spawn contract
 
+## Current operating status — October 19, 2026
+
+Use [GARFIELD_FUNCTIONALITY.md](GARFIELD_FUNCTIONALITY.md) and
+[SPAWN_STATE.md](SPAWN_STATE.md) for current activation and dated evidence.
+Scout Amazon 0.5.7 and marketplace 0.4.4 own scoped server browser acquisition;
+Spawn owns discovery, identity, review, publication, receipts and health. Catch
+retains eligible customer delivery in stores-only mode. The reliable-store pilot
+is expired; no renewal or acquisition expansion is authorized by this document.
+Dynamic staged-ASIN enrollment into Scout is proposed only. The legacy verified
+silent staging feed remains distinct and its Catch acquisition is currently paused.
+
 ## Reliable store pilot — authorized October 13, 2026
 
-Spawn coordinates a 50–100-product, ten-minute, explicitly enrolled reliable-store
-pilot. Original catalog targets and baselines remain stored; broad discovery and
-revalidation remain paused. Coverage, maintenance candidates and rejected customer
-events are visible to authenticated operators. The pilot expires after a bounded
-day unless reviewed for measured allowance headroom. See docs/reliable-store-pilot.md.
+Spawn coordinated a 50–100-product, ten-minute, explicitly enrolled reliable-store
+pilot. It expired October 15 at 01:53:47.969 UTC; the still-enabled pilot flag cannot
+extend that deadline. Original catalogs and baselines remain stored. Broad store
+catalog maintenance and general revalidation are paused; scheduled market discovery
+continues. Coverage, maintenance candidates and rejected customer events remain
+visible to operators. See docs/reliable-store-pilot.md for the final results.
 
 ## Amazon browser customer advisories — production authorized 2026-09-21
 

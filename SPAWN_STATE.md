@@ -1,74 +1,85 @@
 # Project Spawn state
 
-Last reviewed: 2026-08-29
+Reviewed October 19, 2026. [Garfield functionality map](GARFIELD_FUNCTIONALITY.md)
+is the coordinated activation map; [GARFIELD.md](GARFIELD.md) defines ownership.
 
-## Canonical state
+## Deployed and enabled
 
-- Production branch: `main`
-- Audited Git commit: `6a30a9d52453e44d3b52d4e52b063d89144c4988`
-- Configuration version: `7.0`
-- Production hostname: `https://spawn.aztlan-eng.com`
-- Live evidence at review: `/healthz` returned healthy and the protected inventory board returned HTTP 200.
-- Cloudflare deployment ID: `2afbfe4f-fa5b-42dc-aee7-bd107fd26afb`
-- Exact Cloudflare deployment ID / Git commit mapping: not publicly exposed and not confirmed
-- Repository visibility at review: public
-- Branch protection at review: `main` unprotected, with no required status checks
+- Production source: `main`, including PRs 41–45; latest functional merge
+  `63d3c5d` (PR 45). Worker `201d3ed5-3a29-449c-a6d1-dd797bae5851` serves 100%
+  traffic, deployed October 19 at 22:07:57 UTC. Configuration `8.7.0-inventory`.
+  Cloudflare build/deploy follows merges; server extension installation is separate.
+- OpenAI-assisted market discovery, three-hour windows outside quiet hours,
+  plus the bounded 04:05 early-ASIN window in America/Mexico_City. Families:
+  30th Celebration, Ascended Heroes, Delta Reign, exact Hobbit Collector Box pilot.
+  Early-ASIN search covers only 30th and Delta Reign; discovery is not exhaustive.
+- D1 holds discovery, identity, approvals, publication, observations, customer
+  events and audit history. Individual Access-authenticated operator views and
+  separate customer eligibility/privacy/support flows are deployed.
+- Scoped Amazon/Walmart/Mercado Libre browser intake and Amazon coverage health.
+  Fresh page reads, qualifying offers and customer stock claims are distinct.
+- Customer inventory events and unverified Amazon advisories are delivered by
+  Catch. Spawn owns durable queues and review state, not customer Discord routing.
+  Mercado Libre operator alerts and Scout health alerts are enabled.
+- Reviewed pricing references and multilingual identity handling; inventory link
+  metrics enabled. Unknown language and unavailable evidence remain explicit.
 
-## Architecture
+## Scout server
 
-- Hourly Cloudflare cron at five minutes past the hour
-- OpenAI Responses API with web search for broader discovery
-- D1 for scan history, inventory, observations, product catalog, security state, feedback, and benchmark candidates
-- Discord for minimal subscriber-facing scan and change reports
-- Protected inventory board and CSV export
-- HMAC-authenticated Catch Em All benchmark-candidate intake
-- Global scan lock, manual cooldown, and edge rate limits
+Amazon 0.5.7 runs separately from marketplace 0.4.4. The fixed Amazon list has
+sixteen products; hot cadence is four minutes and others twelve minutes plus
+jitter, in serial batches of at most six. Marketplace has two Walmart and five
+Mercado Libre identities, separate thirty-minute schedules and quiet hours.
+See [Scout server runbook](docs/scout-marketplace-server.md).
 
-## Garfield ownership
+The 0.5.7 continuation flow rejects genuine challenges, permits one guarded ordinary
+shopping continuation and rereads identity/offer evidence. Pacing, manual pauses,
+challenge backoff and watchdog protections remain. At October 19 22:30:50 UTC,
+all sixteen Amazon targets had fresh server readings; no active stop/cooldown.
+This dated snapshot is not a continuous-availability guarantee. Marketplace labels
+for paused/unavailable/unconfirmed offers do not establish verified stock.
 
-Spawn owns discovery policy, retailer coverage, canonical product identity, curated Amazon/Collectr references, review workflows, presentation, and future subscriber/product management. Catch Em All remains a separate deterministic monitor and immediate-alert system. See `GARFIELD.md`.
+## Disabled or expired
 
-## Current integration state
+- Reliable-store pilot expired October 15 at 01:53:47.969 UTC. Pilot flag remains
+  true but expiry prevents new claims. No automatic extension or broad restart.
+- Broad store catalog sync/fast maintenance, general inventory revalidation,
+  automatic trusted-store/pending approvals, approval digest, Amazon enrichment
+  and drop search are disabled. Market discovery remains enabled.
+- Catch stores-only mode pauses its legacy Amazon/marketplace acquisition;
+  paid browser fallback and legacy daily hunt digest are disabled.
 
-- `POST /internal/benchmark-candidates` accepts tightly scoped Amazon México observations from Catch Em All.
-- Candidates are idempotent by `event_id` and enter `pending` review state.
-- Candidate intake cannot overwrite curated `products` rows.
-- Catch delivery is designed to fail open so Spawn outages do not interrupt monitoring or alerts.
-- The encrypted `CATCH_INGEST_SECRET` is synchronized between the production Spawn and Catch Em All Workers.
-- Fourteen reviewed product identities are seeded for major English sealed formats; deterministic matching currently links 13 live offers without crossing language variants.
-- Spawn owns the canonical Amazon watchlist through `amazon_watchlist` and the authenticated `/internal/garfield/amazon-watchlist` endpoint.
-- Amazon URLs discovered by Spawn are normalized to ASIN identities and added to the active normal monitoring lane; Catch consumes this list dynamically.
+## Enrollment and proposals
 
-## Pricing-reference state
+Twenty published Amazon monitoring targets do not imply twenty Scout targets:
+four are outside its fixed sixteen. Sixty older Amazon seed listings have inventory
+visibility only. The pending Figure Collection `B0H788HLPY` needs identity/language
+review; Heavy Hitters `B0HKVJPJGW` was not discovered in retained scans.
 
-- The current `products` table stores Amazon launch values, confidence, Collectr USD values, and an exchange rate.
-- The board displays retailer price differences against Amazon launch and converted Collectr references, including strong-value, fair-market, above-market, suspicious-price, and placeholder classifications. Above-market availability remains eligible for restock monitoring.
-- KantoCards Delta Reign preorder placeholders are modeled separately from sold-out inventory and their nominal `$1.00` price is not benchmark input. KantoCards remains evaluation-only pending a reliability decision.
-- The private Garfield operations dashboard is `/dashboard?access=<BOARD_ACCESS_TOKEN>` and fetches Catch health only when the page is requested.
-- Weekly Discord feedback is distributed idempotently on Friday morning in `America/Mexico_City` and stored by ISO week without requesting names or email addresses.
-- `PRICING_CATALOG.md` defines the normalized target model and review/promotion rules.
-- A future additive migration is required for canonical variants, immutable reference history, explicit condition/region fields, exchange-rate provenance, and review audit records. No migration is included in the contract-design change.
+The deployed legacy staging feed for independently verified 30th/Delta Reign
+identities is inactive for acquisition under Catch stores-only mode. Automatic,
+bounded, quiet staged-ASIN enrollment into Scout is proposed, not implemented.
+Broader discovery, queue pagination and Scout coverage UI are also proposed.
+The two-preparation/one-reader pipeline remains an isolated synthetic experiment.
 
-## Known discrepancies and risks
+## Navigation and operational limits
 
-- README setup text says the repository should be private, but it is public.
-- README describes a reviewed release workflow, but `main` is unprotected.
-- Public version evidence proves config `5.2` parity, not exact deployed-commit parity.
-- The `deploy` script applies remote D1 migrations and deploys code in one command; operational review should decide whether to separate these steps.
-- Shared-token board access is suitable only for private review, not paid/member authorization.
+`/ops` is the operations entry; `/approvals` shows approved inventory;
+`/approvals?view=queue` shows pending review; `/ops/search` shows search estimates.
+The listing queue caps its oldest rows at 200; current pending eligibility is 230.
+The legacy coverage panel and monitoring option still refer to Catch rather than
+Scout. Treat this as a known UI gap, not evidence of Scout enrollment.
 
-## Update rule
+At the October 19 audit, October discovery accounting estimated USD 35.694 against
+the USD 150 application guard, with no held reserves. These are search estimates,
+not an account-wide provider invoice or Cloudflare cost guarantee.
 
-Update this file with changes to architecture, schedules, interfaces, configuration version, repository/deployment evidence, access model, or pricing-reference lifecycle.
+## Evidence and maintenance
 
-## Pending V8.1 contract implementation
-
-- Review branch only; not deployed or migrated in production.
-- Builds on the V8 lifecycle and adds migration `0017_explicit_routing_and_staging.sql`.
-- Adds an explicit `pokemon-30th` routing key so webhook selection never depends on product-name inference.
-- High-confidence 30th Anniversary and Delta Reign discoveries may enter `STAGED_SILENT`: Catch can monitor them hourly, but they cannot produce customer availability alerts before operator publication.
-- The bounded early-ASIN intelligence sweep runs at 04:05 `America/Mexico_City`, searches only direct Amazon Mexico product pages, and never guesses or enumerates ASINs.
-- The authenticated watchlist endpoint becomes schema- and catalog-versioned and returns only `PUBLISHED` rows.
-- Spawn customer purchase alerts and weekly survey distribution are removed from the scheduled discovery path. A temporary raw feed posts each non-baseline, first-seen canonical listing once as an explicitly unverified research lead while Catch remains Amazon-only.
-- Scheduled discovery is gated to one Mexico City window every three hours when cron is later re-enabled.
-- Configuration version: `8.1.0-rc.1`.
+See [functionality map](GARFIELD_FUNCTIONALITY.md),
+[pilot final status](docs/reliable-store-pilot.md),
+[server continuation overlay](collector/amazon-server/README.md), and
+[release record](OPERATIONS_RELEASE_RECORD.md). Each release must record source,
+deployment, activation, scope, dated verification, limitations and expiry together.
+The [August 29 snapshot](docs/history/SPAWN_STATE-20260829.md) is historical only;
+its release IDs, access model and pending V8.1 statements are superseded.
