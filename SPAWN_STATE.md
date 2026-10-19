@@ -51,11 +51,13 @@ for paused/unavailable/unconfirmed offers do not establish verified stock.
 
 ## Enrollment and proposals
 
-Store-first review is prepared on a development branch, not deployed: pending
-store tabs, item decisions, bounded inventory pages and a separately gated saved-
-import queue. Migration 0049, Worker deployment and import activation remain
-pending. See [implementation and rollout](docs/store-first-review.md). Current
-production navigation and dashboard limitations below remain until that release.
+Store-first review is deployed with migration 0049 and saved imports enabled:
+pending store tabs, item decisions, bounded inventory pages and master decisions.
+Imports process at most forty saved catalog rows per minute; the queue was empty
+at activation. Crawling remains off and the pilot remains expired. Authenticated Stores
+list and RedQueen detail checks passed; local mutation tests passed. Actual import
+processing awaits an operator decision.
+See [implementation and rollout](docs/store-first-review.md).
 
 Twenty published Amazon monitoring targets do not imply twenty Scout targets:
 four are outside its fixed sixteen. Sixty older Amazon seed listings have inventory
