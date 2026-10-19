@@ -1,5 +1,20 @@
 # Existing-store catalog onboarding
 
+## Current status and prepared store first update
+
+Reviewed October 19, 2026. Production automatic catalog sync and fast maintenance
+are disabled, and the reliable-store monitoring pilot is expired. Starting an
+audit currently saves a job; manual batches advance it while scheduling is off.
+The historical activation descriptions below are not current flag evidence.
+
+The [store-first review update](store-first-review.md) is prepared for review,
+not deployed. It provides explicit queued-action feedback, a paginated store and
+inventory workflow, durable item exclusions, master store decisions and a separate
+capped saved-import queue. The new import flag defaults to false and does not
+activate crawling or renew monitoring. Current audit bounds are twenty-four pages
+per tick and a 25,000-page frontier; older eight-page/2,500-page statements below
+describe their dated release. See [functionality map](../GARFIELD_FUNCTIONALITY.md).
+
 ## Automation update — authorized 2026-09-09
 
 Philip authorized automatic store ingestion after reviewing the manual workflow.

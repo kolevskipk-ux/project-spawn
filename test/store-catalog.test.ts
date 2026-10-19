@@ -3,7 +3,7 @@ import {queueApprovedStoreDiscovery} from '../src/store-catalog';
 import {shopifyProductSchema} from '../src/product-page-evidence';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync,readdirSync,existsSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync,mkdirSync,writeFileSync} from 'node:fs';
 import type {Env} from '../src/types';
 import {auditKnownStores,decideStore,importStoreCatalog,runCatalogTick,startCatalogRun,type Store} from '../src/store-catalog';
 import {catalogOrigin,catalogProduct,catalogUrl,candidateCatalogUrl,parseRobots,robotsAllows,sitemapLinks} from '../src/store-catalog-parser';
@@ -13,6 +13,8 @@ import {storePilotOperations} from '../src/store-pilot-operations';
 import {customerInventory} from '../src/customer-feed';
 import {approveStoresWithAdminInventory} from '../src/store-catalog';
 import {approvedInventoryOperations} from '../src/approved-inventory-operations';
+import {reviewStoreItem,storeProductsSql,storeQueueSql} from '../src/store-review';
+import {queueStoreImport,runStoreImportJob} from '../src/store-import-jobs';
 import {registerInventoryLinksRoute,inventoryRedirect} from '../src/outbound-links';
 // Exercise the real consumer against the real authenticated Spawn handler.
 const catchModule=new URL('../../catch-em-all/src/store-monitor.js',import.meta.url);
@@ -28,6 +30,131 @@ function adapter(){
 beforeEach(()=>{db=new DatabaseSync(':memory:');for(const name of readdirSync('migrations').filter(n=>n.endsWith('.sql')).sort())db.exec(readFileSync('migrations/'+name,'utf8'));env={SPAWN_DB:adapter(),STORE_CATALOG_SYNC_ENABLED:'false'} as unknown as Env;vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('Unexpected network');}));});
 afterEach(()=>{db.close();vi.unstubAllGlobals();});
 const origin='https://cards.example',known=origin+'/products/known',fresh=origin+'/products/delta-reign-new';
+
+it('uses pending store pages and shows explicit queued-audit feedback without fetching on GET',async()=>{
+ inventory();await auditKnownStores(env);
+ const operator={email:'admin',subject:'admin',role:'admin' as const};
+ const started=await storeCatalogOperations(new Request('https://spawn.example/ops/stores',{method:'POST',body:new URLSearchParams({id:store().id,action:'inspect'})}),env,operator);
+ expect(started.status).toBe(303);expect(started.headers.get('location')).toContain('notice=inspect#audit');
+ const html=await (await storeCatalogOperations(new Request('https://spawn.example'+started.headers.get('location')),env,operator)).text();
+ expect(html).toContain('Audit queued');expect(html).toContain('Automatic crawling is disabled');expect(html).toContain('Process next catalog batch');
+ expect(fetch).not.toHaveBeenCalled();
+ const list=await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores'),env,operator)).text();
+ expect(list).toContain('Stores pending approval');expect(list).toContain('Pending approval');
+});
+
+it('keeps rejected items excluded from bulk ingestion and preserves optimistic decisions',async()=>{
+ await audit();const id=store().id;
+ await reviewStoreItem(env,id,fresh,0,'reject_item','admin');
+ await approve();await queueStoreImport(env,id);env.STORE_REVIEW_IMPORT_ENABLED='true';
+ await runStoreImportJob(env);
+ expect(db.prepare('SELECT canonical_url FROM inventory WHERE canonical_url=?').get(fresh)).toBeUndefined();
+ expect(db.prepare('SELECT status FROM store_import_jobs WHERE store_id=?').get(id)?.status).toBe('COMPLETE');
+ const before=db.prepare('SELECT * FROM store_item_reviews').all();
+ await expect(reviewStoreItem(env,id,fresh,0,'approve_item','admin')).rejects.toThrow('Item changed');
+ expect(db.prepare('SELECT * FROM store_item_reviews').all()).toEqual(before);
+ await reviewStoreItem(env,id,fresh,1,'approve_item','admin');await queueStoreImport(env,id);await runStoreImportJob(env);
+ expect(db.prepare('SELECT canonical_url FROM inventory WHERE canonical_url=?').get(fresh)).toBeTruthy();
+});
+
+it('rejects imported inventory atomically and never restores an unrelated admin removal',async()=>{
+ await audit();await approve();await importStoreCatalog(env,store().id);const id=store().id;
+ await reviewStoreItem(env,id,known,0,'reject_item','admin');
+ expect(db.prepare("SELECT removed_at FROM inventory_admin_reviews WHERE listing_key='known'").get()?.removed_at).toBeTruthy();
+ const before=db.prepare("SELECT * FROM inventory_admin_reviews WHERE listing_key='known'").get();
+ await expect(reviewStoreItem(env,id,known,0,'reject_item','other')).rejects.toThrow('Item changed');
+ expect(db.prepare("SELECT * FROM inventory_admin_reviews WHERE listing_key='known'").get()).toEqual(before);
+ await reviewStoreItem(env,id,known,1,'approve_item','admin');
+ expect(db.prepare("SELECT removed_at FROM inventory_admin_reviews WHERE listing_key='known'").get()?.removed_at).toBeNull();
+ db.prepare("UPDATE inventory_admin_reviews SET removed_at='separate-removal',reviewed_by='another-admin' WHERE listing_key='known'").run();
+ await reviewStoreItem(env,id,known,2,'approve_item','admin');
+ expect(db.prepare("SELECT removed_at FROM inventory_admin_reviews WHERE listing_key='known'").get()?.removed_at).toBe('separate-removal');
+});
+
+it('does not permit cross-store or missing-evidence item decisions',async()=>{
+ await audit();const id=store().id;
+ await expect(reviewStoreItem(env,id,'https://other.example/item',0,'reject_item','admin')).rejects.toThrow('does not belong');
+ await expect(reviewStoreItem(env,id,origin+'/missing',0,'approve_item','admin')).rejects.toThrow('not found');
+ db.prepare('UPDATE store_catalog_items SET listing_json=NULL WHERE url=?').run(fresh);
+ await expect(reviewStoreItem(env,id,fresh,0,'approve_item','admin')).rejects.toThrow('identity evidence');
+});
+
+it('caps background imports to forty saved catalog rows and does no crawling',async()=>{
+ await audit();const id=store().id;
+ const sample=db.prepare('SELECT * FROM store_catalog_items WHERE url=?').get(fresh) as any;
+ for(let n=0;n<85;n++){
+  const url=origin+'/products/batch-'+String(n).padStart(3,'0'),listing={...JSON.parse(sample.listing_json),url};
+  db.prepare('INSERT INTO store_catalog_items(store_id,url,title,category,listing_json,evidence_note,first_seen_at,last_seen_at,first_run_id,last_run_id) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id,url,'Batch product','delta_reign',JSON.stringify(listing),'fixture',sample.first_seen_at,sample.last_seen_at,sample.first_run_id,sample.last_run_id);
+ }
+ await approve();await queueStoreImport(env,id);await runStoreImportJob(env);
+ expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items WHERE imported_at IS NOT NULL').get()?.n).toBe(0);
+ env.STORE_REVIEW_IMPORT_ENABLED='true';const now=new Date();
+ await runStoreImportJob(env,now);
+ expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items WHERE imported_at IS NOT NULL').get()?.n).toBe(40);
+ expect(db.prepare('SELECT status FROM store_import_jobs').get()?.status).toBe('QUEUED');
+ await runStoreImportJob(env,new Date(+now+61000));
+ expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items WHERE imported_at IS NOT NULL').get()?.n).toBe(80);
+ await runStoreImportJob(env,new Date(+now+122000));
+ expect(db.prepare('SELECT status FROM store_import_jobs').get()?.status).toBe('COMPLETE');
+ expect(fetch).not.toHaveBeenCalled();
+});
+
+it('shows known inventory before an audit and deduplicates cursor pages using indexed ranges',async()=>{
+ inventory();await auditKnownStores(env);const id=store().id;
+ const query=(after='')=>db.prepare(storeProductsSql).all(id,after,origin+'/',origin+'0',after,id,id,id) as any[];
+ expect(query().map(r=>r.url)).toContain(known);
+ await startCatalogRun(env,id,'admin');await runCatalogTick(env,id,crawler());
+ expect(query().filter(r=>r.url===known)).toHaveLength(1);
+ for(let n=0;n<80;n++)inventory(origin+'/products/paged-'+String(n).padStart(3,'0'),'Cards','paged-'+n);
+ const first=query();expect(first).toHaveLength(26);
+ const second=query(first[24].url);expect(second.some(r=>r.url===first[24].url)).toBe(false);
+ const plan=db.prepare('EXPLAIN QUERY PLAN '+storeProductsSql).all(id,'',origin+'/',origin+'0','',id,id,id) as any[];
+ expect(plan.map(r=>r.detail).join('\n')).toContain('canonical_url');
+ expect(plan.some(r=>/SCAN (?:inventory|store_catalog_items)\b/.test(r.detail))).toBe(false);
+ const queuePlan=db.prepare('EXPLAIN QUERY PLAN '+storeQueueSql).all('PENDING','') as any[];
+ expect(queuePlan.map(r=>r.detail).join('\n')).toContain('store_acquisitions_status_id');
+});
+
+it('retains the import cursor when a concurrent item decision invalidates a batch',async()=>{
+ await audit();await approve();await queueStoreImport(env,store().id);env.STORE_REVIEW_IMPORT_ENABLED='true';
+ const original=env.SPAWN_DB.batch.bind(env.SPAWN_DB);let changed=false;
+ const spy=vi.spyOn(env.SPAWN_DB,'batch').mockImplementation(async(statements:any)=>{
+  const result=await original(statements);
+  if(!changed){changed=true;db.prepare('UPDATE store_acquisitions SET revision=revision+1 WHERE id=?').run(store().id);}
+  return result;
+ });
+ await runStoreImportJob(env);spy.mockRestore();
+ expect(db.prepare('SELECT cursor,status FROM store_import_jobs').get()).toMatchObject({cursor:'',status:'QUEUED'});
+ await runStoreImportJob(env,new Date(Date.now()+61000));
+ expect(db.prepare('SELECT status FROM store_import_jobs').get()?.status).toBe('COMPLETE');
+ expect(db.prepare('SELECT COUNT(*) n FROM store_catalog_items WHERE imported_at IS NOT NULL').get()?.n).toBe(2);
+});
+
+it('bounds store finding and records failures or cancellation without starting acquisition',async()=>{
+ for(let n=0;n<105;n++)inventory('https://shop'+n+'.example/products/item','Shop '+n,'finder-'+String(n).padStart(3,'0'));
+ const first=await auditKnownStores(env,new Date(),{after:'',limit:100});expect(first.stores).toBe(100);expect(first.next).toBeTruthy();
+ const second=await auditKnownStores(env,new Date(),{after:first.next!,limit:100});expect(second.stores).toBe(5);expect(second.next).toBeNull();
+ await audit();await approve();await queueStoreImport(env,store().id);env.STORE_REVIEW_IMPORT_ENABLED='true';
+ await decideStore(env,store().id,store().revision,'reject',[],6,'admin');await runStoreImportJob(env);
+ expect(db.prepare('SELECT status FROM store_import_jobs WHERE store_id=?').get(store().id)?.status).toBe('CANCELLED');
+ expect(fetch).not.toHaveBeenCalled();
+});
+
+it('renders store-first decisions and read-only viewer pages with dated status',async()=>{
+ await audit();const operator={email:'admin',subject:'admin',role:'admin' as const};
+ const reads=vi.spyOn(env.SPAWN_DB,'prepare');
+ const html=await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,operator)).text();
+ expect(reads.mock.calls.map(([sql])=>sql).join('\n')).not.toMatch(/COUNT\(\*\)|SELECT DISTINCT retailer|\bOFFSET\b/);
+ reads.mockRestore();
+ expect(html).toContain('Store inventory');expect(html).toContain('Approve item');expect(html).toContain('Reject item');expect(html).toContain('Recorded status');
+ expect(html).toContain('MX$1000');expect(html).not.toContain('MX$1200'); // Never attach a new audit date to the older inventory price.
+ const view=await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,{...operator,role:'viewer'})).text();
+ expect(view).not.toContain('Approve item');expect(view).not.toContain('Approve store');
+ if(process.env.STORE_REVIEW_PREVIEW==='1'){
+  mkdirSync('artifacts/store-review-preview',{recursive:true});writeFileSync('artifacts/store-review-preview/store.html',html);
+  writeFileSync('artifacts/store-review-preview/stores.html',await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores'),env,operator)).text());
+ }
+});
 
 it('leases only enrolled pilot targets and schedules successful observations ten minutes later',async()=>{
  const at=new Date().toISOString();

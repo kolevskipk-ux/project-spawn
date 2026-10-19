@@ -86,6 +86,14 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 
 ## Experimental and proposed work
 
+**Prepared in development, not deployed:** store-first review with pending-store
+tabs, paginated combined inventory, item exceptions, master decisions and explicit
+audit feedback. The approved capped saved-import queue processes one forty-row
+chunk per existing minute tick when its new flag is separately activated; it
+does not fetch retailer pages or renew monitoring. Migration 0049 and deployment
+remain pending. See Spawn's `docs/store-first-review.md` for cost measurements and
+rollout. Production still has the dashboard gaps recorded above until release.
+
 **Experimental:** two concurrent page preparations with one serialized reader.
 Only synthetic local timing exists; production concurrency is one. The experiment
 does not justify a production speed or challenge-reduction claim.
