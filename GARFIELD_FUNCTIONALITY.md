@@ -86,13 +86,17 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 
 ## Experimental and proposed work
 
-**Prepared in development, not deployed:** store-first review with pending-store
-tabs, paginated combined inventory, item exceptions, master decisions and explicit
-audit feedback. The approved capped saved-import queue processes one forty-row
-chunk per existing minute tick when its new flag is separately activated; it
-does not fetch retailer pages or renew monitoring. Migration 0049 and deployment
-remain pending. See Spawn's `docs/store-first-review.md` for cost measurements and
-rollout. Production still has the dashboard gaps recorded above until release.
+**Deployed and enabled October 19:** store-first review with pending-store tabs,
+paginated combined inventory, item exceptions, master decisions and explicit audit
+feedback. Migration 0049 is applied; Spawn PR 47 and Catch documentation PR 36
+are merged. Runtime saved imports are enabled: one forty-row chunk per existing
+minute tick. Crawling remains disabled and the pilot expiry is unchanged.
+Production queue/detail SQL samples read 26/12 rows with zero writes; idle due-job
+lookup read one row with zero writes. The queue was empty at activation; authenticated
+Stores list and RedQueen inventory/control checks passed. A real import awaits
+an operator decision; local mutation tests passed.
+These samples do not measure account-wide billing or migration index-build cost.
+See Spawn's `docs/store-first-review.md` for rollout and rollback.
 
 **Experimental:** two concurrent page preparations with one serialized reader.
 Only synthetic local timing exists; production concurrency is one. The experiment

@@ -1,8 +1,15 @@
 # Store first review workflow
 
-Prepared for review October 19, 2026; **not deployed or activated**. This release
-implements the approved store-first operations workflow and capped background
-imports. Production status remains in the [functionality map](../GARFIELD_FUNCTIONALITY.md).
+Deployed October 19, 2026 after migration 0049 and Spawn PR 47. Runtime saved
+imports enabled separately at 23:17:03 UTC on Worker
+`827d3b65-4058-4702-8f7a-7a895f7f9bfa` (100% traffic).
+Production queue/detail SQL samples read 26/12 rows with zero writes; idle due-job
+lookup read one row with zero writes. The queue remained empty after activation.
+Authenticated Stores list and RedQueen detail/control checks passed. Actual
+approval/import processing awaits an operator decision; local mutation tests passed. Migration index-build cost and account-wide billing were not
+measured. Crawling stays disabled and the expired pilot deadline is unchanged.
+The source flag retains its safe false default; subsequent deployments must
+preserve or explicitly set the approved runtime true override.
 
 ## Operator workflow
 

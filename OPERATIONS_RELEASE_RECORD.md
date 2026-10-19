@@ -2,13 +2,22 @@
 
 ## Current release checkpoint October 19 2026
 
-Spawn main includes PRs 41–45; the latest functional merge is `63d3c5d` (PR 45).
-Read-only deployment inspection confirmed Worker
-`201d3ed5-3a29-449c-a6d1-dd797bae5851` at 100% traffic, deployed at 22:07:57 UTC.
-Merge-triggered Cloudflare deployment and separately installed Scout packages
-must be recorded independently. Scout Amazon is 0.5.7; marketplace is 0.4.4.
-Catch remains release V8.9.0-rc.4 in stores-only mode, Worker
-`14647500-48c6-470a-8366-f7a4c9432fa9` at 100% traffic.
+Spawn main includes PRs 41–47; the latest functional merge is `535822c` (PR 47).
+Migration 0049 applied before merge (10 commands, 2269.69 ms; billed migration
+rows were not returned). Worker `9a7cc054-442b-48db-a575-ce092d0eb32e` deployed
+with imports off, then `827d3b65-4058-4702-8f7a-7a895f7f9bfa` enabled saved
+imports at 23:17:03 UTC, 100% traffic. Cron expressions, crawling flags and pilot
+expiry are unchanged. Catch PR 36 is documentation only; Catch runtime remains
+V8.9.0-rc.4 in stores-only mode. Scout packages remain Amazon 0.5.7 and marketplace
+0.4.4; this release does not install server extensions.
+
+Production queue/detail SQL measured 26/12 rows read and zero writes; idle due-job
+lookup read one row and zero writes. Empty queue before and after activation;
+no real store approval was manufactured for verification. Spawn health returned
+HTTP 200. Authenticated Stores list and RedQueen detail render with dated status,
+item/master decisions and imports enabled. Real import processing awaits an
+operator decision; local mutation tests passed. These query samples do not
+establish account-wide billing or the one-time index build cost.
 
 The reliable-store pilot expired October 15 at 01:53:47.969 UTC; flags do not renew
 that window. Amazon recovery verification showed sixteen fresh server targets at
