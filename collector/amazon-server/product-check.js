@@ -1,6 +1,6 @@
 import {withDeadline} from './deadline.js';
 import {readTab} from './read-tab.js';
-import {exact} from './items.js';
+import {productTab} from './product-tab.js';
 import {diagnostic} from './diagnostics.js';
 
 export async function checkProduct(item,foreground,config){
@@ -8,8 +8,8 @@ export async function checkProduct(item,foreground,config){
  const remaining=()=>{const ms=deadlineAt-Date.now();if(ms<=0)throw new Error('Product timed out');return ms;};
  const bounded=fn=>{const ms=remaining();return withDeadline(fn(),ms,'Product');};
  const empty={asin:item.asin,url:item.url,state:'unknown',reason:'TAB_MISSING',buyingOptionsShown:null};
- const tab=(await bounded(()=>browser.tabs.query({url:'https://www.amazon.com.mx/*'}))).find(t=>exact(t.url,item));
- if(!tab)return empty;
+ const tab=await bounded(()=>productTab(item));
+ if(!tab)return {...empty,state:'blocked',reason:'UNASSIGNED_CHALLENGE_TAB'};
  await bounded(()=>foreground.activate(tab,item.asin,deadlineAt));
  await bounded(()=>diagnostic('RELOAD_STARTED',{asin:item.asin,discarded:!!tab.discarded}));
  await new Promise((resolve,reject)=>{

@@ -4,5 +4,8 @@ export function readHealth(results){
  const errors=results.filter(r=>r.state==='error'||r.state==='unknown'&&!readableUnknown.has(r.reason)).length;
  const challenges=results.filter(r=>r.state==='blocked').length;
  const inconclusive=results.filter(r=>readableUnknown.has(r.reason)||r.panelStatus==='unverified').length;
- return {errors,challenges,inconclusive,stopReason:challenges?'CHALLENGE':errors/Math.max(1,results.length)>.2?'READ_FAILURES':null};
+ // Read failures remain visible in health/intake and retry at the existing
+ // per-product cadence. A small due batch must not disable every other target.
+ // Real challenges still stop the sweep and retain the existing cooldown policy.
+ return {errors,challenges,inconclusive,stopReason:challenges?'CHALLENGE':null};
 }

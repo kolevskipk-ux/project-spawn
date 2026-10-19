@@ -25,7 +25,8 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 | Identity, language and publication review | Spawn | Deployed. Discovery, inventory visibility, published monitoring eligibility and actual collector enrollment are separate states. Unknown language is explicit; multilingual evidence must not borrow another variant's pricing identity. |
 | Operator and customer inventory | Spawn | Deployed. Individual operator access and audited decisions; customer eligibility and privacy/support workflows are separate. Customer page views read stored data and do not trigger retailer acquisition. |
 | Curated pricing and link metrics | Spawn | Deployed. Reviewed reference evidence and language-specific identity remain distinct from observations. Inventory link tracking is enabled; Amazon hunt links remain direct. |
-| Amazon browser acquisition | Scout | Deployed and enabled on the Linux server. Firefox 0.5.7, fixed 16-ASIN list: 14 anniversary and two Delta Reign products. Four hot products target four minutes; others twelve minutes, plus up to fifteen seconds jitter; at most six due products per tick. Foreground reads remain serial. |
+| Amazon browser acquisition | Scout | Deployed and enabled on the Linux server. Firefox 0.5.8, fixed 16-ASIN list: 14 anniversary and two Delta Reign products. Four hot products target four minutes; others twelve minutes, plus up to fifteen seconds jitter; at most six due products per tick. Foreground reads remain serial. |
+| Per-product failure isolation | Scout | Deployed in 0.5.8. Read errors remain visible and retry at the existing cadence without disabling all targets. Missing tabs are replaced; tracked shopping redirects retain guarded reading. Real challenges still stop the sweep and retain cooldowns; fatal run errors still stop monitoring. |
 | Ordinary shopping continuation | Scout | Deployed in 0.5.7. One guarded click and bounded reread; reject CAPTCHA inputs, robot wording, sign-in, foreign form actions and POST overrides. Validate product identity and qualifying seller evidence after navigation. Persistent or genuine challenges retain backoff. |
 | Walmart browser acquisition | Scout | Separate marketplace service 0.4.4, two approved products, thirty-minute schedule. Usable Walmart page readings observed; this does not establish continuous availability. |
 | Mercado Libre browser acquisition | Scout | Same separate service, five approved identities. Paused/unavailable listings and an unconfirmed offer remain unknown stock. Account verification can still require human action; no CAPTCHA automation or implicit seller approval. |
@@ -42,7 +43,7 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 - Spawn main includes PRs 41–45. PR 45 merged as `63d3c5d`; current Worker version
   `201d3ed5-3a29-449c-a6d1-dd797bae5851`, 100% traffic, deployed October 19
   at 22:07:57 UTC. Configuration `8.7.0-inventory`.
-- Scout Amazon 0.5.7 and marketplace 0.4.4 are separately installed server
+- Scout Amazon 0.5.8 and marketplace 0.4.4 are separately installed server
   extensions, not Worker versions. Credentials and profiles were preserved.
 - Amazon recovery validation at 22:05:47 UTC: three automatic batches, sixteen
   accepted readings, zero read errors/challenges/intake failures, sixteen fresh
@@ -64,6 +65,12 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 - Spawn discovery audit through October 19: 59 of 62 runs since October 12
   succeeded. October search accounting estimated USD 35.694, no held reserves,
   against a USD 150 application budget. Provider invoices and hosting are separate.
+
+Server 0.5.8 recovery at October 19 23:37:57 UTC confirmed sixteen fresh
+accepted readings, enabled with no stop or cooldown. Elite Trainer Box B0H78BB9TY
+had a fresh page but no verified featured offer. Failure/tab regression cases: 16;
+continuation/guard cases: 15. These establish recovery at that time, not sustained
+coverage or current stock.
 
 ## Current gaps
 
