@@ -15,19 +15,20 @@ export async function storeSuppressed(env:Env,store:Store) {
   const suppressed=(await env.SPAWN_DB.prepare("SELECT vendor_key FROM vendors WHERE status='SUPPRESSED'").all<{vendor_key:string}>()).results;
   if(suppressed.some(v=>v.vendor_key===store.vendor_key))return true;
   // Aliases on the same origin cannot bypass an existing vendor suppression.
-  const aliases=(await env.SPAWN_DB.prepare('SELECT DISTINCT retailer FROM inventory WHERE canonical_url LIKE ?').bind(store.origin+'/%').all<{retailer:string}>()).results;
+  const aliases=(await env.SPAWN_DB.prepare('SELECT DISTINCT retailer FROM inventory WHERE canonical_url>=? AND canonical_url<?').bind(store.origin+'/',store.origin+'0').all<{retailer:string}>()).results;
   return aliases.some(a=>suppressed.some(v=>v.vendor_key===normalizeVendor(a.retailer)));
 }
-export async function auditKnownStores(env:Env,now=new Date()) {
-  const rows=(await env.SPAWN_DB.prepare('SELECT canonical_url,retailer FROM inventory ORDER BY first_seen_at,listing_key').all<{canonical_url:string;retailer:string}>()).results;
+export async function auditKnownStores(env:Env,now=new Date(),page?:{after:string;limit:number}) {
+  const size=Math.max(1,Math.min(100,Math.floor(Number(page?.limit)||100)));
+  const rows=(await (page?env.SPAWN_DB.prepare('SELECT listing_key,canonical_url,retailer FROM inventory WHERE listing_key>? ORDER BY listing_key LIMIT ?').bind(page.after,size+1):env.SPAWN_DB.prepare('SELECT listing_key,canonical_url,retailer FROM inventory ORDER BY first_seen_at,listing_key')).all<{listing_key:string;canonical_url:string;retailer:string}>()).results;
   const seen=new Set<string>();let added=0,unsupported=0;
-  for(const row of rows) {
+  for(const row of page?rows.slice(0,size):rows) {
     const origin=catalogOrigin(row.canonical_url);if(!origin){unsupported++;continue;}if(seen.has(origin))continue;seen.add(origin);
     const result=await env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO store_acquisitions(id,origin,retailer,vendor_key,marketplace,created_at) VALUES(?,?,?,?,?,?)`)
       .bind(await storeDigest(origin),origin,row.retailer,normalizeVendor(row.retailer),Number(marketplaceOrigin(origin)),now.toISOString()).run();
     added+=result.meta.changes;
   }
-  return {stores:seen.size,added,unsupported};
+  return {stores:seen.size,added,unsupported,next:page&&rows.length>size?rows[size-1].listing_key:null};
 }
 // Philip's existing-item policy applies to retailer origins, never entire marketplaces.
 export const adminApprovedStoreEvidence=`EXISTS(SELECT 1 FROM monitoring_candidates c WHERE c.source_url LIKE s.origin||'/%' AND c.status='ACCEPTED' AND c.published_at IS NOT NULL AND c.reviewed_by IS NOT NULL AND trim(c.reviewed_by)<>'' AND c.reviewed_by NOT LIKE 'auto:%')`;
@@ -191,21 +192,22 @@ async function processPage(env:Env,run:Run,store:Store,page:{url:string;kind:str
   ]);
 }
 // Insert-only enrollment: existing curated inventory and rejected candidates win.
-export async function importStoreCatalog(env:Env,storeId:string) {
+export async function importStoreCatalog(env:Env,storeId:string,range?:{after:string;through:string}) {
   const store=await env.SPAWN_DB.prepare('SELECT * FROM store_acquisitions WHERE id=?').bind(storeId).first<Store>();
   if(!store||store.status!=='APPROVED'||store.marketplace||await storeSuppressed(env,store))return 0;
   const categories=JSON.parse(store.categories_json) as string[];
   const eligible=`store_id=? AND imported_at IS NULL AND listing_json IS NOT NULL AND category IN (SELECT value FROM json_each(?))
+    AND NOT EXISTS(SELECT 1 FROM store_item_reviews r WHERE r.store_id=store_catalog_items.store_id AND r.url=store_catalog_items.url AND r.decision='REJECTED')
     AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=store_catalog_items.url OR c.source_listing_key=store_catalog_items.listing_key) AND c.status='REJECTED')`;
-  const items=(await env.SPAWN_DB.prepare(`SELECT url,listing_json,first_seen_at,listing_key FROM store_catalog_items WHERE ${eligible} ORDER BY url LIMIT 40`).bind(store.id,store.categories_json).all<{url:string;listing_json:string;first_seen_at:string;listing_key:string|null}>()).results;
+  const items=(await env.SPAWN_DB.prepare(`SELECT url,listing_json,first_seen_at,listing_key FROM store_catalog_items WHERE ${eligible} ${range?'AND url>? AND url<=?':''} ORDER BY url LIMIT 40`).bind(store.id,store.categories_json,...(range?[range.after,range.through]:[])).all<{url:string;listing_json:string;first_seen_at:string;listing_key:string|null}>()).results;
   let imported=0;
   for(const item of items) {
     const listing=JSON.parse(item.listing_json) as Listing;if(!categories.includes(listing.watch_category))continue;
     const existing=await env.SPAWN_DB.prepare('SELECT listing_key FROM inventory WHERE canonical_url=?').bind(item.url).first<{listing_key:string}>();
     const key=existing?.listing_key??item.listing_key??await storeDigest(canonicalizeUrl(item.url)),now=new Date().toISOString();
     // The revision/status/vendor guard is repeated in the atomic batch to handle revocation mid-run.
-    const gate=`EXISTS(SELECT 1 FROM store_acquisitions s WHERE s.id=? AND s.revision=? AND s.status='APPROVED') AND NOT EXISTS(SELECT 1 FROM vendors WHERE vendor_key=? AND status='SUPPRESSED') AND NOT EXISTS(SELECT 1 FROM monitoring_candidates WHERE (source_listing_key=? OR source_url=?) AND status='REJECTED')`;
-    const bindings=[store.id,store.revision,store.vendor_key,key,item.url];
+    const gate=`EXISTS(SELECT 1 FROM store_acquisitions s WHERE s.id=? AND s.revision=? AND s.status='APPROVED') AND NOT EXISTS(SELECT 1 FROM vendors WHERE vendor_key=? AND status='SUPPRESSED') AND NOT EXISTS(SELECT 1 FROM monitoring_candidates WHERE (source_listing_key=? OR source_url=?) AND status='REJECTED') AND NOT EXISTS(SELECT 1 FROM store_item_reviews WHERE store_id=? AND url=? AND decision='REJECTED')`;
+    const bindings=[store.id,store.revision,store.vendor_key,key,item.url,store.id,item.url];
     const results=await env.SPAWN_DB.batch([
       env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO inventory(listing_key,canonical_url,retailer,title,watch_category,retailer_sku,first_seen_at,last_seen_at,status,availability_state,price_mxn,language,language_evidence,last_change_type,print_series)
         SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ${gate}`)
@@ -220,7 +222,7 @@ export async function importStoreCatalog(env:Env,storeId:string) {
       env.SPAWN_DB.prepare("INSERT INTO listing_publication_decisions(candidate_id,decision,disposition,reason,decided_by,decided_at) SELECT c.candidate_id,'PUBLISHED','visibility_only','Approved store catalog ingestion','auto:approved-store',? FROM monitoring_candidates c JOIN store_discovery_handoffs h ON h.candidate_id=c.candidate_id WHERE h.store_id=? AND h.url=? AND c.status='ACCEPTED' AND c.reviewed_by='auto:approved-store' AND NOT EXISTS(SELECT 1 FROM listing_publication_decisions d WHERE d.candidate_id=c.candidate_id AND d.decision='PUBLISHED')").bind(now,store.id,item.url)
     ]);
   }
-  const backlog=(await env.SPAWN_DB.prepare(`SELECT i.listing_json,i.listing_key FROM store_catalog_items i WHERE i.store_id=? AND i.imported_at IS NOT NULL AND i.listing_json IS NOT NULL AND i.listing_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=i.listing_key) LIMIT 40`).bind(store.id).all<{listing_json:string;listing_key:string}>()).results;
+  const backlog=(await env.SPAWN_DB.prepare(`SELECT i.listing_json,i.listing_key FROM store_catalog_items i WHERE i.store_id=? AND i.imported_at IS NOT NULL AND i.listing_json IS NOT NULL AND i.listing_key IS NOT NULL ${range?'AND i.url>? AND i.url<=?':''} AND NOT EXISTS(SELECT 1 FROM store_item_reviews r WHERE r.store_id=i.store_id AND r.url=i.url AND r.decision='REJECTED') AND NOT EXISTS(SELECT 1 FROM store_monitor_targets t WHERE t.id=i.listing_key) LIMIT 40`).bind(store.id,...(range?[range.after,range.through]:[])).all<{listing_json:string;listing_key:string}>()).results;
   for(const item of backlog)await targetInsert(env,{...store,baseline_completed_at:null},JSON.parse(item.listing_json),item.listing_key,new Date().toISOString()).run();
   await env.SPAWN_DB.prepare(`UPDATE store_acquisitions SET baseline_completed_at=? WHERE id=? AND status='APPROVED' AND baseline_completed_at IS NULL
     AND EXISTS(SELECT 1 FROM store_catalog_runs WHERE store_id=store_acquisitions.id AND status IN ('COMPLETE','PARTIAL'))
@@ -233,7 +235,7 @@ export async function runCatalogTick(env:Env,storeId?:string,fetchFn:typeof fetc
   if(!storeId)await approveStoresWithAdminInventory(env);
   if(!storeId){const due=await env.SPAWN_DB.prepare(`SELECT s.id FROM store_acquisitions s WHERE s.marketplace=0 AND s.status IN ('PENDING','APPROVED') AND
       ((s.status='PENDING' AND NOT EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id)) OR EXISTS(SELECT 1 FROM store_catalog_runs r WHERE r.store_id=s.id AND r.status='RUNNING') OR (s.status='APPROVED' AND (s.baseline_completed_at IS NULL OR s.next_due_at IS NULL OR s.next_due_at<=? OR EXISTS(
-        SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 3`).bind(new Date().toISOString()).all<{id:string}>();
+        SELECT 1 FROM store_catalog_items i WHERE i.store_id=s.id AND i.imported_at IS NULL AND i.listing_json IS NOT NULL AND i.category IN (SELECT value FROM json_each(s.categories_json)) AND NOT EXISTS(SELECT 1 FROM store_item_reviews review WHERE review.store_id=i.store_id AND review.url=i.url AND review.decision='REJECTED') AND NOT EXISTS(SELECT 1 FROM monitoring_candidates c WHERE (c.source_url=i.url OR c.source_listing_key=i.listing_key) AND c.status='REJECTED'))))) ORDER BY COALESCE(s.last_tick_at,''),s.id LIMIT 3`).bind(new Date().toISOString()).all<{id:string}>();
     await Promise.all(due.results.map(s=>runCatalogTick(env,s.id,fetchFn)));return;}
   const owner=crypto.randomUUID(),now=Date.now(),resource='store-catalog:'+storeId;
   const lock=await env.SPAWN_DB.prepare('INSERT INTO ops_review_locks(resource,owner,expires_at) VALUES(?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE ops_review_locks.expires_at<?').bind(resource,owner,now+180000,now).run();

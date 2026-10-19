@@ -22,6 +22,7 @@ import { handleCatchInventoryObservation } from "./catch-inventory";
 import type { Env, ScanResult } from "./types";
 import { isQuietWindow, normalizeVendor } from "./garfield";
 import { dashboardData, renderApprovals, renderDashboard } from "./dashboard";
+import {runStoreImportJob} from './store-import-jobs';
 import { handleWeeklyFeedback } from "./weekly-feedback";
 import { retryApprovalRequests, retryDiscoveryApprovalRequests, reviewAmazonCandidate, runAmazonVerification, runPendingSeedVerifications, type ReviewAction } from "./verification";
 import { amazonAsin } from "./inventory";
@@ -555,6 +556,7 @@ export default { fetch: handleFetch, email: privacyMail, scheduled(_controller: 
   if(_controller.cron==='5 * * * *')ctx.waitUntil(runRevalidationTrial(env,now).catch(error=>console.error('Revalidation trial stopped',error)));
   const quiet=isQuietWindow(now,env.SPAWN_TIMEZONE,env.SPAWN_QUIET_START??'02:05',env.SPAWN_QUIET_END??'06:05');
   if(_controller.cron==='* * * * *'){
+    ctx.waitUntil(runStoreImportJob(env,now).catch(()=>console.error('Store import job failed')));
     ctx.waitUntil(monitorScoutHealth(env,now).catch(()=>console.error('Scout health notification pending')));
     ctx.waitUntil(deliverMercadoLibreOperatorAlerts(env).catch(()=>console.error('Mercado Libre operator alert pending retry')));
     ctx.waitUntil(retryDropSearches(env).catch(()=>console.error('Drop recovery retry failed')));

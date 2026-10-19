@@ -51,6 +51,12 @@ for paused/unavailable/unconfirmed offers do not establish verified stock.
 
 ## Enrollment and proposals
 
+Store-first review is prepared on a development branch, not deployed: pending
+store tabs, item decisions, bounded inventory pages and a separately gated saved-
+import queue. Migration 0049, Worker deployment and import activation remain
+pending. See [implementation and rollout](docs/store-first-review.md). Current
+production navigation and dashboard limitations below remain until that release.
+
 Twenty published Amazon monitoring targets do not imply twenty Scout targets:
 four are outside its fixed sixteen. Sixty older Amazon seed listings have inventory
 visibility only. The pending Figure Collection `B0H788HLPY` needs identity/language
