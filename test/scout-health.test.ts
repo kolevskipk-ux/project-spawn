@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {scoutHealthDecision,scoutAlertHours,recordScoutHeartbeat,monitorScoutHealth,type HealthState} from '../src/scout-health';
+import {scoutHealthDecision,scoutAlertHours,recordScoutHeartbeat,monitorScoutHealth,readableAmazonObservation,type HealthState} from '../src/scout-health';
 import {handleAmazonBrowser} from '../src/amazon-browser';
 const now=Date.parse('2026-10-03T20:00:00Z'),hot='B0H77VYKSM',warm='B0HG3RVZLW';
 const state:HealthState={armedAt:new Date(now-600000).toISOString(),incident:false,severity:null,notifiedSeverity:null,healthySamples:0,lastSampleAt:null};
@@ -12,6 +12,22 @@ function fixture(){const db=new DatabaseSync(':memory:');db.exec(readFileSync('m
  const set=(key:string,value:any)=>db.prepare('INSERT OR REPLACE INTO worker_state VALUES(?,?,?)').run(key,JSON.stringify(value),new Date(now).toISOString());
  const observe=(time:number,status='sold_out',id=crypto.randomUUID())=>db.prepare('INSERT INTO amazon_browser_observations VALUES(?,?,?,?,?,?,?)').run(id,hot,new Date(time).toISOString(),new Date(time).toISOString(),status,0,'{}');return {db,env,set,observe};}
 describe('Scout health notifications',()=>{
+ it('separates valid third-party page reads from offer qualification without treating failed reads as fresh',async()=>{
+  const evidence={reason:'NO_VERIFIED_FEATURED_OFFER',title:'Pokemon 30th Ultra Premium Day'};
+  expect(readableAmazonObservation({collector_state:'unknown',evidence_json:JSON.stringify(evidence)},'30th.*ultra.*day')).toBe(true);
+  expect(readableAmazonObservation({collector_state:'unknown',evidence_json:JSON.stringify({...evidence,title:'Unrelated'})},'30th.*ultra.*day')).toBe(false);
+  expect(readableAmazonObservation({collector_state:'unknown',evidence_json:JSON.stringify({...evidence,reason:'TAB_MISSING'})},'30th.*ultra.*day')).toBe(false);
+  const f=fixture();try{f.set('scout:health-state',state);f.db.prepare('INSERT INTO amazon_browser_observations VALUES(?,?,?,?,?,?,?)').run(crypto.randomUUID(),hot,new Date(now).toISOString(),new Date(now).toISOString(),'unknown',null,JSON.stringify(evidence));await monitorScoutHealth(f.env,new Date(now),async()=>{throw Error('Must not send outage');});const d=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-latest'").get()?.value));expect(d.severity).toBeNull();expect(d.unconfirmed).toHaveLength(1);}finally{f.db.close();}
+ });
+ it('requires a fresh explicit scheduled break and does not conceal real challenge stops',()=>{
+  const beat={receivedAt:new Date(now).toISOString(),enabled:true,manualPaused:false,stopReason:null,challengeAttempts:0,pauseUntil:null,scheduledPauseUntil:new Date(now+60000).toISOString()};
+  const d=scoutHealthDecision([{asin:hot,name:hot,observedAt:null}],[beat],state,now);expect(d.severity).toBe('scheduled_break');expect(d.alert).toBe(false);expect(d.overnightDueAt).toBeNull();
+  expect(scoutHealthDecision([{asin:hot,name:hot,observedAt:null}],[{...beat,stopReason:'CHALLENGE',challengeAttempts:2}],state,now).unhealthy).toBe(true);
+  expect(scoutHealthDecision([{asin:hot,name:hot,observedAt:null}],[beat],state,now+300001).scheduledBreak).toBe(false);
+ });
+ it('bounds reported quiet breaks to 02:05–06:05 Mexico City',async()=>{
+  const f=fixture();try{for(const [time,expected]of [['2026-10-20T08:05:00Z','2026-10-20T12:05:00.000Z'],['2026-10-20T12:05:00Z',null]] as const){await recordScoutHeartbeat(new Request('https://test',{method:'POST',body:JSON.stringify({enabled:true,manualPaused:false,stopReason:null,challengeAttempts:0,scheduledQuiet:true})}),f.env,'server',new Date(time));const b=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:heartbeat:server'").get()?.value));expect(b.scheduledPauseUntil).toBe(expected);}}finally{f.db.close();}
+ });
  it('uses per-product freshness and does not equate activity with coverage',()=>{expect(scoutHealthDecision([target(hot,300001),target(warm,300001)],[],state,now).missing.map(x=>x.asin)).toEqual([hot]);expect(scoutHealthDecision([target(hot,0),target(warm,900001)],[],state,now).severity).toBe('partial');});
  it('alerts immediately by day, escalates severity and does not repeat every 30 minutes',()=>{const prior={...state,incident:true,notifiedSeverity:'partial',lastNotifiedAt:new Date(now-60000).toISOString()};expect(scoutHealthDecision([target(hot,400000),target(warm,0)],[],prior,now).alert).toBe(false);expect(scoutHealthDecision([target(hot,400000),target(warm,1000000)],[],prior,now).alert).toBe(true);expect(scoutHealthDecision([target(hot,400000)],[],{...prior,notifiedSeverity:'offline'},now+1800000).alert).toBe(false);});
  it('defers overnight outages to 07:00 even if they recovered, with exact local boundaries',()=>{
@@ -52,7 +68,7 @@ describe('Scout health notifications',()=>{
  await monitorScoutHealth(f.env,new Date(seven),(async()=>{sends++;return new Response(null,{status:503});}) as any);
  let current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeTruthy();
  let message='';await monitorScoutHealth(f.env,new Date(seven+60000),(async(_url:any,init:any)=>{sends++;message=JSON.parse(init.body).content;return Response.json({id:'receipt',channel_id:'channel'});}) as any);
- expect(sends).toBe(2);expect(message).toContain('Fresh coverage recovered');expect(message).toContain('https://spawn.aztlan-eng.com/ops/browser-fallback');expect(message.length).toBeLessThanOrEqual(2000);
+ expect(sends).toBe(2);expect(message).toContain('Fresh page readings recovered');expect(message).toContain('https://spawn.aztlan-eng.com/ops/browser-fallback');expect(message.length).toBeLessThanOrEqual(2000);
  current=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='scout:health-state'").get()?.value));expect(current.overnightDueAt).toBeNull();expect(current.incident).toBe(false);
  }finally{f.db.close();}});
  it('switches off paid fallback on stable Scout coverage without requiring a prior outage notice',async()=>{const f=fixture();try{

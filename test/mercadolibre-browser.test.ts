@@ -5,6 +5,11 @@ import {validateMercadoLibreObservation,handleMercadoLibreBrowser} from '../src/
 import {sendMercadoLibreObservation} from '../collector/marketplace-extension/mercadolibre-transport.js';
 const observation=()=>({id:'00000000-0000-0000-0000-000000000001',itemId:'MLM5984323768',url:'https://www.mercadolibre.com.mx/product/p/MLM75624347?fbclid=discard#tracking_id=discard',title:'Pokemon TCG 30th Celebration Booster Bundle 6pk en Ingles',observedAt:new Date().toISOString(),state:'unknown',reason:'PAGE_SOLD_OUT_SELLER_UNCONFIRMED',pageAvailability:'sold_out',priceMxn:null,seller:null,sellerId:null,postcode:null,purchaseEnabled:false,visibleItemId:null});
 describe('Mercado Libre collector',()=>{
+ it('records paused listings as page diagnostics without approving stock or seller',()=>{
+  const body={...observation(),reason:'PAGE_LISTING_PAUSED',pageAvailability:null,listingStatus:'paused',collectorId:'server-marketplace'};
+  expect(validateMercadoLibreObservation(body)).toMatchObject({state:'unknown',listingStatus:'paused',collectorId:'server-marketplace'});
+  for(const patch of [{purchaseEnabled:true},{state:'available'},{listingStatus:'arbitrary'},{title:'Wrong product'},{collectorId:'../invalid'}])expect(validateMercadoLibreObservation({...body,...patch})).toBeNull();
+ });
  it('retains sold-out page evidence without promoting unknown to verified',()=>{
   const result=validateMercadoLibreObservation({...observation(),accountEmail:'must not persist'});
   expect(result?.state).toBe('unknown');expect(result?.pageAvailability).toBe('sold_out');
@@ -37,6 +42,11 @@ describe('Mercado Libre collector',()=>{
    const body=await response!.json() as any;const row=body.rows.find((r:any)=>r.itemId===base.itemId);
    expect(row.latest.id).toBe(base.id);expect(row.lastVerified).toBeNull();expect(body.customerAlertsEnabled).toBe(false);
    expect(response?.headers.get('cache-control')).toBe('no-store');
+   const server={...base,id:'00000000-0000-0000-0000-000000000003',collectorId:'server-marketplace',observedAt:new Date(Date.now()-1000).toISOString()};
+   expect((await send(server))?.status).toBe(200);
+   expect((await send({...base,id:'00000000-0000-0000-0000-000000000004',pageAvailability:null,reason:'TAB_MISSING'}))?.status).toBe(200);
+   const filtered=await handleMercadoLibreBrowser(new Request('https://spawn.test/internal/mercadolibre-browser/status?collector=server-marketplace',{headers:{authorization:'Bearer ml'}}),env);
+   const selected=await filtered!.json() as any;expect(selected.rows.find((r:any)=>r.itemId===base.itemId).latest.id).toBe(server.id);
   }finally{db.close();}
  });
  it('handles malformed requests and unrelated routes',async()=>{

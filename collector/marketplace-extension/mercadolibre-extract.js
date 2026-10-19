@@ -15,15 +15,19 @@ export function readMercadoLibreOffer(target){
  const excluded=el=>!!el.closest('.ui-pdp-recommendations,.ui-recommendations,.ui-pdp-ads,[data-testid="recommendations"]');
  // Sold-out catalog pages may omit the entire offer. Retain this as page-level
  // evidence only: it cannot verify the original listing or replace its last good state.
- let pageSoldOut=false,scope=document.querySelector('h1.ui-pdp-title')?.parentElement;
- for(let depth=0;scope&&scope!==document.body&&depth<4;depth++,scope=scope.parentElement){
+ let pageSoldOut=false,listingStatus=null,scope=document.querySelector('h1.ui-pdp-title')?.parentElement;
+ for(let depth=0;scope&&scope!==document.body&&depth<5;depth++,scope=scope.parentElement){
   if(clean(scope.innerText).length>4000)break;
   const nodes=[...scope.querySelectorAll('*')].filter(el=>visible(el)&&!excluded(el));
   const soldOut=nodes.some(el=>/^producto agotado[.!]?$/i.test(clean(el.innerText)));
+  const paused=nodes.some(el=>/^publicaci[oó]n pausada[.!]?$/i.test(clean(el.innerText)));
+  const unavailable=nodes.some(el=>/^este producto no est[aá] disponible por el momento[.!]?$/i.test(clean(el.innerText)));
   const buy=nodes.some(el=>el.matches('button,input[type="submit"],a[role="button"]')&&!el.disabled&&el.getAttribute('aria-disabled')!=='true'&&/^(comprar ahora|agregar al carrito)$/i.test(clean(el.innerText||el.value)));
   if(soldOut&&!buy){pageSoldOut=true;break;}
+  if(!buy&&(paused||unavailable)){listingStatus=paused?'paused':'unavailable';break;}
  }
- const unavailable=reason=>({...blank,reason:pageSoldOut?'PAGE_SOLD_OUT_SELLER_UNCONFIRMED':reason,...(pageSoldOut?{pageAvailability:'sold_out'}:{})});
+ const unavailable=reason=>({...blank,reason:pageSoldOut?'PAGE_SOLD_OUT_SELLER_UNCONFIRMED':listingStatus==='paused'?'PAGE_LISTING_PAUSED':listingStatus==='unavailable'?'PAGE_LISTING_UNAVAILABLE':reason,...(pageSoldOut?{pageAvailability:'sold_out'}:{}),...(listingStatus?{listingStatus}:{})});
+ if(listingStatus)return unavailable('PRIMARY_OFFER_MISSING');
  const root=[...document.querySelectorAll('.ui-pdp-buybox,.ui-pdp-container__col--right')].find(visible);
  if(!root)return unavailable('PRIMARY_OFFER_MISSING');
  const ids=[...root.querySelectorAll('input[name="item_id"],input[name="itemId"],[data-item-id]')].filter(el=>!excluded(el)).map(el=>clean(el.value||el.getAttribute('data-item-id')).replace(/^MLM-?/i,'MLM'));

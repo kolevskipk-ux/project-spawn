@@ -1,6 +1,6 @@
 import {readFileSync,writeFileSync,readdirSync,mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
-const source=resolve('collector/marketplace-extension'),output=resolve(process.argv[2]||'../work/Scout-Marketplace-Server-0.4.3');
+const source=resolve('collector/marketplace-extension'),output=resolve(process.argv[2]||'../work/Scout-Marketplace-Server-0.4.4');
 mkdirSync(output,{recursive:true});
 for(const file of readdirSync(source)){
  if(!/\.(js|html|mjs)$/.test(file)||file.includes('private-config'))continue;
@@ -9,10 +9,11 @@ for(const file of readdirSync(source)){
 writeFileSync(resolve(output,'private-config.js'),"export const COLLECTOR_TOKEN = '';\n");
 writeFileSync(resolve(output,'mercadolibre-private-config.js'),"export const MERCADOLIBRE_COLLECTOR_TOKEN = '';\n");
 const manifest=JSON.parse(readFileSync(resolve(source,'manifest.json'),'utf8'));
-Object.assign(manifest,{name:'Scout Marketplace — Firefox server',version:'0.4.3',background:{scripts:['background.js'],type:'module'},browser_specific_settings:{gecko:{id:'scout-marketplace-server@aztlan-eng.com',strict_min_version:'142.0',data_collection_permissions:{required:['websiteContent']}}}});
+Object.assign(manifest,{name:'Scout Marketplace — Firefox server',version:'0.4.4',background:{scripts:['background.js'],type:'module'},browser_specific_settings:{gecko:{id:'scout-marketplace-server@aztlan-eng.com',strict_min_version:'142.0',data_collection_permissions:{required:['websiteContent']}}}});
 writeFileSync(resolve(output,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 const background=resolve(output,'background.js');
 let code=readFileSync(background,'utf8').replace("sender.tab||!groups", "sender.tab&&sender.url!==browser.runtime.getURL('popup.html')||!groups");
+code=code.replace('const record={...observation,',"const record={collectorId:'server-marketplace',...observation,");
 code=code.replace('if(automatic)await reload(tab.id);',"if(automatic){await browser.tabs.update(tab.id,{active:true});await reload(tab.id);}");
 code=code.replace("const [{result}]=await browser.scripting.executeScript({target:{tabId:tab.id},func:group.extract,args:[item]});\n if(!result||result.error||result.itemId!==item.itemId)return unknown(item,'ACQUISITION_FAILED');\n return result;",`let result;
  const until=Date.now()+6000;

@@ -1,7 +1,7 @@
 import type {Env} from './types';
 import {MERCADOLIBRE_ITEMS,exactMercadoLibreItem} from '../collector/marketplace-extension/mercadolibre-items.js';
 
-const reasons=new Set(['UNCONFIRMED','WRONG_HOST','ACCOUNT_VERIFICATION','ITEM_REDIRECTED_OR_CHANGED','TITLE_UNCONFIRMED','PRIMARY_OFFER_MISSING','OFFER_ID_UNCONFIRMED','SELLER_REVIEW_REQUIRED','SELLER_MISMATCH','SELLER_UNCONFIRMED','DELIVERY_LOCATION_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_SOLD_OUT','DELIVERY_UNAVAILABLE','VERIFIED_PURCHASE_CONTROL','PURCHASE_UNCONFIRMED','TAB_MISSING','TAB_CHANGED','ACQUISITION_FAILED','PAGE_SOLD_OUT_SELLER_UNCONFIRMED']);
+const reasons=new Set(['UNCONFIRMED','WRONG_HOST','ACCOUNT_VERIFICATION','ITEM_REDIRECTED_OR_CHANGED','TITLE_UNCONFIRMED','PRIMARY_OFFER_MISSING','OFFER_ID_UNCONFIRMED','SELLER_REVIEW_REQUIRED','SELLER_MISMATCH','SELLER_UNCONFIRMED','DELIVERY_LOCATION_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_SOLD_OUT','DELIVERY_UNAVAILABLE','VERIFIED_PURCHASE_CONTROL','PURCHASE_UNCONFIRMED','TAB_MISSING','TAB_CHANGED','ACQUISITION_FAILED','PAGE_SOLD_OUT_SELLER_UNCONFIRMED','PAGE_LISTING_PAUSED','PAGE_LISTING_UNAVAILABLE']);
 export function validateMercadoLibreObservation(body:any,now=Date.now()){
  if(!body||typeof body!=='object'||Array.isArray(body))return null;
  const target=MERCADOLIBRE_ITEMS.find(item=>item.itemId===body.itemId);
@@ -20,6 +20,10 @@ export function validateMercadoLibreObservation(body:any,now=Date.now()){
  const pageAvailability=body.pageAvailability??null;
  if(pageAvailability!==null&&pageAvailability!=='sold_out')return null;
  const correctTitle=/pok[eé]mon/i.test(body.title)&&/30th|30\s*(?:aniversario|anniversary|a[nñ]os)|celebration|celebraci[oó]n/i.test(body.title)&&target.titleTerms.every(pattern=>new RegExp(pattern,'i').test(body.title));
+ const listingStatus=body.listingStatus??null;
+ if(listingStatus!==null&&(!['paused','unavailable'].includes(listingStatus)||!correctTitle||body.state!=='unknown'||body.purchaseEnabled||body.reason!==(listingStatus==='paused'?'PAGE_LISTING_PAUSED':'PAGE_LISTING_UNAVAILABLE')))return null;
+ if(['PAGE_LISTING_PAUSED','PAGE_LISTING_UNAVAILABLE'].includes(body.reason)&&!listingStatus)return null;
+ if(body.collectorId!==undefined&&(typeof body.collectorId!=='string'||!/^[-a-z0-9]{1,40}$/.test(body.collectorId)))return null;
  if(pageAvailability==='sold_out'&&(!correctTitle||body.state!=='unknown'||body.purchaseEnabled||body.reason!=='PAGE_SOLD_OUT_SELLER_UNCONFIRMED'))return null;
  if(body.reason==='PAGE_SOLD_OUT_SELLER_UNCONFIRMED'&&pageAvailability!=='sold_out')return null;
  const verified=['available','sold_out'].includes(body.state);
@@ -30,20 +34,22 @@ export function validateMercadoLibreObservation(body:any,now=Date.now()){
   if(body.state==='sold_out'&&(body.purchaseEnabled||body.reason!=='EXPLICIT_SOLD_OUT'))return null;
  }
  // Explicit projection excludes URL advertising parameters, raw DOM, and account data.
- return {id:body.id,itemId:target.itemId,observedAt:new Date(time).toISOString(),url:target.url,title:body.title,state:body.state,reason:body.reason,priceMxn:body.priceMxn,seller:body.seller,sellerId:body.sellerId,postcode:body.postcode,purchaseEnabled:body.purchaseEnabled,visibleItemId:body.visibleItemId,pageAvailability};
+ return {id:body.id,itemId:target.itemId,observedAt:new Date(time).toISOString(),url:target.url,title:body.title,state:body.state,reason:body.reason,priceMxn:body.priceMxn,seller:body.seller,sellerId:body.sellerId,postcode:body.postcode,purchaseEnabled:body.purchaseEnabled,visibleItemId:body.visibleItemId,pageAvailability,...(listingStatus?{listingStatus}:{}),...(body.collectorId?{collectorId:body.collectorId}:{})};
 }
 export async function handleMercadoLibreBrowser(request:Request,env:Env):Promise<Response|null>{
  const path=new URL(request.url).pathname;
  if(!['/internal/mercadolibre-browser/observe','/internal/mercadolibre-browser/status'].includes(path))return null;
  if(!env.MERCADOLIBRE_COLLECTOR_TOKEN||env.MERCADOLIBRE_COLLECTOR_TOKEN===env.WALMART_COLLECTOR_TOKEN||request.headers.get('authorization')!==`Bearer ${env.MERCADOLIBRE_COLLECTOR_TOKEN}`)return Response.json({error:'unauthorized'},{status:401});
  if(path.endsWith('/status')&&request.method==='GET'){
+  const collectorId=new URL(request.url).searchParams.get('collector');if(collectorId&&!/^[-a-z0-9]{1,40}$/.test(collectorId))return Response.json({error:'invalid_collector'},{status:400});
+  const filter=collectorId?" AND COALESCE(json_extract(evidence_json,'$.collectorId'),'legacy-unidentified')=?":"";
   const rows=[];
   for(const item of MERCADOLIBRE_ITEMS){
-   const latest=await env.SPAWN_DB.prepare('SELECT * FROM mercadolibre_browser_observations WHERE item_id=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.itemId).first<any>();
-   const lastVerified=await env.SPAWN_DB.prepare("SELECT * FROM mercadolibre_browser_observations WHERE item_id=? AND state IN ('available','sold_out') ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.itemId).first();
+   const latest=await env.SPAWN_DB.prepare('SELECT * FROM mercadolibre_browser_observations WHERE item_id=?'+filter+' ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.itemId,...(collectorId?[collectorId]:[])).first<any>();
+   const lastVerified=await env.SPAWN_DB.prepare("SELECT * FROM mercadolibre_browser_observations WHERE item_id=? AND state IN ('available','sold_out')"+filter+" ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.itemId,...(collectorId?[collectorId]:[])).first();
    rows.push({itemId:item.itemId,name:item.name,latest,lastVerified,ageSeconds:latest?Math.max(0,Math.floor((Date.now()-Date.parse(latest.observed_at))/1000)):null});
   }
-  return Response.json({source:'mercadolibre-browser',cadenceMinutes:30,customerAlertsEnabled:false,rows},{headers:{'cache-control':'no-store'}});
+  return Response.json({source:'mercadolibre-browser',collectorId:collectorId??'all',collectorIdentity:'self-reported diagnostic label; authentication remains token-scoped',cadenceMinutes:30,customerAlertsEnabled:false,rows},{headers:{'cache-control':'no-store'}});
  }
  if(!path.endsWith('/observe')||request.method!=='POST')return new Response('Method not allowed',{status:405});
  const text=await request.text();if(text.length>6000)return new Response('Too large',{status:413});
