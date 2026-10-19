@@ -48,7 +48,12 @@ try{
  r=await check(unavailable.replace('<div>','<div style="display:none">'),item,item.catalogUrl);assert.equal(r.pageAvailability,undefined);
  r=await check(unavailable.replace('<div>','<div class="ui-pdp-recommendations">'),item,item.catalogUrl);assert.equal(r.pageAvailability,undefined);
  r=await check(unavailable.replace('</section>','<button>Comprar ahora</button></section>'),item,item.catalogUrl);assert.equal(r.pageAvailability,undefined);
- console.log('21 browser extraction cases and identity/history checks passed. All browser network requests intercepted.');
+ const paused=unavailable.replace('Producto agotado','Publicación pausada');
+ r=await check(paused,item,item.url);assert.equal(r.listingStatus,'paused');assert.equal(r.state,'unknown');assert.equal(r.pageAvailability,undefined);
+ r=await check(paused.replace('<div>','<div class="ui-pdp-recommendations">'),item,item.url);assert.equal(r.listingStatus,undefined);
+ r=await check(paused.replace('</section>','<button>Comprar ahora</button></section>'),item,item.url);assert.equal(r.listingStatus,undefined);
+ r=await check(unavailable.replace('Producto agotado','Este producto no está disponible por el momento.'),item,item.catalogUrl);assert.equal(r.listingStatus,'unavailable');assert.equal(r.state,'unknown');
+ console.log('25 browser extraction cases and identity/history checks passed. All browser network requests intercepted.');
 }finally{await browser.close();}
 
 // Exercise the actual worker with a minimal Chrome API mock, including token isolation.

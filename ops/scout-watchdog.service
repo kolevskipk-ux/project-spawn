@@ -1,0 +1,7 @@
+[Unit]
+Description=Scout bounded progress watchdog
+ConditionPathExists=%h/Downloads/scout-server-watchdog.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/share/scout-firefox-test/scout-watchdog.py

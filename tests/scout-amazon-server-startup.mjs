@@ -1,5 +1,5 @@
 import fs from 'node:fs';import {resolve} from 'node:path';import vm from 'node:vm';import assert from 'node:assert/strict';
-const bg=fs.readFileSync(resolve(process.argv[2]||'../work/Scout-Amazon-Repair-0.5.5','background.js'),'utf8');const startup=bg.slice(bg.indexOf('// First handover starts monitoring once;'));
+const bg=fs.readFileSync(resolve(process.argv[2]||'../work/Scout-Amazon-Upgrades-0.5.6','background.js'),'utf8');const startup=bg.slice(bg.indexOf('// First handover starts monitoring once;'));
 const state={serverCommissioned:true,panelRollout053:true,enabled:true,manualPaused:false,leaseUntil:Date.now()+900000,activeRun:{phase:'reading'},cooldownUntil:Date.now()+600000},session={};
 const storage=v=>({get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(k=>[k,v[k]])),set:async values=>Object.assign(v,values),remove:async keys=>keys.forEach(k=>delete v[k])});
 const browser={storage:{local:storage(state),session:storage(session)},runtime:{getURL:()=> 'moz-extension://fixture/dashboard.html'},tabs:{query:async()=>[{id:1}],remove:async()=>{},create:async()=>{throw Error('Duplicate dashboard');}}};

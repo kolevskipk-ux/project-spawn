@@ -1,4 +1,4 @@
-import {recordScoutHeartbeat} from './scout-health';
+import {recordScoutHeartbeat,readableAmazonObservation} from './scout-health';
 import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
 import {exact} from '../collector/amazon-extension/items.js';
@@ -45,7 +45,8 @@ export async function handleAmazonBrowser(request:Request,env:Env,ctx?:Execution
      const latest=await env.SPAWN_DB.prepare('SELECT evidence_json,observed_at FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{evidence_json:string;observed_at:string}>();
      const ageSeconds=latest?Math.max(0,Math.floor((Date.now()-Date.parse(latest.observed_at))/1000)):null;
      const observation=latest?JSON.parse(latest.evidence_json):null;
-     rows.push({asin:item.asin,name:item.name,latest:observation,ageSeconds,stale:ageSeconds===null||ageSeconds>900});
+     const pageRead=!!observation&&readableAmazonObservation({collector_state:observation.collectorState,evidence_json:JSON.stringify(observation)},item.titlePattern);
+     rows.push({asin:item.asin,name:item.name,latest:observation,collector:observation?.collector??null,ageSeconds,stale:ageSeconds===null||ageSeconds>900,pageReadFresh:pageRead&&ageSeconds!==null&&ageSeconds<=900,offerConfirmed:!!observation&&['available','sold_out','buying_options_shown'].includes(observation.collectorState),stockAuthority:false});
    }
    return Response.json({source:'amazon_edge',customerAlertsEnabled:env.AMAZON_BROWSER_ADVISORIES_ENABLED==='true',alertType:'unverified_advisory',inventoryUpdated:false,rows},{headers:{'cache-control':'no-store'}});
  }

@@ -102,3 +102,42 @@ Public files were backed up separately before installation; private credentials
 and browser profiles were retained. No Worker deployment, migration or extension
 of the expired store pilot is part of this repair. Runtime receipts and the final
 verification assessment are saved in the task workspace under work/.
+
+## Pacing and coverage upgrade — October 19, 2026
+
+The October 16–19 07:00 Mexico City overnight reports correspond to actual gaps:
+Amazon stopped on October 16 and did not submit again until October 19. Amazon's
+server collector runs continuously. Its 21:30–06:00 notification deferral and
+07:00 summary are independent of the marketplace/Catch 02:05–06:05 quiet period.
+The audit is retained in work/scout-overnight-audit-20261019.json in this task.
+
+Amazon server 0.5.6 prioritizes four hot products every four minutes and other
+products every twelve minutes, with up to fifteen seconds of positive jitter and
+at most six due products per tick. Foreground reads stay serial. Challenge
+cooldowns and manual pauses survive installation and watchdog checks. Spawn
+counts a title-matched inconclusive offer as a successful page read while keeping
+offer qualification and stock authority separate. Failed reads and challenges do
+not refresh coverage. A scheduled break is exempt only when explicitly reported
+by a fresh collector heartbeat during the server-bounded 02:05–06:05 interval;
+Amazon does not report or acquire such a break by default. Overnight summaries use
+the current night's detection time instead of an old incident's first date.
+
+Marketplace server 0.4.4 labels receipts server-marketplace and reports paused or
+unavailable pages without approving their seller or changing unknown stock state.
+The authenticated marketplace status endpoints accept ?collector=server-marketplace
+to avoid mixing legacy clients' missing-tab diagnostics with server evidence.
+Labels are self-reported diagnostics; authorization still depends on scoped tokens.
+Existing unlabeled receipts and idempotent retries remain compatible.
+
+The user systemd scout-watchdog timer checks a small, secret-free browser snapshot
+every two minutes. It only restarts an already active Amazon service when both
+heartbeat and progress are stale and the next run is overdue. Disabled collectors,
+manual pauses, safety stops, challenge cooldowns, planned breaks, missing evidence,
+and intentionally inactive services are protected. Restarts are capped at one per
+hour and two per rolling day. It cannot recover a powered-off server. Existing
+Spawn health notifications remain the remote indicator of server loss.
+
+The two-preparation/one-reader pipeline is an isolated local experiment with no
+retailer traffic. Production concurrency remains one while Amazon is challenged;
+synthetic timing is not a production speed estimate. No store-pilot extension,
+seller-policy relaxation, or paid browser activation accompanies this upgrade.

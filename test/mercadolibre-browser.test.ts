@@ -5,6 +5,11 @@ import {validateMercadoLibreObservation,handleMercadoLibreBrowser} from '../src/
 import {sendMercadoLibreObservation} from '../collector/marketplace-extension/mercadolibre-transport.js';
 const observation=()=>({id:'00000000-0000-0000-0000-000000000001',itemId:'MLM5984323768',url:'https://www.mercadolibre.com.mx/product/p/MLM75624347?fbclid=discard#tracking_id=discard',title:'Pokemon TCG 30th Celebration Booster Bundle 6pk en Ingles',observedAt:new Date().toISOString(),state:'unknown',reason:'PAGE_SOLD_OUT_SELLER_UNCONFIRMED',pageAvailability:'sold_out',priceMxn:null,seller:null,sellerId:null,postcode:null,purchaseEnabled:false,visibleItemId:null});
 describe('Mercado Libre collector',()=>{
+ it('records paused listings as page diagnostics without approving stock or seller',()=>{
+  const body={...observation(),reason:'PAGE_LISTING_PAUSED',pageAvailability:null,listingStatus:'paused',collectorId:'server-marketplace'};
+  expect(validateMercadoLibreObservation(body)).toMatchObject({state:'unknown',listingStatus:'paused',collectorId:'server-marketplace'});
+  for(const patch of [{purchaseEnabled:true},{state:'available'},{listingStatus:'arbitrary'},{title:'Wrong product'},{collectorId:'../invalid'}])expect(validateMercadoLibreObservation({...body,...patch})).toBeNull();
+ });
  it('retains sold-out page evidence without promoting unknown to verified',()=>{
   const result=validateMercadoLibreObservation({...observation(),accountEmail:'must not persist'});
   expect(result?.state).toBe('unknown');expect(result?.pageAvailability).toBe('sold_out');

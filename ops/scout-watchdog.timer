@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Scout progress every two minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=20sec
+Persistent=true
+Unit=scout-watchdog.service
+
+[Install]
+WantedBy=timers.target
