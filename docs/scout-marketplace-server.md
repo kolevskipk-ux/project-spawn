@@ -65,3 +65,34 @@ marketplace Firefox profile before those pages can provide usable coverage.
 Both retailers retain separate 30-minute schedules and 02:05–06:05 Mexico City
 quiet hours. Configured credentials were preserved during the public-code update.
 The separate service can be stopped without stopping Amazon Scout.
+
+## Server reliability repair — October 19, 2026
+
+The Firefox event page was opening another observer dashboard every time it woke.
+The server accumulated 272 observer tabs. Version 0.4.3 initializes once per
+browser session using storage.session, keeps one dashboard, and preserves product
+and verification tabs. Walmart and Mercado Libre alarms are staggered by two
+minutes; simultaneous alarms queue instead of discarding the second retailer's
+run. Product lookup rechecks the saved tab ID and validates its current identity
+or mapped verification URL before inspection. An unrelated saved tab is rejected.
+
+Build with `node scripts/prepare-marketplace-server.mjs`. Existing private config
+files must be preserved when installing public files; generated credentials are
+blank. The local repair tests expect that generated package plus an Amazon repair
+package built by `node scripts/patch-amazon-server.mjs <existing-public-0.5.4-dir>`.
+Run `node tests/scout-server-reliability.mjs` and the marketplace extraction suite.
+
+The Amazon server patch produces version 0.5.5 public files only. Its previous
+READ_FAILURES stop counted other sellers' featured offers and unverified option
+panels as failed page reads. These now remain inconclusive without disabling
+monitoring; missing tabs, failed reads and challenge protections still stop as
+before. Offer qualification and customer alert rules are unchanged. The patch
+also reports the existing authenticated Scout heartbeat and initializes the
+dashboard once per browser session. Resume monitoring through the normal
+dashboard toggle after installing; installation preserves deliberate pauses.
+
+The owner authorized applying these repairs directly to the two server services.
+Public files were backed up separately before installation; private credentials
+and browser profiles were retained. No Worker deployment, migration or extension
+of the expired store pilot is part of this repair. Runtime receipts and the final
+verification assessment are saved in the task workspace under work/.
