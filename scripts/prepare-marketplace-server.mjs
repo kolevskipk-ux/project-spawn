@@ -1,6 +1,6 @@
 import {readFileSync,writeFileSync,readdirSync,mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
-const source=resolve('collector/marketplace-extension'),output=resolve(process.argv[2]||'../work/Scout-Marketplace-Server-0.4.2');
+const source=resolve('collector/marketplace-extension'),output=resolve(process.argv[2]||'../work/Scout-Marketplace-Server-0.4.3');
 mkdirSync(output,{recursive:true});
 for(const file of readdirSync(source)){
  if(!/\.(js|html|mjs)$/.test(file)||file.includes('private-config'))continue;
@@ -9,7 +9,7 @@ for(const file of readdirSync(source)){
 writeFileSync(resolve(output,'private-config.js'),"export const COLLECTOR_TOKEN = '';\n");
 writeFileSync(resolve(output,'mercadolibre-private-config.js'),"export const MERCADOLIBRE_COLLECTOR_TOKEN = '';\n");
 const manifest=JSON.parse(readFileSync(resolve(source,'manifest.json'),'utf8'));
-Object.assign(manifest,{name:'Scout Marketplace — Firefox server',version:'0.4.2',background:{scripts:['background.js'],type:'module'},browser_specific_settings:{gecko:{id:'scout-marketplace-server@aztlan-eng.com',strict_min_version:'142.0',data_collection_permissions:{required:['websiteContent']}}}});
+Object.assign(manifest,{name:'Scout Marketplace — Firefox server',version:'0.4.3',background:{scripts:['background.js'],type:'module'},browser_specific_settings:{gecko:{id:'scout-marketplace-server@aztlan-eng.com',strict_min_version:'142.0',data_collection_permissions:{required:['websiteContent']}}}});
 writeFileSync(resolve(output,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 const background=resolve(output,'background.js');
 let code=readFileSync(background,'utf8').replace("sender.tab||!groups", "sender.tab&&sender.url!==browser.runtime.getURL('popup.html')||!groups");
@@ -28,9 +28,12 @@ code=code.replace("const [{result}]=await browser.scripting.executeScript({targe
 const mlItems=resolve(output,'mercadolibre-items.js');
 writeFileSync(mlItems,readFileSync(mlItems,'utf8').replace('gz\\/account-verification|jms\\/|login|auth|security|challenge','gz\\/account-verification|captcha(?:\\/|$)|jms\\/|login|auth|security|challenge'));
 code+=`
-// Owner-authorized server commissioning. Restarts preserve manual disablement.
+// One initialization per browser session, not per event-page wake. A durable
+// profile flag alone cannot distinguish a restart from a sleeping worker.
 if(typeof browser.tabs.create==='function')setTimeout(async()=>{
  try{
+  if((await browser.storage.session.get('marketplaceStartup')).marketplaceStartup)return;
+  await browser.storage.session.set({marketplaceStartup:true});
   const state=await browser.storage.local.get(['marketplaceServerCommissioned','tabIds']),tabIds=state.tabIds||{};
   for(const group of Object.values(groups)){
    const tabs=await browser.tabs.query({url:group.patterns});
@@ -49,8 +52,16 @@ if(typeof browser.tabs.create==='function')setTimeout(async()=>{
   }
   if(!state.marketplaceServerCommissioned)await browser.storage.local.set({marketplaceServerCommissioned:true,walmartEnabled:true,mercadolibreEnabled:true});
   await restoreAlarms();
-  for(const retailer of Object.keys(groups))await run(retailer,true);
-  await browser.tabs.create({url:browser.runtime.getURL('popup.html')});
+  // Stagger alarms so one retailer cannot lose its scheduled run to the other.
+  const enabled=await browser.storage.local.get(['walmartEnabled','mercadolibreEnabled']);
+  let offset=10000;
+  for(const retailer of Object.keys(groups))if(enabled[retailer+'Enabled']){
+   await browser.alarms.create(retailer+'-warm',{when:Date.now()+offset,periodInMinutes:30});offset+=120000;
+  }
+  const dashboardUrl=browser.runtime.getURL('popup.html');
+  const dashboards=await browser.tabs.query({url:dashboardUrl});
+  if(dashboards.length>1)await browser.tabs.remove(dashboards.slice(1).map(t=>t.id));
+  if(!dashboards.length)await browser.tabs.create({url:dashboardUrl,active:false});
  }catch(error){console.error('Marketplace commissioning failed:',error.message);}
 },5000);
 `;

@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import vm from 'node:vm';
+import {findItemTab} from '../collector/marketplace-extension/tab-lookup.js';
+import {readHealth} from '../collector/amazon-extension/read-health.js';
+const item={itemId:'approved',url:'https://store.invalid/approved'};
+const group={items:[item],patterns:['https://store.invalid/*'],exact:(u,i)=>u===i.url,challenge:u=>u?.startsWith('https://store.invalid/challenge')};
+let current={id:7,url:item.url};const api={tabs:{get:async()=>current}};
+assert.equal((await findItemTab(api,group,item,[],{approved:7})).id,7);
+current={id:7,url:'https://unrelated.invalid'};assert.equal(await findItemTab(api,group,item,[],{approved:7}),undefined);
+current={id:7,url:'https://store.invalid/challenge'};assert.equal((await findItemTab(api,group,item,[],{approved:7})).id,7);
+assert.equal((await findItemTab(api,group,item,[{id:8,url:'https://store.invalid/challenge?go_url='+encodeURIComponent(item.url)}],{})).id,8);
+const previousFailure=[{state:'sold_out'},...Array.from({length:3},()=>({state:'unknown',reason:'OTHER_SELLER_FEATURED'})),{state:'buying_options_shown',panelStatus:'unverified'}];
+assert.equal(readHealth(previousFailure).stopReason,null);
+assert.equal(readHealth(previousFailure).inconclusive,4);
+assert.equal(readHealth([{state:'unknown',reason:'TAB_MISSING'}]).stopReason,'READ_FAILURES');
+assert.equal(readHealth([{state:'error',reason:'PAGE_CHECK_FAILED'}]).stopReason,'READ_FAILURES');
+assert.equal(readHealth([{state:'blocked'}]).stopReason,'CHALLENGE');
+const temporary=mkdtempSync(join(tmpdir(),'scout-server-test-'));
+let built;
+try{execFileSync(process.execPath,['scripts/prepare-marketplace-server.mjs',temporary],{stdio:'pipe'});built=readFileSync(join(temporary,'background.js'),'utf8');}finally{rmSync(temporary,{recursive:true,force:true});}
+const startup=built.slice(built.indexOf('// One initialization per browser session'));
+const session={},state={marketplaceServerCommissioned:true,walmartEnabled:true,mercadolibreEnabled:false,tabIds:{approved:7}};
+let dashboards=[{id:10},{id:11},{id:12}],created=0,alarms=[];
+const storage=values=>({get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(k=>[k,values[k]])),set:async v=>Object.assign(values,v)});
+const browser={storage:{local:storage(state),session:storage(session)},runtime:{getURL:()=> 'moz-extension://test/popup.html'},alarms:{create:async(n,a)=>alarms.push(n)},tabs:{query:async q=>q.url==='moz-extension://test/popup.html'?dashboards:[{id:7,url:item.url}],create:async()=>{created++;return {id:20};},remove:async ids=>{dashboards=dashboards.filter(t=>!ids.includes(t.id));}}};
+async function wake(){let callback;const context=vm.createContext({browser,groups:{walmart:group},restoreAlarms:async()=>{},console,URL,Date,delay:async()=>{},setTimeout:fn=>{callback=fn;}});vm.runInContext(startup,context);await callback();}
+await wake();assert.equal(dashboards.length,1);assert.equal(created,0);assert.deepEqual(alarms,['walmart-warm']);
+await wake();assert.equal(created,0);assert.equal(alarms.length,1);
+delete session.marketplaceStartup;state.walmartEnabled=false;await wake();assert.equal(state.walmartEnabled,false);assert.equal(alarms.length,1);
+console.log('Tab fallback identity, challenge mapping, false-stop regression, real-failure safety, event-page wake idempotency, duplicate cleanup and manual-pause preservation passed.');

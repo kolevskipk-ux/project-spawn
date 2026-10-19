@@ -1,0 +1,9 @@
+import fs from 'node:fs';import {resolve} from 'node:path';import vm from 'node:vm';import assert from 'node:assert/strict';
+const bg=fs.readFileSync(resolve(process.argv[2]||'../work/Scout-Amazon-Repair-0.5.5','background.js'),'utf8');const startup=bg.slice(bg.indexOf('// First handover starts monitoring once;'));
+const state={serverCommissioned:true,panelRollout053:true,enabled:true,manualPaused:false,leaseUntil:Date.now()+900000,activeRun:{phase:'reading'},cooldownUntil:Date.now()+600000},session={};
+const storage=v=>({get:async keys=>Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(k=>[k,v[k]])),set:async values=>Object.assign(v,values),remove:async keys=>keys.forEach(k=>delete v[k])});
+const browser={storage:{local:storage(state),session:storage(session)},runtime:{getURL:()=> 'moz-extension://fixture/dashboard.html'},tabs:{query:async()=>[{id:1}],remove:async()=>{},create:async()=>{throw Error('Duplicate dashboard');}}};
+async function wake(){let callback;const c=vm.createContext({browser,setTimeout:fn=>callback=fn,Date,console,openProducts:async()=>{},migrateChallengePause:()=>null,restore:async()=>{},startHeartbeat:async()=>{},diagnostic:async()=>{},settings:x=>x});vm.runInContext(startup,c);await callback();}
+const cooldown=state.cooldownUntil;await wake();assert.equal(state.leaseUntil,undefined);assert.equal(state.activeRun,undefined);assert.equal(state.cooldownUntil,cooldown);assert.equal(state.enabled,true);
+state.leaseUntil=Date.now()+900000;await wake();assert(state.leaseUntil);delete session.amazonStartup;state.enabled=false;state.manualPaused=true;await wake();assert.equal(state.enabled,false);assert.equal(state.manualPaused,true);
+console.log('Installed Amazon startup: interrupted lease recovered only on new session; worker wakes retain live lease; challenge cooldown and manual pause preserved.');

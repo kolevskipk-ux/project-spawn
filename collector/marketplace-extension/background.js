@@ -6,6 +6,7 @@ import {COLLECTOR_TOKEN} from './private-config.js';
 import {appendObservation} from './history.js';
 import {MERCADOLIBRE_COLLECTOR_TOKEN} from './mercadolibre-private-config.js';
 import {sendMercadoLibreObservation} from './mercadolibre-transport.js';
+import {findItemTab} from './tab-lookup.js';
 
 const groups={
  walmart:{items:ITEMS,exact:exactItem,challenge:challengeUrl,extract:readWalmartOffer,patterns:['https://www.walmart.com.mx/*']},
@@ -73,8 +74,7 @@ export async function run(retailer,automatic=false){
   const tabIds=state.tabIds||{},results=[];let history=state.history||{};
   for(const item of selected){
    if(automatic&&(!(await chrome.storage.local.get(key))[key]||quiet()))break;
-   let tab=tabs.find(t=>group.exact(t.url,item));
-   if(!tab&&tabIds[item.itemId])tab=tabs.find(t=>t.id===tabIds[item.itemId]&&group.challenge(t.url));
+   const tab=await findItemTab(chrome,group,item,tabs,tabIds);
    if(tab)tabIds[item.itemId]=tab.id;
    let observation;
    try{observation=await inspect(group,item,tab,automatic);}catch{observation=unknown(item,'ACQUISITION_FAILED','error');}
@@ -91,9 +91,10 @@ export async function run(retailer,automatic=false){
 }
 chrome.runtime.onInstalled.addListener(()=>restoreAlarms());
 chrome.runtime.onStartup.addListener(()=>restoreAlarms());
+let scheduled=Promise.resolve();
 chrome.alarms.onAlarm.addListener(alarm=>{
  const retailer=Object.keys(groups).find(name=>alarm.name===`${name}-warm`);
- if(retailer)run(retailer,true).catch(error=>chrome.storage.local.set({[`${retailer}LastRun`]:{at:new Date().toISOString(),error:error.message}}));
+ if(retailer)scheduled=scheduled.then(()=>run(retailer,true)).catch(error=>chrome.storage.local.set({[`${retailer}LastRun`]:{at:new Date().toISOString(),error:error.message}}));
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
  if(sender.id!==chrome.runtime.id||sender.tab||!groups[message?.retailer])return;
