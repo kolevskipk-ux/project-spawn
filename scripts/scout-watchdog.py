@@ -9,7 +9,7 @@ def decision(snapshot,state,now):
  if snapshot.get('stopReason') or epoch(snapshot.get('cooldownUntil'))>now or epoch(snapshot.get('scheduledPauseUntil'))>now:return 'protected_stop'
  exported=epoch(snapshot.get('exportedAt'));progress=epoch(snapshot.get('lastProgressAt'))
  if not exported or not progress:return 'insufficient_evidence'
- if now-exported<=600 or now-progress<=1200:return 'healthy_or_waiting'
+ if now-progress<=1200:return 'healthy_or_waiting'
  due=epoch(snapshot.get('nextRunAt'))
  if not due or due>now-600:return 'not_overdue'
  restarts=[t for t in state.get('restarts',[]) if now-t<86400]

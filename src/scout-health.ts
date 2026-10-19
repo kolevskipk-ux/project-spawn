@@ -4,7 +4,7 @@ import {disablePaidBrowserFallback} from './paid-browser-fallback';
 const HOT=new Set(['B0H77VYKSM','B0H77XNKKK','B0H78BB9TY','B0H783FY5Z']);
 const COLLECTORS=['desktop','laptop','server'];
 export interface Beat {receivedAt:string;manualPaused:boolean;enabled:boolean;stopReason:string|null;challengeAttempts:number;pauseUntil:string|null;scheduledPauseUntil?:string|null;}
-interface Target {asin:string;name:string;observedAt:string|null;offerConfirmed?:boolean;}
+interface Target {asin:string;name:string;observedAt:string|null;stockConclusive?:boolean;}
 export function readableAmazonObservation(row:{collector_state:string;evidence_json?:string},titlePattern:string){
  if(['available','sold_out','buying_options_shown'].includes(row.collector_state))return true;
  if(row.collector_state!=='unknown')return false;
@@ -37,7 +37,7 @@ export function scoutHealthDecision(targets:Target[],beats:Beat[],state:HealthSt
  const stableRecovery=!severity&&samples>=2;
  const alert=morning||unhealthy&&hours.business&&!overnightDueAt&&(!state.notifiedSeverity||rank(severity)>rank(state.notifiedSeverity));
  const recovery=!morning&&!overnightDueAt&&hours.business&&stableRecovery&&state.incident&&!!state.notifiedSeverity;
- return {missing,unconfirmed:targets.filter(t=>t.offerConfirmed===false),failure,severity,alert,recovery,paused,scheduledBreak,healthySamples:samples,unhealthy,overnightDueAt,morning,stableRecovery};
+ return {missing,unconfirmed:targets.filter(t=>t.stockConclusive===false),failure,severity,alert,recovery,paused,scheduledBreak,healthySamples:samples,unhealthy,overnightDueAt,morning,stableRecovery};
 }
 async function put(env:Env,key:string,value:unknown,stamp:string){await env.SPAWN_DB.prepare('INSERT INTO worker_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').bind(key,JSON.stringify(value),stamp).run();}
 export async function recordScoutHeartbeat(request:Request,env:Env,collector:string,now=new Date()){
@@ -64,7 +64,7 @@ export async function monitorScoutHealth(env:Env,now=new Date(),fetchFn:typeof f
  if(state.lastSampleAt?.slice(0,16)===stamp.slice(0,16))return;
  const beats:Beat[]=[];for(const c of COLLECTORS){const value=await env.SPAWN_DB.prepare('SELECT value FROM worker_state WHERE key=?').bind('scout:heartbeat:'+c).first<string>('value');if(value)beats.push(JSON.parse(value));}
  const targets:Target[]=[];for(const item of ITEMS){const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED'").bind(item.asin).first();if(!published)continue;
- const latest=await env.SPAWN_DB.prepare("SELECT observed_at,collector_state,evidence_json FROM amazon_browser_observations WHERE asin=? AND observed_at>=? AND observed_at<=? AND (collector_state IN ('available','sold_out','buying_options_shown') OR (collector_state='unknown' AND json_extract(evidence_json,'$.reason') IN ('NO_VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'))) ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.asin,new Date(now.getTime()-900000).toISOString(),stamp).first<{observed_at:string;collector_state:string;evidence_json:string}>();const readable=latest&&readableAmazonObservation(latest,item.titlePattern);targets.push({asin:item.asin,name:item.name,observedAt:readable?latest.observed_at:null,offerConfirmed:!!latest&&['available','sold_out','buying_options_shown'].includes(latest.collector_state)});}
+ const latest=await env.SPAWN_DB.prepare("SELECT observed_at,collector_state,evidence_json FROM amazon_browser_observations WHERE asin=? AND observed_at>=? AND observed_at<=? AND (collector_state IN ('available','sold_out','buying_options_shown') OR (collector_state='unknown' AND json_extract(evidence_json,'$.reason') IN ('NO_VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'))) ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.asin,new Date(now.getTime()-900000).toISOString(),stamp).first<{observed_at:string;collector_state:string;evidence_json:string}>();const readable=latest&&readableAmazonObservation(latest,item.titlePattern);targets.push({asin:item.asin,name:item.name,observedAt:readable?latest.observed_at:null,stockConclusive:!!latest&&['available','sold_out'].includes(latest.collector_state)});}
  if(!targets.length)return;
  const d=scoutHealthDecision(targets,beats,state,now.getTime());
  const next:HealthState={...state,incident:state.incident||d.unhealthy,incidentStartedAt:state.incidentStartedAt||(d.unhealthy?stamp:null),severity:d.severity,healthySamples:d.healthySamples,lastSampleAt:stamp,overnightDueAt:d.overnightDueAt};

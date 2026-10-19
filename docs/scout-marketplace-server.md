@@ -130,8 +130,9 @@ Labels are self-reported diagnostics; authorization still depends on scoped toke
 Existing unlabeled receipts and idempotent retries remain compatible.
 
 The user systemd scout-watchdog timer checks a small, secret-free browser snapshot
-every two minutes. It only restarts an already active Amazon service when both
-heartbeat and progress are stale and the next run is overdue. Disabled collectors,
+every two minutes. It only restarts an already active Amazon service when product
+progress is stale for twenty minutes and the next run is overdue by ten minutes,
+including a stuck scheduler whose heartbeat is still alive. Disabled collectors,
 manual pauses, safety stops, challenge cooldowns, planned breaks, missing evidence,
 and intentionally inactive services are protected. Restarts are capped at one per
 hour and two per rolling day. It cannot recover a powered-off server. Existing
