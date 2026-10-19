@@ -142,7 +142,10 @@ it('bounds store finding and records failures or cancellation without starting a
 
 it('renders store-first decisions and read-only viewer pages with dated status',async()=>{
  await audit();const operator={email:'admin',subject:'admin',role:'admin' as const};
+ const reads=vi.spyOn(env.SPAWN_DB,'prepare');
  const html=await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,operator)).text();
+ expect(reads.mock.calls.map(([sql])=>sql).join('\n')).not.toMatch(/COUNT\(\*\)|SELECT DISTINCT retailer|\bOFFSET\b/);
+ reads.mockRestore();
  expect(html).toContain('Store inventory');expect(html).toContain('Approve item');expect(html).toContain('Reject item');expect(html).toContain('Recorded status');
  expect(html).toContain('MX$1000');expect(html).not.toContain('MX$1200'); // Never attach a new audit date to the older inventory price.
  const view=await (await storeCatalogOperations(new Request('https://spawn.example/ops/stores?id='+store().id),env,{...operator,role:'viewer'})).text();

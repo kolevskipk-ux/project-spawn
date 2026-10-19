@@ -13,6 +13,7 @@ const MAX_PAGES=25000, PAGES_PER_TICK=24;
 export const storeDigest=async(value:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
 export async function storeSuppressed(env:Env,store:Store) {
   const suppressed=(await env.SPAWN_DB.prepare("SELECT vendor_key FROM vendors WHERE status='SUPPRESSED'").all<{vendor_key:string}>()).results;
+  if(!suppressed.length)return false;
   if(suppressed.some(v=>v.vendor_key===store.vendor_key))return true;
   // Aliases on the same origin cannot bypass an existing vendor suppression.
   const aliases=(await env.SPAWN_DB.prepare('SELECT DISTINCT retailer FROM inventory WHERE canonical_url>=? AND canonical_url<?').bind(store.origin+'/',store.origin+'0').all<{retailer:string}>()).results;

@@ -10,6 +10,7 @@ CREATE INDEX store_catalog_runs_store_started ON store_catalog_runs(store_id,sta
 CREATE INDEX store_decisions_store_time ON store_acquisition_decisions(store_id,decided_at DESC,id);
 CREATE INDEX store_catalog_import_pending ON store_catalog_items(store_id,imported_at,url);
 CREATE INDEX monitoring_candidates_url_status ON monitoring_candidates(source_url,status);
+CREATE INDEX inventory_alias_vendor_url ON inventory(lower(trim(retailer)),canonical_url);
 CREATE TABLE store_import_jobs (
  store_id TEXT PRIMARY KEY REFERENCES store_acquisitions(id),
  cursor TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1,

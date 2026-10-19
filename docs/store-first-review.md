@@ -62,13 +62,16 @@ pilot claim gate remain unchanged.
 - New review and job lookups use primary keys and the due-job index. Additional
   indexes cover recent runs/decisions, pending imports and URL-based candidate
   exclusions. Origin alias guards use indexed URL ranges.
+- Read-only presentation uses a direct vendor lookup rather than enumerating all
+  origin aliases on each page. Full alias suppression checks remain mandatory on
+  mutation/import; controls can therefore report an alias block when submitted.
 - Migration 0049 is additive, with no data deletion or baseline resets. Creating
   its indexes has a one-time build cost over existing tables; record D1 metrics
   when applying it. Ongoing costs depend on queue activity, not a zero-cost promise.
 
 `python scripts/benchmark-store-review.py` measures the actual inventory-page SQL
 on isolated SQLite fixtures. Both 1,000 and 100,000 inventory rows, paired with the
-same number of catalog rows, used 3,672 SQLite VM instructions for a page after
+same number of catalog rows, used 3,675 SQLite VM instructions for a page after
 the observation-source fields were added. Record the current script result if
 query changes alter this value. This is execution-work evidence, not billed D1 rows
 or an invoice estimate. Tests cover schema, guards, pagination, queued feedback,

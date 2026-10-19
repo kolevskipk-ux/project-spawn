@@ -1,7 +1,7 @@
 import type {Env} from './types';
 import type {Operator} from './operations-auth';
 import {esc,operationsError,operationsHeaders,operationsShell} from './operations';
-import {auditKnownStores,decideStore,runCatalogTick,startCatalogRun,storeSuppressed,type Store} from './store-catalog';
+import {auditKnownStores,decideStore,runCatalogTick,startCatalogRun,type Store} from './store-catalog';
 import {STORE_CATEGORIES,STORE_POLICY} from './store-catalog-parser';
 import {reviewStoreItem,storeProductsSql,storeQueueSql,STORE_PAGE_SIZE} from './store-review';
 import {queueStoreImport} from './store-import-jobs';
@@ -58,7 +58,10 @@ export async function storeCatalogOperations(request:Request,env:Env,operator:Op
    env.SPAWN_DB.prepare('SELECT * FROM store_acquisition_decisions WHERE store_id=? ORDER BY decided_at DESC,id LIMIT 5').bind(id).all<Record<string,unknown>>(),
    env.SPAWN_DB.prepare('SELECT status,cursor,last_error FROM store_import_jobs WHERE store_id=?').bind(id).first<{status:string;cursor:string;last_error:string|null}>()
   ]);
-  const suppressed=await storeSuppressed(env,store),actionable=admin&&!store.marketplace&&!suppressed;
+  // Presentation is not authorization: avoid enumerating all retailer aliases on
+  // every GET. Mutation/import paths retain the full suppression checks.
+  const suppressed=!!await env.SPAWN_DB.prepare("SELECT 1 FROM vendors WHERE vendor_key=? AND status='SUPPRESSED'").bind(store.vendor_key).first();
+  const actionable=admin&&!store.marketplace&&!suppressed;
   content+=`<p><a href="/ops/stores">← Stores pending approval</a></p><section><h2>${esc(store.retailer)}</h2><p><a href="${esc(store.origin)}" target="_blank" rel="noopener noreferrer">Visit store</a> · ${esc(store.status)}${suppressed?' · Suppressed':''}</p>`;
   if(store.marketplace)content+='<p>Marketplace domains need seller-specific review. Whole-store approval is unavailable. <a href="/approvals?view=queue">Open product and seller review</a>.</p>';
   if(suppressed)content+='<p>This store is suppressed. Audit, ingestion and approval are blocked.</p>';
