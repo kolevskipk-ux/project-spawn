@@ -7,7 +7,7 @@ not a separate Cloudflare Worker or a discovery/approval service.
 
 ## Deployed and enabled
 
-- `scout-amazon.service`: Firefox extension 0.5.7; sixteen fixed approved ASINs.
+- `scout-amazon.service`: Firefox extension 0.5.8; sixteen fixed approved ASINs.
   Four hot products target four minutes; others twelve minutes, with positive
   jitter up to fifteen seconds and at most six due products per tick. Reads serial.
 - `scout-marketplace.service`: extension 0.4.4; two Walmart and five Mercado Libre
@@ -35,6 +35,30 @@ Inconclusive other-seller offers remain unknown without counting as failed page
 reads. Paused/unavailable marketplace listings do not certify seller inventory.
 Stock, page freshness and accepted delivery receipts remain separate facts.
 
+## Product failure isolation 0.5.8
+
+On October 19 the collector disabled itself at 22:57 UTC with READ_FAILURES;
+one identity error in a three-product batch exceeded the former twenty-percent
+threshold. After restart, the missing Elite Trainer Box tab (B0H78BB9TY) caused
+another three-product batch stop at 23:32 UTC. These were real acquisition gaps,
+not a server outage, night break or active challenge cooldown.
+
+Version 0.5.8 was installed at 23:33 UTC with a public-file backup. Per-product
+read errors stay visible in summaries and intake but no longer disable the fleet.
+They retry at the unchanged per-product cadence. Missing tabs are replaced and
+local tab associations retain same-origin gate redirects for guarded reading.
+Unassigned challenge/sign-in tabs and tracked foreign redirects stop conservatively.
+Blocked results still stop the sweep and use the existing challenge backoff;
+fatal run errors still disable monitoring. No CAPTCHA solving is introduced.
+
+Sixteen mocked failure/tab cases and fifteen offline continuation/guard cases
+passed. Background, policy, items, pacing and schedule hashes match the previous
+server package. Credentials, profiles, continuation reader and watchdog were
+preserved. At 23:37:57 UTC, all sixteen targets had fresh accepted readings, enabled with
+no stop or cooldown. ETB B0H78BB9TY was read at 23:37:37 UTC with
+NO_VERIFIED_FEATURED_OFFER: fresh page evidence, not confirmed stock. This is
+point-in-time recovery, not proof of sustained availability.
+
 ## Dated verification
 
 At October 19 22:05:47 UTC, three automatic batches yielded sixteen accepted
@@ -49,7 +73,8 @@ had paused/unavailable/unconfirmed offers, not confirmed buyable stock.
 PRs 43–45 are merged in Spawn main. Credentials and profiles were preserved.
 Build the 0.5.6 public upgrade with `scripts/patch-amazon-server.mjs` against the
 public 0.5.4 reference, then use `scripts/patch-amazon-continuation.mjs` for the
-0.5.7 four-file overlay. See [overlay instructions](../collector/amazon-server/README.md).
+0.5.7 four-file overlay, followed by `scripts/patch-scout-failure-isolation.mjs`
+for 0.5.8. See [overlay instructions](../collector/amazon-server/README.md).
 Only the continuation extractor, reader, product check and manifest changed in
 0.5.7; background, pacing, read-health and heartbeat hashes remained unchanged.
 Retain timestamped public-file backups and private configuration; restoring public

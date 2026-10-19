@@ -1,5 +1,22 @@
 # Operations release records
 
+## Scout failure isolation October 19 2026
+
+Server-only 0.5.8 overlay installed at 23:33 UTC after explicit user authorization.
+Backup: `/home/main/.local/share/scout-firefox-test/repair-backup-20261019T233328Z`.
+Changed product-check.js, new product-tab.js, read-health.js and manifest.json.
+Background, policy, items, pacing and schedule hashes unchanged; credentials,
+continuation reader and watchdog preserved. Ordinary read failures no longer halt
+all monitoring; genuine challenges retain the existing sweep stop and cooldown.
+A read-failure pause was resumed only after confirming no manual/challenge pause.
+
+At 23:37:57 UTC all sixteen server readings were fresh and accepted by Spawn,
+with no stop or cooldown. The Elite Trainer Box read at 23:37:37 UTC had no verified
+featured offer; freshness is not a stock claim. Sixteen failure/tab tests and
+fifteen offline continuation/CAPTCHA guard tests passed. No Worker deployment,
+D1 migration, pilot renewal, crawling or saved-import changes in this repair.
+Source changes remain on the review branch until the repair PR is merged.
+
 ## Current release checkpoint October 19 2026
 
 Spawn main includes PRs 41–47; the latest functional merge is `535822c` (PR 47).

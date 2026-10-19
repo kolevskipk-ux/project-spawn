@@ -1,4 +1,33 @@
-# Firefox server continuation overlay
+# Firefox server overlays
+
+## Product failure isolation 0.5.8
+
+Build on the commissioned 0.5.7 public package:
+
+```sh
+node scripts/patch-scout-failure-isolation.mjs <public-0.5.7-package> <output-folder>
+node scripts/test-scout-failure-isolation.mjs
+```
+
+Deploy only `product-check.js`, `product-tab.js`, `read-health.js` and
+`manifest.json`, backing up public files before restarting the Amazon service.
+Keep the continuation reader, background, pacing, profile, heartbeat, credentials
+and watchdog intact. Preserve manual pauses and challenge cooldowns. A known
+READ_FAILURES pause can be resumed after checking no genuine challenge is active.
+
+Missing product tabs are recreated under the existing twenty-second deadline.
+Local product/tab associations retain same-origin gate redirects for the guarded
+reader; closed tabs are replaced, other product tabs are not repurposed. Unknown
+challenge/sign-in tabs or tracked foreign redirects stop conservatively rather
+than opening around them. New failures never certify stock or page freshness.
+
+Ordinary per-product errors remain counted and submitted, then retry at the
+existing four/twelve-minute cadence. They no longer disable all targets based on
+a batch percentage. Blocked results still stop the sweep and use the unchanged
+challenge backoff; fatal run failures still disable the collector. Serial reading,
+six-product batch cap, positive jitter and thirty-second minimum pause remain.
+
+## Continuation overlay 0.5.7
 
 The three continuation runtime files overlay the commissioned Firefox package. They retain
 the existing seller-first offer reader, deadlines, panel inspection and tracing.

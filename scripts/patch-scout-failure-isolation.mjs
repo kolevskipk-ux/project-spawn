@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+const source=resolve(process.argv[2]),output=resolve(process.argv[3]);
+const manifest=JSON.parse(readFileSync(resolve(source,'manifest.json'),'utf8'));
+if(manifest.version!=='0.5.7')throw Error('Expected commissioned 0.5.7 server');
+mkdirSync(output,{recursive:true});
+for(const name of ['product-check.js','product-tab.js'])writeFileSync(resolve(output,name),readFileSync(new URL('../collector/amazon-server/'+name,import.meta.url)));
+writeFileSync(resolve(output,'read-health.js'),readFileSync(new URL('../collector/amazon-extension/read-health.js',import.meta.url)));
+manifest.version='0.5.8';
+writeFileSync(resolve(output,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
+console.log(JSON.stringify({version:manifest.version,files:['product-check.js','product-tab.js','read-health.js','manifest.json'],credentialsIncluded:false}));
