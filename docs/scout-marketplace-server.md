@@ -81,7 +81,10 @@ files must be preserved when installing public files; generated credentials are
 blank. Build the Amazon public patch with
 `node scripts/patch-amazon-server.mjs <existing-public-0.5.4-dir>`.
 Run `node tests/scout-server-reliability.mjs` (self-contained) and the marketplace
-extraction suite.
+extraction suite. After building the Amazon patch, run
+`node tests/scout-amazon-server-startup.mjs <generated-amazon-patch-dir>` to check
+interrupted-lease recovery, preserved challenge cooldowns/manual pauses, and live
+lease protection on event-page wakes.
 
 The Amazon server patch produces version 0.5.5 public files only. Its previous
 READ_FAILURES stop counted other sellers' featured offers and unverified option
@@ -89,7 +92,9 @@ panels as failed page reads. These now remain inconclusive without disabling
 monitoring; missing tabs, failed reads and challenge protections still stop as
 before. Offer qualification and customer alert rules are unchanged. The patch
 also reports the existing authenticated Scout heartbeat and initializes the
-dashboard once per browser session. Resume monitoring through the normal
+dashboard once per browser session. A new browser session releases the terminated
+process's interrupted sweep lease; ordinary worker wakes never clear a live lease.
+Resume monitoring through the normal
 dashboard toggle after installing; installation preserves deliberate pauses.
 
 The owner authorized applying these repairs directly to the two server services.

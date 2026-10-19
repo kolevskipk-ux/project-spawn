@@ -17,7 +17,14 @@ background="import {HEALTH_ALARM,startHeartbeat,reportHeartbeat} from './health-
 background=replaceRequired(background,"browser.alarms.onAlarm.addListener(a=>{if(a.name===ALARM)","browser.alarms.onAlarm.addListener(a=>{if(a.name===HEALTH_ALARM){reportHeartbeat();return;}if(a.name===ALARM)");
 background=replaceRequired(background,"const s=await browser.storage.local.get(['serverCommissioned','enabled','cooldownUntil']);",`if((await browser.storage.session.get('amazonStartup')).amazonStartup)return;
   await browser.storage.session.set({amazonStartup:true});
-  const s=await browser.storage.local.get(['serverCommissioned','enabled','cooldownUntil']);`);
+  const s=await browser.storage.local.get(['serverCommissioned','enabled','cooldownUntil','leaseUntil','activeRun']);
+  // A new browser session cannot still own the old process's in-flight sweep.
+  // Event-page wakes return above and must never clear a live lease.
+  if(s.leaseUntil||s.activeRun){
+   await browser.storage.local.remove(['leaseUntil','activeRun']);
+   await browser.storage.local.set({nextRunAt:Date.now()+30000});
+   await diagnostic('INTERRUPTED_SWEEP_RECOVERED');
+  }`);
 background=replaceRequired(background,"await browser.tabs.create({url:browser.runtime.getURL('dashboard.html')});",`const url=browser.runtime.getURL('dashboard.html');
   const dashboards=await browser.tabs.query({url});
   if(dashboards.length>1)await browser.tabs.remove(dashboards.slice(1).map(t=>t.id));
