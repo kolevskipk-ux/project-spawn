@@ -42,6 +42,11 @@ describe('Mercado Libre collector',()=>{
    const body=await response!.json() as any;const row=body.rows.find((r:any)=>r.itemId===base.itemId);
    expect(row.latest.id).toBe(base.id);expect(row.lastVerified).toBeNull();expect(body.customerAlertsEnabled).toBe(false);
    expect(response?.headers.get('cache-control')).toBe('no-store');
+   const server={...base,id:'00000000-0000-0000-0000-000000000003',collectorId:'server-marketplace',observedAt:new Date(Date.now()-1000).toISOString()};
+   expect((await send(server))?.status).toBe(200);
+   expect((await send({...base,id:'00000000-0000-0000-0000-000000000004',pageAvailability:null,reason:'TAB_MISSING'}))?.status).toBe(200);
+   const filtered=await handleMercadoLibreBrowser(new Request('https://spawn.test/internal/mercadolibre-browser/status?collector=server-marketplace',{headers:{authorization:'Bearer ml'}}),env);
+   const selected=await filtered!.json() as any;expect(selected.rows.find((r:any)=>r.itemId===base.itemId).latest.id).toBe(server.id);
   }finally{db.close();}
  });
  it('handles malformed requests and unrelated routes',async()=>{
