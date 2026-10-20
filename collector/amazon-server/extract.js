@@ -28,6 +28,9 @@ export function readAmazon(item,traceId=null,deadlineAt=Date.now()+15000,step='m
   trace('title');
   const title=step==='panel'?(document.querySelector('#productTitle')?.textContent||'').replace(/\s+/g,' ').trim():text(document.querySelector('#productTitle'));
   blank.title=title.slice(0,300);
+  // Only a recognizable Amazon homepage can request bounded URL recovery.
+  // Challenge and ordinary-shopping-gate classification above takes precedence.
+  if(step==='main'&&u.pathname==='/'&&!title&&!document.querySelector('input#ASIN,input[name="ASIN"]')&&document.querySelector('#twotabsearchtextbox')&&/^Amazon\.com\.mx\s*:/i.test(document.title))return {...blank,reason:'HOMEPAGE_REDIRECT',homepageRecoveryAllowed:true};
   const pathAsin=u.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:\/|$)/i)?.[1].toUpperCase();
   trace('asin');
   const ids=[...document.querySelectorAll('input#ASIN,input[name="ASIN"]')].map(el=>el.value.toUpperCase()).filter(Boolean);

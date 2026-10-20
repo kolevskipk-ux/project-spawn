@@ -19,6 +19,28 @@ export async function readTab(tabId,item,{inspectPanels=false,deadlineAt=Infinit
     }finally{endPageTrace(tabId,traceId);}
   }
   let main=await step('main',15000);
+  if(main.homepageRecoveryAllowed){
+    const fallback={...main,homepageRecoveryAttempted:true};
+    if(!/^[A-Z0-9]{10}$/.test(item.asin))return fallback;
+    try{
+      await diagnostic('HOMEPAGE_RECOVERY_ATTEMPT',{asin:item.asin});
+      // Fixed host/path and configured ASIN only; never follow a page-provided URL.
+      await new Promise((resolve,reject)=>{
+        let finished=false;
+        const done=error=>{if(finished)return;finished=true;clearTimeout(timer);browser.tabs.onUpdated.removeListener(listener);error?reject(error):resolve();};
+        const listener=(id,change)=>{if(id===tabId&&change.status==='complete')done();};
+        const timeout=Math.min(8000,deadlineAt-Date.now());
+        if(timeout<=0){reject(new Error('Product timed out'));return;}
+        const timer=setTimeout(()=>done(new Error('Homepage recovery timed out')),timeout);
+        browser.tabs.onUpdated.addListener(listener);
+        browser.tabs.update(tabId,{url:'https://www.amazon.com.mx/dp/'+item.asin}).catch(done);
+      });
+      await withDeadline(new Promise(resolve=>setTimeout(resolve,2500)),Math.min(3000,deadlineAt-Date.now()),'Homepage recovery settle');
+      main=await step('main',5000);
+      // Never loop around a persistent redirect. The next product keeps its turn.
+      if(main.homepageRecoveryAllowed)return {...main,homepageRecoveryAttempted:true};
+    }catch{return fallback;}
+  }
   if(main.gateType==='continue_shopping'){
     const fallback={...main,continuationAttempted:true};
     try{

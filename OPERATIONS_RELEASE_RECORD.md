@@ -1,5 +1,29 @@
 # Operations release records
 
+## Scout homepage recovery October 20 2026
+
+Authorized server-only 0.5.9 overlay installed at 15:25 UTC. Backup:
+`/home/main/.local/share/scout-firefox-test/repair-backup-20261020T152536Z`.
+Only extract.js, read-tab.js and manifest.json changed. Background, read-health,
+product-check, product-tab, pacing, schedule and challenge-recovery hashes match
+the prior server package. Credentials, profiles, pauses and watchdog preserved.
+
+A positively recognized Amazon México homepage permits one canonical navigation
+to the configured product ASIN inside the existing deadline. Challenge and
+shopping-gate classification takes precedence; identity and seller validation
+remain mandatory. Persistent redirects remain unknown, without repeated
+navigation, cooldown resets or bypassing CAPTCHA. Fifteen homepage tests,
+fifteen continuation guard tests and sixteen failure-isolation tests passed offline.
+
+No Cloudflare Worker deployment, D1 migration, crawling, pilot expiry or saved
+import setting changes are part of this server repair. Live acceptance verification
+is recorded in the server state and shared functionality map.
+
+At October 20 15:31:55 UTC (09:31 Mexico City), all sixteen server products had
+fresh accepted readings, with monitoring enabled and no stop or cooldown. UPC Night
+and Umbreon Battle Deck both read as sold out at 15:31:19/27 UTC. This is a dated
+recovery check, not a sustained-coverage or future-stock guarantee.
+
 ## Scout failure isolation October 19 2026
 
 Server-only 0.5.8 overlay installed at 23:33 UTC after explicit user authorization.
