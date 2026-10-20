@@ -26,11 +26,15 @@ is the coordinated activation map; [GARFIELD.md](GARFIELD.md) defines ownership.
 
 ## Scout server
 
-Amazon 0.5.8 runs separately from marketplace 0.4.4. The fixed Amazon list has
+Amazon 0.5.9 runs separately from marketplace 0.4.4. The fixed Amazon list has
 sixteen products; hot cadence is four minutes and others twelve minutes plus
 jitter, in serial batches of at most six. Marketplace has two Walmart and five
 Mercado Libre identities, separate thirty-minute schedules and quiet hours.
 See [Scout server runbook](docs/scout-marketplace-server.md).
+
+Server 0.5.9 additionally permits one guarded canonical navigation when a saved
+product tab has redirected to a recognized Amazon homepage. Challenges take
+precedence; destination identity and seller validation remain mandatory.
 
 Server 0.5.8 isolates ordinary product read failures instead of disabling all
 monitoring. Missing tabs are replaced within the existing deadline; real challenges

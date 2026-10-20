@@ -1,5 +1,22 @@
 # Firefox server overlays
 
+## Homepage redirect recovery 0.5.9
+
+Build `scripts/patch-scout-homepage-recovery.mjs <public-0.5.8-package>
+<output-folder>` and deploy only `extract.js`, `read-tab.js`, `manifest.json`.
+Back up changed files; preserve profiles, credentials, pauses and cooldowns.
+
+A recognized Amazon México homepage (root path, Amazon page title, search field,
+no product title/ASIN) permits one navigation to the fixed Amazon `/dp/` URL for
+the configured ASIN. Challenge and shopping-gate classification takes precedence.
+The twenty-second product deadline includes recovery; persistent redirects remain
+unknown and retry at the existing cadence. After navigation, the unchanged
+identity, seller and challenge checks govern the result. No page-supplied URL,
+search, CAPTCHA solution, cooldown reset or repeated navigation is allowed.
+
+Run `scripts/test-scout-homepage-recovery.mjs <node-dependencies-directory>` plus
+the continuation and failure-isolation suites. All browser fixtures are offline.
+
 ## Product failure isolation 0.5.8
 
 Build on the commissioned 0.5.7 public package:

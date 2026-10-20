@@ -7,7 +7,7 @@ not a separate Cloudflare Worker or a discovery/approval service.
 
 ## Deployed and enabled
 
-- `scout-amazon.service`: Firefox extension 0.5.8; sixteen fixed approved ASINs.
+- `scout-amazon.service`: Firefox extension 0.5.9; sixteen fixed approved ASINs.
   Four hot products target four minutes; others twelve minutes, with positive
   jitter up to fifteen seconds and at most six due products per tick. Reads serial.
 - `scout-marketplace.service`: extension 0.4.4; two Walmart and five Mercado Libre
@@ -34,6 +34,29 @@ a genuine CAPTCHA. Do not solve CAPTCHA or account verification automatically.
 Inconclusive other-seller offers remain unknown without counting as failed page
 reads. Paused/unavailable marketplace listings do not certify seller inventory.
 Stock, page freshness and accepted delivery receipts remain separate facts.
+
+## Homepage redirect recovery 0.5.9
+
+Installed October 20 at 15:25 UTC after explicit authorization. Overnight,
+UPC Night and Umbreon Battle Deck retained tabs redirected to the Amazon root
+homepage; repeated identity failures kept them stale while the other fourteen
+continued. A positively recognized Amazon México homepage now permits one
+canonical navigation to the configured ASIN, inside the existing product deadline.
+Challenge/shopping-gate classification precedes recovery, and the destination
+must still pass the existing identity, seller and challenge checks. Persistent
+redirects remain unknown without looping. No cooldown or pause is cleared.
+
+Fifteen offline homepage cases, fifteen continuation/CAPTCHA guard cases and
+sixteen failure/tab isolation cases passed. Only extract.js, read-tab.js and
+manifest.json changed; background, read-health, product check/tab, pacing,
+schedule and challenge recovery hashes were verified unchanged. Credentials,
+profiles and watchdog remain intact. Build with
+`scripts/patch-scout-homepage-recovery.mjs <public-0.5.8-package> <output-folder>`.
+
+At October 20 15:31:55 UTC (09:31 Mexico City), all sixteen server products had
+fresh accepted readings, with monitoring enabled and no stop or cooldown. UPC Night
+and Umbreon Battle Deck both read as sold out at 15:31:19/27 UTC. This is a dated
+recovery check, not a sustained-coverage or future-stock guarantee.
 
 ## Product failure isolation 0.5.8
 
