@@ -8,8 +8,10 @@ lookup read one row with zero writes. The queue remained empty after activation.
 Authenticated Stores list and RedQueen detail/control checks passed. Actual
 approval/import processing awaits an operator decision; local mutation tests passed. Migration index-build cost and account-wide billing were not
 measured. Crawling stays disabled and the expired pilot deadline is unchanged.
-The source flag retains its safe false default; subsequent deployments must
-preserve or explicitly set the approved runtime true override.
+The activation-persistence follow-up sets the source import flag to true to match
+the authorized production activation. Until that follow-up is merged, subsequent
+deployments must preserve or explicitly set the runtime true override. The false
+source value reset imports during delayed deployments after PRs 48 and 49.
 
 ## Operator workflow
 
@@ -53,7 +55,9 @@ for deliberate retry from saved progress; rejected/paused stores cancel work.
 Concurrent item/store changes invalidate a batch snapshot so its cursor cannot
 skip products whose writes were blocked. New queue generations are revisioned.
 
-The new `STORE_REVIEW_IMPORT_ENABLED` flag defaults to false. Activation enables
+The `STORE_REVIEW_IMPORT_ENABLED` flag initially shipped false; the approved
+production activation is true. The persistence follow-up aligns source with it.
+Activation enables
 only saved-product imports, not retailer fetches, discovery searches, customer
 notifications or pilot renewal. Existing monitoring configuration and its expired
 pilot claim gate remain unchanged.
