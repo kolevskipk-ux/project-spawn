@@ -48,12 +48,12 @@ failure escalation per incident, with existing overnight notification deferral.
 The message links directly to System health. HTTP success proves Discord accepted
 the message; phone push notification settings remain external to Garfield.
 
-## Rollout
+## Rollout (awaiting explicit production approval)
 
 No schema migration, browser extension update, new secret, paid browser activation,
 Cloudflare cron change, baseline reset, or new public server port is needed.
 
-Philip authorized this recovery work and the mobile restart control on November 2. Keep this staged rollout within that scope.
+Implementation was requested on November 2. Automatic approval review rejected the merge because it requires explicit production approval from Philip for PR #52. No new Worker or server-agent release was deployed.
 
 1. Review and merge the `codex/scout-self-recovery` branch.
 2. Deploy only the Spawn Worker code, retaining production variables. Do not use
