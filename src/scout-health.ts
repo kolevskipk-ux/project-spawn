@@ -10,7 +10,7 @@ export function readableAmazonObservation(row:{collector_state:string;evidence_j
  if(row.collector_state!=='unknown')return false;
  try{const e=JSON.parse(row.evidence_json||'{}');return ['NO_VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'].includes(e.reason)&&new RegExp(titlePattern,'i').test(e.title||'');}catch{return false;}
 }
-export interface HealthState {armedAt:string;incident:boolean;severity:string|null;notifiedSeverity:string|null;healthySamples:number;lastSampleAt:string|null;incidentStartedAt?:string|null;lastNotifiedAt?:string|null;overnightDueAt?:string|null;overnightStartedAt?:string|null;overnightRecoveredAt?:string|null;overnightMissing?:string[];}
+export interface HealthState {recoveryAttentionNotified?:boolean;armedAt:string;incident:boolean;severity:string|null;notifiedSeverity:string|null;healthySamples:number;lastSampleAt:string|null;incidentStartedAt?:string|null;lastNotifiedAt?:string|null;overnightDueAt?:string|null;overnightStartedAt?:string|null;overnightRecoveredAt?:string|null;overnightMissing?:string[];}
 export function scoutAlertHours(now:number){
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now));
  const v=Object.fromEntries(parts.map(p=>[p.type,p.value])),localMinute=Number(v.hour)*60+Number(v.minute);
@@ -67,17 +67,22 @@ export async function monitorScoutHealth(env:Env,now=new Date(),fetchFn:typeof f
  const latest=await env.SPAWN_DB.prepare("SELECT observed_at,collector_state,evidence_json FROM amazon_browser_observations WHERE asin=? AND observed_at>=? AND observed_at<=? AND (collector_state IN ('available','sold_out','buying_options_shown') OR (collector_state='unknown' AND json_extract(evidence_json,'$.reason') IN ('NO_VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'))) ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.asin,new Date(now.getTime()-900000).toISOString(),stamp).first<{observed_at:string;collector_state:string;evidence_json:string}>();const readable=latest&&readableAmazonObservation(latest,item.titlePattern);targets.push({asin:item.asin,name:item.name,observedAt:readable?latest.observed_at:null,stockConclusive:!!latest&&['available','sold_out'].includes(latest.collector_state)});}
  if(!targets.length)return;
  const d=scoutHealthDecision(targets,beats,state,now.getTime());
+ const agentRaw=await env.SPAWN_DB.prepare('SELECT value FROM worker_state WHERE key=?').bind('scout:control:agent').first<string>('value');
+ const agent=agentRaw?JSON.parse(agentRaw):null;
+ const recoveryAttention=env.SCOUT_CONTROL_ENABLED==='true'&&agent?.state==='attention_required'&&now.getTime()-Date.parse(agent.receivedAt)>=0&&now.getTime()-Date.parse(agent.receivedAt)<300000;
+ if(d.unhealthy&&recoveryAttention&&!state.recoveryAttentionNotified&&scoutAlertHours(now.getTime()).business&&!d.overnightDueAt)d.alert=true;
  const next:HealthState={...state,incident:state.incident||d.unhealthy,incidentStartedAt:state.incidentStartedAt||(d.unhealthy?stamp:null),severity:d.severity,healthySamples:d.healthySamples,lastSampleAt:stamp,overnightDueAt:d.overnightDueAt};
  if(d.overnightDueAt&&!state.overnightDueAt){next.overnightStartedAt=stamp;next.overnightMissing=d.missing.map(t=>t.name);next.overnightRecoveredAt=null;}
  if(d.stableRecovery&&d.overnightDueAt&&!state.overnightRecoveredAt)next.overnightRecoveredAt=stamp;
  if(d.unhealthy&&d.overnightDueAt)next.overnightRecoveredAt=null;
  if(d.stableRecovery&&!d.overnightDueAt&&!state.notifiedSeverity){next.incident=false;next.incidentStartedAt=null;}
+ if(d.stableRecovery)next.recoveryAttentionNotified=false;
  if(d.stableRecovery)await disablePaidBrowserFallback(env,'scout_recovered',now);
  let delivered=false;
  let deliveryStatus:string|null=null,httpStatus:number|null=null,messageId:string|null=null,channelId:string|null=null;
  if(d.alert||d.recovery){
  const eventKey='scout:health-event:'+stamp+':'+owner;
- const event={at:stamp,kind:d.morning?'overnight_summary':d.recovery?'recovery':'outage',severity:d.severity,missing:d.missing.map(t=>t.asin),incidentStartedAt:next.incidentStartedAt,overnightStartedAt:next.overnightStartedAt??null,overnightRecoveredAt:next.overnightRecoveredAt??null};
+ const event={at:stamp,kind:d.morning?'overnight_summary':d.recovery?'recovery':'outage',severity:d.severity,recoveryAttention,missing:d.missing.map(t=>t.asin),incidentStartedAt:next.incidentStartedAt,overnightStartedAt:next.overnightStartedAt??null,overnightRecoveredAt:next.overnightRecoveredAt??null};
  await put(env,eventKey,{...event,status:'pending'},stamp);
  try{
  if(!env.OPS_DISCORD_WEBHOOK_URL){deliveryStatus='missing_destination';}else{
@@ -85,10 +90,11 @@ export async function monitorScoutHealth(env:Env,now=new Date(),fetchFn:typeof f
  const content=d.morning?['🚨 **Scout overnight coverage gap**',`This night's gap detected: ${local(next.overnightStartedAt||stamp)} (Mexico City).`,'This report was deferred overnight; it is not a scheduled monitoring break.',next.overnightRecoveredAt?`Fresh page readings recovered at ${local(next.overnightRecoveredAt)}.`:'Page readings have not recovered. Check Scout status and any challenge cooldown.',...(next.overnightMissing||[]),'The gap may contain missed opportunities; no stock conclusion is possible.'].join('\n').slice(0,1900):d.recovery?'✅ **Scout page readings restored**\nAll monitored products have fresh page readings across two consecutive health checks. Seller eligibility and stock certainty are reported separately; these readings do not independently confirm inventory.':
  ['🚨 **Scout needs attention**',d.severity==='offline'?'No monitored product has a fresh page reading. Check PC power, internet and Edge; open Scout and start monitoring.':d.failure?'Scout repeatedly stopped: '+d.failure.stopReason+'. Resolve the challenged tab or read failures, then retry monitoring.':'Some product readings are stale. Open Scout’s product tabs and check the affected pages.',...d.missing.map(t=>t.name+' — '+(t.observedAt?'last successful page read '+Math.floor((now.getTime()-Date.parse(t.observedAt))/60000)+' minutes ago':'no successful page read within 15 minutes')),'Hot products: 5-minute freshness limit; others: 15 minutes.'].join('\n').slice(0,1900);
  const url=new URL(env.OPS_DISCORD_WEBHOOK_URL);if(url.protocol!=='https:'||!['discord.com','discordapp.com'].includes(url.hostname)||!url.pathname.startsWith('/api/webhooks/'))throw Error('Invalid Scout Ops destination');url.searchParams.set('wait','true');
- const linkedContent=content.slice(0,1800)+'\n\n[Open Ops dashboard / browser fallback](https://spawn.aztlan-eng.com/ops/browser-fallback)';
+ const recoveryNotice=recoveryAttention&&!d.recovery?'Scout automatic recovery has not restored coverage. Check the recovery status in System health.\n':'';
+ const linkedContent=(recoveryNotice+content).slice(0,1700)+'\n[Scout status / restart](https://spawn.aztlan-eng.com/ops/health)'+'\n\n[Open Ops dashboard / browser fallback](https://spawn.aztlan-eng.com/ops/browser-fallback)';
  const response=await fetchFn(url.toString(),{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json'},body:JSON.stringify({username:'Garfield Scout Operations',allowed_mentions:{parse:[]},content:linkedContent})});httpStatus=response.status;delivered=response.ok;deliveryStatus=delivered?'delivered':'http_failure';
  if(delivered){const receipt:any=await response.json().catch(()=>null);messageId=typeof receipt?.id==='string'?receipt.id:null;channelId=typeof receipt?.channel_id==='string'?receipt.channel_id:null;}else await response.body?.cancel();
- if(delivered){if(d.recovery||d.morning&&!!next.overnightRecoveredAt){next.incident=false;next.notifiedSeverity=null;next.incidentStartedAt=null;next.lastNotifiedAt=null;}else{next.notifiedSeverity=d.severity||state.notifiedSeverity||'offline';next.lastNotifiedAt=stamp;}if(d.morning){next.overnightDueAt=null;next.overnightStartedAt=null;next.overnightRecoveredAt=null;next.overnightMissing=[];}}
+ if(delivered){if(recoveryAttention)next.recoveryAttentionNotified=true;if(d.recovery||d.morning&&!!next.overnightRecoveredAt){next.incident=false;next.notifiedSeverity=null;next.incidentStartedAt=null;next.lastNotifiedAt=null;}else{next.notifiedSeverity=d.severity||state.notifiedSeverity||'offline';next.lastNotifiedAt=stamp;}if(d.morning){next.overnightDueAt=null;next.overnightStartedAt=null;next.overnightRecoveredAt=null;next.overnightMissing=[];}}
  }
  }catch{deliveryStatus='request_failure';}
  await put(env,eventKey,{...event,status:deliveryStatus,delivered,httpStatus,messageId,channelId},stamp);

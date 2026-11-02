@@ -1,3 +1,4 @@
+import {scoutControlAgent} from './scout-control';
 import {monitorScoutHealth} from './scout-health';
 import {handlePaidBrowserPolicy} from './paid-browser-fallback';
 import {privacyMail,deliverPrivacyMailAlerts} from './privacy-mail';
@@ -506,6 +507,7 @@ async function handleRoutes(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleFetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const scoutControl=await scoutControlAgent(request,env);if(scoutControl)return scoutControl;
   const amazonBrowser=await handleAmazonBrowser(request,env,ctx);if(amazonBrowser)return amazonBrowser;
   const outbound=await inventoryRedirect(request,env,ctx);if(outbound)return outbound;
   const recovery=await dropRecoveryRoute(request,env,ctx);if(recovery)return recovery;
