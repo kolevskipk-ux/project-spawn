@@ -59,7 +59,7 @@ def load_snapshot(root):
 
 def api(token,body=None):
  data=json.dumps(body).encode() if body is not None else None
- request=urllib.request.Request(ENDPOINT,data=data,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},method='POST' if data else 'GET')
+ request=urllib.request.Request(ENDPOINT,data=data,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','User-Agent':'Garfield-Scout-Recovery/1.0','Accept':'application/json'},method='POST' if data else 'GET')
  # Reject redirects: the collector credential must only reach this fixed origin.
  class NoRedirect(urllib.request.HTTPRedirectHandler):
   def redirect_request(self,*args,**kwargs):return None

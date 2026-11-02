@@ -73,4 +73,24 @@ class AgentIntegrationTests(unittest.TestCase):
   self.assertEqual(reports[0]['action'],'claim');self.assertEqual(reports[1]['action'],'result')
   self.assertEqual(reports[1]['status'],'restarted');self.assertEqual(len(state['processedCommands']),1)
 
+
+
+class ApiClientTests(unittest.TestCase):
+ def test_client_identifies_itself_without_changing_destination_or_auth(self):
+  import io
+  from unittest.mock import patch,MagicMock
+  opener=MagicMock();opener.open.return_value.__enter__.return_value=io.StringIO('{"command":null}')
+  with patch.object(watchdog.urllib.request,'build_opener',return_value=opener):
+   self.assertEqual(watchdog.api('fixture'),{'command':None})
+  request=opener.open.call_args.args[0]
+  self.assertEqual(request.full_url,watchdog.ENDPOINT)
+  self.assertEqual(request.get_header('User-agent'),'Garfield-Scout-Recovery/1.0')
+  self.assertEqual(request.get_header('Authorization'),'Bearer fixture')
+ def test_redirects_remain_disabled(self):
+  import io
+  from unittest.mock import patch,MagicMock
+  opener=MagicMock();opener.open.return_value.__enter__.return_value=io.StringIO('{}')
+  with patch.object(watchdog.urllib.request,'build_opener',return_value=opener) as build:watchdog.api('fixture')
+  self.assertIsNone(build.call_args.args[0].redirect_request(None,None,302,'redirect',{},'https://other.test'))
+
 if __name__=='__main__':unittest.main()
