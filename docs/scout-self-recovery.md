@@ -48,10 +48,12 @@ failure escalation per incident, with existing overnight notification deferral.
 The message links directly to System health. HTTP success proves Discord accepted
 the message; phone push notification settings remain external to Garfield.
 
-## Rollout (requires production approval)
+## Rollout
 
 No schema migration, browser extension update, new secret, paid browser activation,
 Cloudflare cron change, baseline reset, or new public server port is needed.
+
+Philip authorized this recovery work and the mobile restart control on November 2. Keep this staged rollout within that scope.
 
 1. Review and merge the `codex/scout-self-recovery` branch.
 2. Deploy only the Spawn Worker code, retaining production variables. Do not use
@@ -81,7 +83,7 @@ version if needed. Code deployment and flag activation remain separate actions.
 
 - TypeScript typecheck and 380 repository tests passed before final UI refinements;
   affected control/health tests rerun after those refinements.
-- Twelve isolated Python tests passed on the Linux server without invoking the
+- Fifteen isolated Python tests passed on the Linux server without invoking the
   agent main loop or changing any production service.
 - Existing production collector recovered to 16/16 fresh accepted reads at
   2026-11-02 15:09:14 UTC (09:09 Mexico City) after the diagnostic browser restart.
@@ -92,4 +94,4 @@ in-app browser could not reach the local preview server, so narrow-viewport
 visual inspection remains a rollout check; no visual browser QA is claimed.
 The final policy was also evaluated read-only against the real saved outage
 snapshot (15 failing targets: restart) and recovered snapshot (16 fresh targets:
-no restart). The production agent has not been replaced by these tests.
+no restart). The production agent was not replaced by these tests.

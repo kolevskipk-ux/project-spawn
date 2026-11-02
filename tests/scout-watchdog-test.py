@@ -41,4 +41,36 @@ class CoverageRecoveryTests(unittest.TestCase):
  def test_daily_cap_includes_both_restart_paths(self):
   self.assertFalse(watchdog.budget({'restarts':[self.now-3700,self.now-7500]},self.now))
 
+
+
+class AgentIntegrationTests(unittest.TestCase):
+ def setUp(self):CoverageRecoveryTests.setUp(self)
+ def run_agent(self,final_snapshot=None,command=None):
+  import tempfile,json,types
+  from unittest.mock import patch
+  with tempfile.TemporaryDirectory() as temp:
+   home=pathlib.Path(temp);root=home/'.local/share/scout-firefox-test';(root/'server').mkdir(parents=True)
+   (root/'server/private-config.js').write_text("export const AMAZON_COLLECTOR_TOKEN='fixture';")
+   calls=[];reports=[]
+   def api(token,body=None):
+    if body:reports.append(body);return {'ok':True}
+    return {'command':command}
+   def run(args,**kwargs):calls.append(args);return types.SimpleNamespace(returncode=0)
+   with patch.object(watchdog.pathlib.Path,'home',return_value=home),patch.object(watchdog.time,'time',return_value=self.now),patch.object(watchdog,'load_snapshot',side_effect=[self.s,final_snapshot or self.s]),patch.object(watchdog,'api',side_effect=api),patch.object(watchdog.subprocess,'run',side_effect=run):
+    watchdog.main()
+   state=json.loads((root/'watchdog-state.json').read_text())
+   return calls,reports,state
+ def test_real_main_uses_fixed_service_and_persists_shared_budget(self):
+  calls,reports,state=self.run_agent()
+  self.assertEqual([c for c in calls if 'restart' in c],[['systemctl','--user','restart','scout-amazon.service']])
+  self.assertEqual(state['restarts'],[self.now]);self.assertFalse(state['recoveryVerified'])
+  self.assertEqual(reports[-1]['state'],'recovering');self.assertFalse(reports[-1]['restartAvailable'])
+ def test_pause_arriving_during_network_io_prevents_restart(self):
+  calls,reports,state=self.run_agent({**self.s,'manualPaused':True})
+  self.assertFalse(any('restart' in c for c in calls));self.assertEqual(state['action'],'manual_pause')
+ def test_owner_command_is_claimed_before_fixed_restart(self):
+  calls,reports,state=self.run_agent(command={'id':'12345678-1234-1234-1234-123456789abc','expiresAt':(self.now+600)*1000})
+  self.assertEqual(reports[0]['action'],'claim');self.assertEqual(reports[1]['action'],'result')
+  self.assertEqual(reports[1]['status'],'restarted');self.assertEqual(len(state['processedCommands']),1)
+
 if __name__=='__main__':unittest.main()
