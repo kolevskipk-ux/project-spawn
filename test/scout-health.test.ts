@@ -78,3 +78,17 @@ describe('Scout health notifications',()=>{
  const policy=JSON.parse(String(f.db.prepare("SELECT value FROM worker_state WHERE key='browser:paid-fallback'").get()?.value));expect(policy.enabled).toBe(false);expect(policy.disabledReason).toBe('scout_recovered');
  }finally{f.db.close();}});
 });
+
+// A failed recovery warrants one escalation even when the original outage was acknowledged.
+it('escalates failed recovery once and preserves overnight deferral',async()=>{
+ const f=fixture();let sends=0;try{
+  f.env.SCOUT_CONTROL_ENABLED='true';
+  f.set('scout:health-state',{...state,incident:true,notifiedSeverity:'offline',severity:'offline'});
+  f.set('scout:control:agent',{state:'attention_required',receivedAt:new Date(now).toISOString()});
+  let message='';const send=async(_url:any,init:any)=>{sends++;message=JSON.parse(init.body).content;return Response.json({id:'receipt',channel_id:'channel'});};
+  await monitorScoutHealth(f.env,new Date(now),send as any);await monitorScoutHealth(f.env,new Date(now+60000),send as any);
+  expect(sends).toBe(1);expect(message).toContain('automatic recovery has not restored');expect(message).toContain('/ops/health');
+  const night=Date.parse('2026-11-02T23:00:00-06:00');f.set('scout:health-state',{...state,armedAt:new Date(night-600000).toISOString(),incident:true,notifiedSeverity:'offline'});f.set('scout:control:agent',{state:'attention_required',receivedAt:new Date(night).toISOString()});
+  await monitorScoutHealth(f.env,new Date(night),send as any);expect(sends).toBe(1);
+ }finally{f.db.close();}
+});
