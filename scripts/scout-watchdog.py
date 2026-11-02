@@ -4,6 +4,15 @@ HOT={'B0H77VYKSM','B0H77XNKKK','B0H78BB9TY','B0H783FY5Z'}
 TARGETS=HOT|{'B0HG3MQDWP','B0H7817G9M','B0HG3RVZLW','B0H784PD4X','B0H77VZBX4','B0H77W4411','B0H77XCW4M','B0H7818YHY','B0H784PJ49','B0H786LQ7Z','B0H786RZD9','B0H786SFFS'}
 ENDPOINT='https://spawn.aztlan-eng.com/internal/scout-control'
 UNIT='scout-amazon.service'
+def snapshot_targets(snapshot):
+ catalog=snapshot.get('collectorCatalog')
+ if catalog is None:return set(TARGETS),None
+ if not isinstance(catalog,dict) or not isinstance(catalog.get('items'),list) or not 0<=len(catalog['items'])<=20:return set(),None
+ ids=[i.get('asin') for i in catalog['items'] if isinstance(i,dict)]
+ version=catalog.get('version')
+ if len(ids)!=len(catalog['items']) or any(not isinstance(i,str) or not re.fullmatch(r'[A-Z0-9]{10}',i) for i in ids) or len(set(ids))!=len(ids):return set(),None
+ if version is not None and (not isinstance(version,str) or not re.fullmatch(r'[a-f0-9]{64}',version)):return set(),None
+ return set(ids),version
 def epoch(value):
  if isinstance(value,(int,float)):return value/1000
  try:return datetime.datetime.fromisoformat(value.replace('Z','+00:00')).timestamp()
@@ -22,7 +31,7 @@ def readable(row):
 
 def coverage(snapshot,now):
  fresh=0; failing=0; latest_success={}
- for asin in TARGETS:
+ for asin in snapshot_targets(snapshot)[0]:
   rows=snapshot.get('history',{}).get(asin,{}).get('checks',[])
   cadence=240 if asin in HOT else 720
   good=[epoch(r.get('observedAt')) for r in rows if readable(r) and r.get('intake',{}).get('saved') is True and epoch(r.get('observedAt'))<=now]
@@ -32,14 +41,16 @@ def coverage(snapshot,now):
   # Require repeat browser failures on this product, not mere unavailability or
   # an inconclusive seller. Two expected intervals plus jitter avoid flapping.
   if len(recent)==2 and all(r.get('state')=='error' and r.get('reason')=='PAGE_CHECK_FAILED' and 0<=now-epoch(r.get('observedAt'))<=cadence*3 for r in recent) and (not latest or now-latest>cadence*2+60):failing+=1
- return {'fresh':fresh,'total':len(TARGETS),'failing':failing,'latestSuccess':latest_success}
+ return {'fresh':fresh,'total':len(snapshot_targets(snapshot)[0]),'failing':failing,'latestSuccess':latest_success}
 
 def decision(snapshot,state,now):
  if snapshot.get('enabled') is not True or snapshot.get('manualPaused'):return 'paused'
  if protected(snapshot,now):return 'protected_stop'
  exported=epoch(snapshot.get('exportedAt'));progress=epoch(snapshot.get('lastProgressAt'))
  if not exported or not progress or exported>now+60 or progress>now+60:return 'insufficient_evidence'
- widespread=0<=now-exported<=300 and coverage(snapshot,now)['failing']>=math.ceil(len(TARGETS)*.75)
+ c=coverage(snapshot,now)
+ if c['total']==0:return 'insufficient_evidence'
+ widespread=0<=now-exported<=300 and c['failing']>=math.ceil(c['total']*.75)
  stalled=now-progress>1200 and 0<epoch(snapshot.get('nextRunAt'))<now-600
  if not widespread and not stalled:return 'healthy_or_waiting'
  if now-state.get('recoveryStartedAt',0)<1200:return 'recovery_grace'
@@ -122,7 +133,7 @@ def main():
    if state.get('pendingResult'):
     state['pendingResult'].update(status='failed' if action=='restart_failed' else status,reason='restart_failed' if action=='restart_failed' else reason)
   started=state.get('recoveryStartedAt',0)
-  healthy=c['fresh']==len(TARGETS) and (not started or all(t>started for t in c['latestSuccess'].values()))
+  healthy=c['total']>0 and c['fresh']==c['total'] and (not started or all(t>started for t in c['latestSuccess'].values()))
   exported=epoch(snapshot.get('exportedAt'))
   consecutive=0<now-state.get('checkedAt',0)<=240
   if healthy and 0<=now-exported<=300 and exported>state.get('lastHealthyExport',0):
@@ -132,14 +143,14 @@ def main():
   verified=state['healthySamples']>=2
   recovering=bool(started and not verified and now-started<1200)
   attention=action in ['restart_failed','restart_budget_exhausted'] or bool(started and not verified and now-started>=1200)
-  report_state='protected' if protected(snapshot,now) else 'attention_required' if attention else 'healthy' if verified else 'recovering' if recovering else 'degraded' if c['fresh']<len(TARGETS) else 'unknown'
+  report_state='protected' if protected(snapshot,now) else 'attention_required' if attention else 'healthy' if verified else 'recovering' if recovering else 'degraded' if c['fresh']<c['total'] else 'unknown'
   state.update(checkedAt=now,action=action,coverageFresh=c['fresh'],recoveryVerified=verified)
   save(state_path,state)
   if token:
    try:
     if state.get('pendingResult'):
      if api(token,state['pendingResult']).get('ok'):state.pop('pendingResult');save(state_path,state)
-    api(token,{'action':'report','fresh':c['fresh'],'total':len(TARGETS),'protected':bool(protected(snapshot,now) or not active),'restartAvailable':budget(state,now),'state':report_state})
+    api(token,{'action':'report','fresh':c['fresh'],'total':len(snapshot_targets(snapshot)[0]),'protected':bool(protected(snapshot,now) or not active),'restartAvailable':budget(state,now),'state':report_state})
    except Exception:print('Scout recovery report unavailable; result retained locally')
-  print('Scout watchdog: '+action+'; coverage '+str(c['fresh'])+'/16; '+report_state)
+  print('Scout watchdog: '+action+'; coverage '+str(c['fresh'])+'/'+str(c['total'])+'; '+report_state)
 if __name__=='__main__':main()

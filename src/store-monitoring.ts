@@ -2,6 +2,7 @@ import type {Env,Listing} from './types';
 import {storeDigest} from './store-catalog';
 import {storeSuppressionSql} from './store-visibility-query';
 
+export function pilotCadence(env:Env){return Number(env.STORE_MONITOR_PILOT_CADENCE_MINUTES??10);}
 export function storeRoute(category:string){return category==='ascended_heroes'?'ascended-heroes':category==='mtg_hobbit_collector_box'?'magic-hobbit':category==='mtg_tcg'?'magic-main':category==='delta_reign'?'delta-reign':category==='30th_celebration'?'pokemon-30th':'pokemon-main';}
 export function nextStoreDigest(now:Date){
   // Existing customer digest time: 09:00 Mexico City (UTC-6), daily.
@@ -29,11 +30,11 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
   if(!body||typeof body!=='object'||Array.isArray(body))return Response.json({error:'invalid_body'},{status:400});
   const now=new Date(),at=now.toISOString();
   if(url.pathname.endsWith('/claim')) {
-    const pilot=env.STORE_MONITOR_PILOT_ENABLED==='true';
+    const pilot=env.STORE_MONITOR_PILOT_ENABLED==='true',cadence=pilotCadence(env);
     if(pilot){
       const expiry=Date.parse(env.STORE_MONITOR_PILOT_UNTIL||'');
       const count=await env.SPAWN_DB.prepare('SELECT COUNT(*) count FROM store_monitor_pilot').first<{count:number}>();
-      if(!Number.isFinite(expiry)||expiry<=+now||expiry>+now+86400000||!count||count.count<50||count.count>100)return Response.json({enabled:false,reason:'pilot_expired_or_invalid',targets:[],events:[]});
+      if(![10,30].includes(cadence)||!Number.isFinite(expiry)||expiry<=+now||expiry>+now+86400000||!count||count.count<50||count.count>100)return Response.json({enabled:false,reason:'pilot_expired_or_invalid',targets:[],events:[]});
     }
     const limit=Math.min(pilot?12:100,Math.max(1,Math.floor(Number(body.limit)||30))),lease=crypto.randomUUID(),until=new Date(+now+180000).toISOString();
     await env.SPAWN_DB.prepare(`UPDATE store_monitor_targets SET lease_id=?,lease_until=?,last_attempt_at=? WHERE id IN (
@@ -43,7 +44,7 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
       ORDER BY CASE t.priority WHEN 'hot' THEN 0 WHEN 'warm' THEN 1 ELSE 2 END,t.next_due_at,t.id LIMIT ?)`)
       .bind(lease,until,at,at,at,limit).run();
     const rows=(await env.SPAWN_DB.prepare('SELECT t.*,s.origin,s.retailer FROM store_monitor_targets t JOIN store_acquisitions s ON s.id=t.store_id WHERE t.lease_id=?').bind(lease).all<Record<string,unknown>>()).results;
-    const targets=pilot?rows.map(t=>({...t,cadence_minutes:10,pilot:1})):rows;
+    const targets=pilot?rows.map(t=>({...t,cadence_minutes:cadence,pilot:1})):rows;
     return Response.json({schema_version:1,lease_id:lease,targets,mode:pilot?'reliable-store-pilot':'catalog'});
   }
   if(url.pathname.endsWith('/observe')) {
@@ -54,7 +55,7 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     if(!t)return Response.json({error:'stale_or_inactive_target'},{status:409});
     const good=['available','sold_out','preorder_placeholder'].includes(body.state),price=body.state==='preorder_placeholder'?null:body.price_mxn??null;
     const enrolled=env.STORE_MONITOR_PILOT_ENABLED==='true'&&await env.SPAWN_DB.prepare('SELECT target_id FROM store_monitor_pilot WHERE target_id=?').bind(t.id).first();
-    if(enrolled)t.cadence_minutes=10;
+    if(enrolled){if(![10,30].includes(pilotCadence(env)))return Response.json({error:"invalid_pilot_cadence"},{status:409});t.cadence_minutes=pilotCadence(env);}
     const delay=good?t.cadence_minutes:Math.min(360,Math.max(t.cadence_minutes,5*2**Math.min(t.failures,6)));
     // The first statement revalidates the lease and approval inside the transaction.
     // Every subsequent write is conditional on this receipt being inserted.
@@ -80,7 +81,7 @@ export async function handleStoreMonitoring(request:Request,env:Env):Promise<Res
     await env.SPAWN_DB.prepare(`UPDATE store_customer_events SET expired_at=?,lease_id=NULL,lease_until=NULL
       WHERE delivered_at IS NULL AND expired_at IS NULL AND kind='HUNT_UPDATE' AND EXISTS(
       SELECT 1 FROM store_monitor_targets t WHERE t.id=store_customer_events.target_id AND
-      (julianday(store_customer_events.created_at)+MAX(15,CASE WHEN ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'t.id IN (SELECT target_id FROM store_monitor_pilot)':'0'} THEN 20 ELSE t.cadence_minutes*2 END)/1440.0<julianday(?)
+      (julianday(store_customer_events.created_at)+MAX(15,CASE WHEN ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'t.id IN (SELECT target_id FROM store_monitor_pilot)':'0'} THEN ${[10,30].includes(pilotCadence(env))?pilotCadence(env)*2:20} ELSE t.cadence_minutes*2 END)/1440.0<julianday(?)
        OR t.state!=json_extract(store_customer_events.payload_json,'$.state')))` ).bind(at,at).run();
     // Announce usable coverage; isolated failures must not hold an entire store hostage.
     const ready=(await env.SPAWN_DB.prepare(`SELECT s.id,s.origin,s.retailer FROM store_acquisitions s WHERE ${env.STORE_MONITOR_PILOT_ENABLED==='true'?'0=1 AND ':''} s.status='APPROVED' AND s.announced_at IS NULL AND s.baseline_completed_at IS NOT NULL AND EXISTS(SELECT 1 FROM store_monitor_targets WHERE store_id=s.id AND last_observed_at IS NOT NULL) LIMIT 20`).all<{id:string;origin:string;retailer:string}>()).results;

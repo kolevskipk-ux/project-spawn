@@ -1,3 +1,4 @@
+import {scoutTargets} from './scout-target-catalog';
 import {scoutDiagnosisData} from './scout-diagnostics';
 import type {Env} from './types';
 import {ITEMS} from './amazon-browser-targets';
@@ -64,7 +65,7 @@ export async function monitorScoutHealth(env:Env,now=new Date(),fetchFn:typeof f
  const state:HealthState=raw?JSON.parse(raw):{armedAt:stamp,incident:false,severity:null,notifiedSeverity:null,healthySamples:0,lastSampleAt:null};
  if(state.lastSampleAt?.slice(0,16)===stamp.slice(0,16))return;
  const beats:Beat[]=[];for(const c of COLLECTORS){const value=await env.SPAWN_DB.prepare('SELECT value FROM worker_state WHERE key=?').bind('scout:heartbeat:'+c).first<string>('value');if(value)beats.push(JSON.parse(value));}
- const targets:Target[]=[];for(const item of ITEMS){const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED'").bind(item.asin).first();if(!published)continue;
+ const targets:Target[]=[];for(const item of await scoutTargets(env)){const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED'").bind(item.asin).first();if(!published)continue;
  const latest=await env.SPAWN_DB.prepare("SELECT observed_at,collector_state,evidence_json FROM amazon_browser_observations WHERE asin=? AND observed_at>=? AND observed_at<=? AND (collector_state IN ('available','sold_out','buying_options_shown') OR (collector_state='unknown' AND json_extract(evidence_json,'$.reason') IN ('NO_VERIFIED_FEATURED_OFFER','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'))) ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1").bind(item.asin,new Date(now.getTime()-900000).toISOString(),stamp).first<{observed_at:string;collector_state:string;evidence_json:string}>();const readable=latest&&readableAmazonObservation(latest,item.titlePattern);targets.push({asin:item.asin,name:item.name,observedAt:readable?latest.observed_at:null,stockConclusive:!!latest&&['available','sold_out'].includes(latest.collector_state)});}
  if(!targets.length)return;
  const d=scoutHealthDecision(targets,beats,state,now.getTime());

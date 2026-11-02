@@ -110,3 +110,17 @@ it('routes published Delta Reign observations to their own channel',async()=>{fo
 
 
 it('scoped immediate claims share the existing lease with scheduled polling',async()=>{const f=fixture();try{f.observe(1,0);expect(await claimAmazonBrowserAdvisories(f.env,new Date(base),'B000000000')).toEqual([]);const [first]=await claimAmazonBrowserAdvisories(f.env,new Date(base),'B0H77VYKSM');expect(first).toBeTruthy();expect(await f.poll(0)).toEqual([]);await f.ack(first);expect(await f.poll(1)).toEqual([]);}finally{f.db.close();}});
+
+it('baselines a newly enrolled product without an initial advisory and alerts on a later transition',async()=>{
+ const f=fixture('B0HG47DGH4','delta_reign');try{
+  for(const column of ['product_name','product_url','language','approved_at'])f.db.exec('ALTER TABLE amazon_watchlist ADD COLUMN '+column+' TEXT');
+  f.db.exec('CREATE TABLE inventory(listing_key TEXT,canonical_url TEXT);CREATE TABLE inventory_admin_reviews(listing_key TEXT,removed_at TEXT)');
+  f.db.prepare('UPDATE amazon_watchlist SET product_name=?,product_url=?,language=?,approved_at=?').run('Delta Reign Build Battle','https://www.amazon.com.mx/dp/B0HG47DGH4','english','2026-08-27');
+  f.env.SCOUT_DYNAMIC_TARGETS_ENABLED='true';
+  f.env.SPAWN_DB.prepare=(sql:string)=>{let args:any[]=[];return {bind(...a:any[]){args=a;return this;},async first(){return f.db.prepare(sql).get(...args)||null;},async run(){return f.db.prepare(sql).run(...args);},async all(){return {results:f.db.prepare(sql).all(...args)};}};};
+  f.observe(1,0);expect(await f.poll(0)).toEqual([]);expect(f.db.prepare('SELECT COUNT(*) n FROM amazon_browser_advisories').get()?.n).toBe(0);
+  f.observe(1,1);expect(await f.poll(1)).toEqual([]);
+  f.observe(0,2);expect(await f.poll(2)).toEqual([]);
+  f.observe(1,3);const events=await f.poll(3);expect(events).toHaveLength(1);expect(events[0].routing_key).toBe('delta-reign');
+ }finally{f.db.close();}
+});

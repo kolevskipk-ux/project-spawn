@@ -1,6 +1,6 @@
 # Scout server state
 
-Reviewed October 19, 2026. See the [functionality map](../GARFIELD_FUNCTIONALITY.md)
+Reviewed November 2, 2026. See the [functionality map](../GARFIELD_FUNCTIONALITY.md)
 for coordinated ownership and [server history](scout-marketplace-server.md) for
 dated activation/repair records. Scout is a browser collector hosted on Linux,
 not a separate Cloudflare Worker or a discovery/approval service.
@@ -14,9 +14,11 @@ not a separate Cloudflare Worker or a discovery/approval service.
   identities, thirty-minute schedules staggered by two minutes. Saved-tab recovery
   validates identity, and observer dashboards initialize once per browser session.
 - `scout-watchdog.timer`: checks every two minutes. Restart an already-active
-  Amazon service only when progress is stale twenty minutes and its next run is
+  Amazon service when widespread repeat browser failures lose accepted coverage, or when progress is stale twenty minutes and its next run is
   overdue ten minutes; cap one/hour and two/day. Preserve pauses, challenges,
   cooldowns, breaks and missing-evidence/inactive-service protections.
+- Independent system host timer: deployed and verified November 2, every minute, runs as main without requiring Firefox or desktop sign-in. Reports host/desktop/service and coverage evidence to Spawn. See scout-incident-diagnosis.md.
+- Remote restart code is deployed; the November 2 flag audit found SCOUT_CONTROL_ENABLED absent/off. Health and independent diagnostics remain enabled.
 - Marketplace quiet hours: 02:05–06:05 America/Mexico_City. Amazon has no default
   acquisition night break. Health notification deferral 21:30–06:00 and 07:00
   overnight summaries are separate from acquisition schedules.
@@ -111,3 +113,7 @@ Production remains serial. Dynamic enrollment from Spawn's published/staged
 catalog, broader discovery scope and a Scout-aware coverage UI are proposed.
 The legacy deployed Catch silent feed is paused and does not populate Scout.
 New ASIN discovery alone does not install a new collector target or permit alerts.
+
+## Prepared coverage expansion (not activated)
+
+The 0.6.0 public overlay and versioned published-product feed prepare 19 eligible English-language products under a hard cap of 20. Additions: Delta Reign Three Booster Blister B0HG3JBNBN, Delta Reign Build & Battle B0HG47DGH4, and Hobbit Collector Booster Box B0GXC89N66. Pitch Black B0H27L3TKW is held for language review. Four hot products keep their current cadence; additions use twelve minutes. Automatic future inclusion remains restricted by publication, language, identity, supported category, removal reviews and capacity. The existing sixteen stay live until an explicitly approved staged rollout.

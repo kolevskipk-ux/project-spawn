@@ -1,11 +1,11 @@
 # Scout self-recovery and mobile restart
 
-Prepared November 2, 2026. Scope: the Amazon Linux collector only. Walmart and
+Deployed November 2, 2026 (Spawn PRs 52–53). Scope: the Amazon Linux collector only. Walmart and
 Mercado Libre remain on their existing schedules and services.
 
 ## Operations experience
 
-Open `/ops/health` on the protected Garfield website. The owner sees a permanent
+Open `/ops/health` on the protected Garfield website. When SCOUT_CONTROL_ENABLED=true, the owner sees a permanent
 **Restart Scout** button, fresh accepted page coverage out of 16, agent status,
 and the last request outcome. Viewer/admin accounts cannot restart. The button
 is disabled when the agent is stale, the collector is paused/protected, or the
@@ -48,12 +48,12 @@ failure escalation per incident, with existing overnight notification deferral.
 The message links directly to System health. HTTP success proves Discord accepted
 the message; phone push notification settings remain external to Garfield.
 
-## Rollout (awaiting explicit production approval)
+## Deployment procedure (completed November 2; repeat only with approval)
 
 No schema migration, browser extension update, new secret, paid browser activation,
 Cloudflare cron change, baseline reset, or new public server port is needed.
 
-Implementation was requested on November 2. Automatic approval review rejected the merge because it requires explicit production approval from Philip for PR #52. No new Worker or server-agent release was deployed.
+PRs 52–53 were approved, merged, and deployed; the server recovery agent was installed. November 2 runtime audit: SCOUT_HEALTH_ALERTS_ENABLED and SCOUT_DIAGNOSTICS_ENABLED are true, but SCOUT_CONTROL_ENABLED is absent/off. Remote restart code is deployed but its control is currently disabled. Restoring the previously approved control is included in the new coverage rollout proposal.
 
 1. Review and merge the `codex/scout-self-recovery` branch.
 2. Deploy only the Spawn Worker code, retaining production variables. Do not use
@@ -87,11 +87,11 @@ version if needed. Code deployment and flag activation remain separate actions.
   agent main loop or changing any production service.
 - Existing production collector recovered to 16/16 fresh accepted reads at
   2026-11-02 15:09:14 UTC (09:09 Mexico City) after the diagnostic browser restart.
-- Live end-to-end validation of the new remote control awaits rollout.
+- Live agent-to-Worker reporting was verified. An actual restart initiated from the mobile form remains an acceptance check; no unnecessary production restart was fabricated.
 
 The local HTML preview renders successfully through the operations shell. The
 in-app browser could not reach the local preview server, so narrow-viewport
-visual inspection remains a rollout check; no visual browser QA is claimed.
+visual inspection remains an acceptance check; no visual browser QA is claimed.
 The final policy was also evaluated read-only against the real saved outage
 snapshot (15 failing targets: restart) and recovered snapshot (16 fresh targets:
-no restart). The production agent was not replaced by these tests.
+no restart). Those tests did not replace the production agent. The separately approved agent installation completed afterward.

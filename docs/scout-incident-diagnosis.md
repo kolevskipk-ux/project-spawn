@@ -1,7 +1,6 @@
 # Scout incident diagnosis and independent host reporting
 
-Prepared November 2, 2026. Implementation is pending review and production
-approval. It does not activate cloud acquisition or change restart decisions.
+Deployed November 2, 2026 (Spawn PR 54, Catch documentation PR 40). The system timer installation and recurring reports were verified at 23:30 UTC. This does not activate cloud acquisition or change restart decisions.
 
 ## What is measured
 
@@ -56,7 +55,7 @@ its timestamp and status. It is not a customer-alert receipt or proof of a phone
 push. Outage messages may include the diagnosis while preserving existing dedup,
 leases, quiet-hour deferral and recovery policy. No synthetic outage is sent.
 
-## Staged rollout (explicit production approval required)
+## Deployment procedure (completed November 2; repeat only with approval)
 
 1. Merge the reviewed Spawn implementation and matching Catch documentation PR.
 2. Deploy Spawn code only, preserving live variables and all triggers. Do not use
@@ -98,3 +97,7 @@ fixed-origin reporting with redirect rejection. A real read-only --probe on
 November 2 at 22:49 UTC reported an active graphical desktop, both services
 active, sixteen local/accepted reads, and no runtime, challenge or intake errors.
 The new reporter is not installed or activated by that probe.
+
+## Verified deployment record
+
+Worker 9f10c23f-dd39-4942-88ab-9f8cedb9ae88 was activated at 100% with SCOUT_DIAGNOSTICS_ENABLED=true. Health/readiness returned OK and unauthenticated reporting returned 401. The system timer was enabled/active, its service ran as main with success, and scheduled HTTP 200 reports reached Spawn. The 23:30 UTC report showed active desktop/services, 16/16 local and accepted readings, no challenge or intake errors. Existing cron schedules were unchanged. Prepared target-catalog expansion is a separate, inactive release; fixed sixteen-target references above describe the deployed version.
