@@ -1,3 +1,4 @@
+import {handleScoutHost} from './scout-diagnostics';
 import type {Env} from './types';
 import type {Operator} from './operations-auth';
 import {mutationAllowed} from './operations-auth';
@@ -17,6 +18,7 @@ export async function queueScoutRestart(env:Env,email:string,now=new Date()){
 }
 // Server-only fixed operation: the caller cannot supply shell commands or services.
 export async function scoutControlAgent(request:Request,env:Env):Promise<Response|null>{
+ if(new URL(request.url).pathname==='/internal/scout-host/heartbeat')return handleScoutHost(request,env);
  if(new URL(request.url).pathname!=='/internal/scout-control')return null;
  const reply=(data:unknown,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
  if(env.SCOUT_CONTROL_ENABLED!=='true')return reply({error:'disabled'},503);

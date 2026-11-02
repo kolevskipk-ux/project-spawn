@@ -1,0 +1,14 @@
+[Unit]
+Description=Scout independent host heartbeat (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=main
+ExecStart=/usr/bin/python3 /home/main/.local/share/scout-firefox-test/scout-host-heartbeat.py
+TimeoutStartSec=75
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true

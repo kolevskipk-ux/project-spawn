@@ -1,0 +1,12 @@
+[Unit]
+Description=Report Scout host status without requiring a desktop login
+
+[Timer]
+OnBootSec=60sec
+OnUnitActiveSec=60sec
+AccuracySec=10sec
+Persistent=true
+Unit=scout-host-heartbeat.service
+
+[Install]
+WantedBy=timers.target
