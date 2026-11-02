@@ -1,6 +1,6 @@
 # Garfield functionality map
 
-Reviewed October 19, 2026. This is the coordinated functionality and activation
+Reviewed November 2, 2026. This is the coordinated functionality and activation
 snapshot for Spawn, Scout and Catch. Historical release notes describe their
 dated release, not current activation. A deployed capability can be disabled,
 paused, or expired; an accepted receipt does not by itself establish stock.
@@ -32,16 +32,18 @@ paused, or expired; an accepted receipt does not by itself establish stock.
 | Walmart browser acquisition | Scout | Separate marketplace service 0.4.4, two approved products, thirty-minute schedule. Usable Walmart page readings observed; this does not establish continuous availability. |
 | Mercado Libre browser acquisition | Scout | Same separate service, five approved identities. Paused/unavailable listings and an unconfirmed offer remain unknown stock. Account verification can still require human action; no CAPTCHA automation or implicit seller approval. |
 | Collector intake and coverage | Spawn | Deployed. Scoped authenticated receipts, freshness, collector state and offer qualification are separate. A title-matched inconclusive Amazon offer can refresh page coverage without becoming verified stock. Marketplace collector labels are diagnostics, not authorization. |
-| Health and recovery | Spawn and Scout | Enabled health reporting and protected server watchdog. Watchdog checks every two minutes, restarts only an already-active stale Amazon service, capped at one/hour and two/day. Manual pauses, challenges, cooldowns and planned breaks are protected; it cannot recover a powered-off server. |
+| Health and recovery | Spawn and Scout | PRs 52–53 deployed November 2. Protected watchdog measures accepted coverage and repeated browser failures as well as stalled progress. Owner restart control is in System health. Shared one/hour, two/day limits; pauses, challenges and cooldowns remain protected. Firefox still requires desktop sign-in after reboot. |
+| Independent host diagnosis | Spawn and Scout | Prepared for review, not deployed. A separate system timer can report host/desktop/service state without Firefox or desktop login; diagnosis distinguishes observed and likely causes from uncertainty. Activation requires SCOUT_DIAGNOSTICS_ENABLED and system-unit installation. See docs/scout-incident-diagnosis.md. |
 | Reliable-store acquisition | Spawn coordination and Catch fetching | Deployed, pilot expired. Seventy-five enrolled, six Dino Cards targets held after HTTP 429, sixty-nine eligible across five stores. Effective ten-minute pilot cadence ended October 15 at 01:53:47.969 UTC. No extension or broad-monitoring restart is authorized here. |
 | Catch legacy Amazon and marketplace acquisition | Catch | Deployed but paused by enabled stores-only mode. This includes legacy scheduled Amazon polling, buying-options recovery, Walmart/Mercado Libre acquisition and drop-search acquisition. Catalogs and baselines remain stored. |
 | Customer event and Scout advisory delivery | Catch | Enabled, subject to eligibility, suppression, deduplication and applicable quiet hours. Buying Options advisories are explicitly unverified; they do not certify stock, seller or price. Marketplace customer stock alerts remain disabled. |
 | Paid acquisition and broad store maintenance | Catch and Spawn | Catch paid browser fallback disabled; drop recovery disabled. Spawn broad store catalog sync/fast maintenance, general inventory revalidation, enrichment and automatic approval/digest flags are disabled. Scheduled market discovery remains active. |
 | Legacy Amazon daily hunt digest | Catch | Disabled; not a substitute for live readings. |
 
-## Evidence and release snapshot
+## Dated release evidence
 
-- Spawn main includes PRs 41–45. PR 45 merged as `63d3c5d`; current Worker version
+- November 2: PRs 52–53 merged; active Spawn Worker `9a1d41c7-37a4-48ec-acba-6dc538b0d93e`, SCOUT_CONTROL_ENABLED=true. Host client fix installed. After desktop sign-in, all sixteen Amazon products recovered accepted coverage. Read-only host probe at 22:49 UTC again found 16/16 fresh readings. Independent diagnosis below is prepared only, with no new host timer installed.
+- Historical October 19: Spawn main included PRs 41–45. PR 45 merged as `63d3c5d`; Worker version
   `201d3ed5-3a29-449c-a6d1-dd797bae5851`, 100% traffic, deployed October 19
   at 22:07:57 UTC. Configuration `8.7.0-inventory`.
 - Scout Amazon 0.5.9 and marketplace 0.4.4 are separately installed server

@@ -92,3 +92,20 @@ it('escalates failed recovery once and preserves overnight deferral',async()=>{
   await monitorScoutHealth(f.env,new Date(night),send as any);expect(sends).toBe(1);
  }finally{f.db.close();}
 });
+
+it('adds evidence-based diagnosis to outage notices without changing their delivery rules',async()=>{
+ const f=fixture();try{
+  f.env.SCOUT_DIAGNOSTICS_ENABLED='true';f.set('scout:health-state',state);
+  f.set('scout:host:latest',{schemaVersion:1,observedAt:new Date(now).toISOString(),receivedAt:new Date(now).toISOString(),desktop:'inactive',amazonService:'inactive',marketplaceService:'inactive',localFresh:0,acceptedFresh:0});
+  let message='';await monitorScoutHealth(f.env,new Date(now),(async(_url:any,init:any)=>{message=JSON.parse(init.body).content;return Response.json({id:'receipt',channel_id:'channel'});}) as any);
+  expect(message).toContain('Desktop login required');expect(message).toContain('(observed)');expect(message.length).toBeLessThanOrEqual(2000);
+ }finally{f.db.close();}
+});
+it('still sends an outage notice when diagnosis evidence cannot be loaded',async()=>{
+ const f=fixture();try{
+  f.env.SCOUT_DIAGNOSTICS_ENABLED='true';f.set('scout:health-state',state);
+  const prepare=f.env.SPAWN_DB.prepare;f.env.SPAWN_DB.prepare=(sql:string)=>{if(sql.includes('key>=? AND key<?'))throw Error('diagnostic lookup unavailable');return prepare(sql);};
+  let sends=0;await monitorScoutHealth(f.env,new Date(now),(async()=>{sends++;return Response.json({id:'receipt',channel_id:'channel'});}) as any);
+  expect(sends).toBe(1);
+ }finally{f.db.close();}
+});

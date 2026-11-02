@@ -1,3 +1,4 @@
+import {scoutDiagnosisData} from './scout-diagnostics';
 import type {Env} from './types';
 import {ITEMS} from './amazon-browser-targets';
 import {disablePaidBrowserFallback} from './paid-browser-fallback';
@@ -91,7 +92,10 @@ export async function monitorScoutHealth(env:Env,now=new Date(),fetchFn:typeof f
  ['🚨 **Scout needs attention**',d.severity==='offline'?'No monitored product has a fresh page reading. Check PC power, internet and Edge; open Scout and start monitoring.':d.failure?'Scout repeatedly stopped: '+d.failure.stopReason+'. Resolve the challenged tab or read failures, then retry monitoring.':'Some product readings are stale. Open Scout’s product tabs and check the affected pages.',...d.missing.map(t=>t.name+' — '+(t.observedAt?'last successful page read '+Math.floor((now.getTime()-Date.parse(t.observedAt))/60000)+' minutes ago':'no successful page read within 15 minutes')),'Hot products: 5-minute freshness limit; others: 15 minutes.'].join('\n').slice(0,1900);
  const url=new URL(env.OPS_DISCORD_WEBHOOK_URL);if(url.protocol!=='https:'||!['discord.com','discordapp.com'].includes(url.hostname)||!url.pathname.startsWith('/api/webhooks/'))throw Error('Invalid Scout Ops destination');url.searchParams.set('wait','true');
  const recoveryNotice=recoveryAttention&&!d.recovery?'Scout automatic recovery has not restored coverage. Check the recovery status in System health.\n':'';
- const linkedContent=(recoveryNotice+content).slice(0,1700)+'\n[Scout status / restart](https://spawn.aztlan-eng.com/ops/health)'+'\n\n[Open Ops dashboard / browser fallback](https://spawn.aztlan-eng.com/ops/browser-fallback)';
+ let diagnosis:Awaited<ReturnType<typeof scoutDiagnosisData>>|null=null;
+ try{if(env.SCOUT_DIAGNOSTICS_ENABLED==='true'&&d.unhealthy)diagnosis=await scoutDiagnosisData(env,now.getTime());}catch{/* Diagnosis must never suppress an existing outage notification. */}
+ const cause=diagnosis?'Working diagnosis: '+diagnosis.title+' ('+diagnosis.confidence+'). '+diagnosis.explanation+'\n':'';
+ const linkedContent=(cause+recoveryNotice+content).slice(0,1700)+'\n[Scout status / restart](https://spawn.aztlan-eng.com/ops/health)'+'\n\n[Open Ops dashboard / browser fallback](https://spawn.aztlan-eng.com/ops/browser-fallback)';
  const response=await fetchFn(url.toString(),{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json'},body:JSON.stringify({username:'Garfield Scout Operations',allowed_mentions:{parse:[]},content:linkedContent})});httpStatus=response.status;delivered=response.ok;deliveryStatus=delivered?'delivered':'http_failure';
  if(delivered){const receipt:any=await response.json().catch(()=>null);messageId=typeof receipt?.id==='string'?receipt.id:null;channelId=typeof receipt?.channel_id==='string'?receipt.channel_id:null;}else await response.body?.cancel();
  if(delivered){if(recoveryAttention)next.recoveryAttentionNotified=true;if(d.recovery||d.morning&&!!next.overnightRecoveredAt){next.incident=false;next.notifiedSeverity=null;next.incidentStartedAt=null;next.lastNotifiedAt=null;}else{next.notifiedSeverity=d.severity||state.notifiedSeverity||'offline';next.lastNotifiedAt=stamp;}if(d.morning){next.overnightDueAt=null;next.overnightStartedAt=null;next.overnightRecoveredAt=null;next.overnightMissing=[];}}

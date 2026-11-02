@@ -1,4 +1,5 @@
 export interface Env {
+  SCOUT_DIAGNOSTICS_ENABLED?: string;
   SCOUT_CONTROL_ENABLED?: string;
   SCOUT_HEALTH_ALERTS_ENABLED?: string;
   AMAZON_COLLECTOR_TOKEN?: string;
