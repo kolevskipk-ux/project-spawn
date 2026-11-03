@@ -4,7 +4,7 @@ Catch Em All and Project Spawn are separate repositories and deployment units. G
 
 ## Current activation and status
 
-Reviewed October 19, 2026. See [GARFIELD_FUNCTIONALITY.md](GARFIELD_FUNCTIONALITY.md)
+Reviewed November 2, 2026. See [GARFIELD_FUNCTIONALITY.md](GARFIELD_FUNCTIONALITY.md)
 for deployment evidence, activation, scope, expiry and proposals. Keep both files
 identical in the Spawn and Catch repositories. Contracts describe permitted
 capability; code presence or a true flag alone does not prove active acquisition.
@@ -15,6 +15,8 @@ Catch retains eligible customer delivery. Catch remains in stores-only mode;
 its reliable-store pilot expired October 15 at 01:53:47.969 UTC. Legacy Amazon and
 marketplace acquisition and paid browser fallback remain paused/disabled. Spawn
 market discovery remains active while broad store maintenance is paused.
+
+Independent host diagnosis was deployed and verified November 2 (Spawn PR54, Catch docs PR40). The scoped nineteen-target catalog and thirty-minute store validation are prepared only; enabling either requires separate approved activation. See docs/scout-coverage-and-store-validation.md in Spawn. No pilot renewal or broadened acquisition is implied by these records.
 
 ## Ownership
 

@@ -93,4 +93,14 @@ class ApiClientTests(unittest.TestCase):
   with patch.object(watchdog.urllib.request,'build_opener',return_value=opener) as build:watchdog.api('fixture')
   self.assertIsNone(build.call_args.args[0].redirect_request(None,None,302,'redirect',{},'https://other.test'))
 
+
+
+class DynamicCoverageTests(unittest.TestCase):
+ def test_loaded_catalog_controls_coverage_denominator(self):
+  ids=list(watchdog.TARGETS)+['B0HG3JBNBN','B0HG47DGH4','B0GXC89N66'];now=200000
+  s={'collectorCatalog':{'version':'a'*64,'items':[{'asin':i} for i in ids]},'history':{i:{'checks':[{'state':'sold_out','observedAt':(now-10)*1000,'intake':{'saved':True}}]} for i in watchdog.TARGETS}}
+  c=watchdog.coverage(s,now);self.assertEqual(c['total'],19);self.assertEqual(c['fresh'],16)
+ def test_invalid_catalog_cannot_authorize_recovery(self):
+  now=200000;s={'enabled':True,'exportedAt':now*1000,'lastProgressAt':now*1000,'collectorCatalog':{'version':'a'*64,'items':[{'asin':{}}]}}
+  self.assertEqual(watchdog.decision(s,{},now),'insufficient_evidence')
 if __name__=='__main__':unittest.main()

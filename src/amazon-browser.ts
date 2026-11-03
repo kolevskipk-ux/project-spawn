@@ -1,3 +1,4 @@
+import {scoutCatalog,scoutTargets,type ScoutTarget} from './scout-target-catalog';
 import {recordScoutHeartbeat,readableAmazonObservation} from './scout-health';
 import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
@@ -6,9 +7,9 @@ import {ITEMS} from './amazon-browser-targets';
 
 const reasons=new Set(['OFFER_UNCONFIRMED','WRONG_SITE','CHALLENGE_OR_SIGN_IN','PRODUCT_IDENTITY_UNCONFIRMED','CONTRADICTORY_OFFER','EXPLICIT_PRODUCT_UNAVAILABLE','DELIVERY_UNAVAILABLE','VERIFIED_FEATURED_OFFER','VERIFIED_AMAZON_MX_PANEL','PRICE_OR_SELLER_UNCONFIRMED','NO_VERIFIED_FEATURED_OFFER','BUYING_OPTIONS_CONTROL_VISIBLE','TAB_MISSING','REDIRECTED_OR_CHALLENGED','NO_RESULT','PAGE_CHECK_FAILED']);
 const states=new Set(['available','sold_out','buying_options_shown','unknown','blocked','error']);
-export function validateAmazonBrowserObservation(body:any,now=Date.now()){
+export function validateAmazonBrowserObservation(body:any,now=Date.now(),targets:ScoutTarget[]=ITEMS){
  if(!body||typeof body!=='object'||Array.isArray(body)||body.schemaVersion!==1||body.source!=='amazon_edge')return null;
- const target=ITEMS.find(item=>item.asin===body.asin);
+ const target=targets.find(item=>item.asin===body.asin);
  if(!target||typeof body.id!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(body.id)||typeof body.url!=='string'||!exact(body.url,target))return null;
  if(typeof body.observedAt!=='string')return null;
  const time=Date.parse(body.observedAt);if(!Number.isFinite(time)||time>now+60000||now-time>600000)return null;
@@ -31,17 +32,24 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now()){
 
 export async function handleAmazonBrowser(request:Request,env:Env,ctx?:ExecutionContext):Promise<Response|null>{
  const path=new URL(request.url).pathname;
- if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status','/internal/amazon-browser/heartbeat'].includes(path))return null;
+ if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status','/internal/amazon-browser/heartbeat','/internal/amazon-browser/targets'].includes(path))return null;
  const authorization=request.headers.get('authorization');
  const collectors=[['desktop',env.AMAZON_COLLECTOR_TOKEN],['laptop',env.AMAZON_LAPTOP_COLLECTOR_TOKEN],['server',env.AMAZON_SERVER_COLLECTOR_TOKEN]] as const;
  const matches=collectors.filter(([,token])=>!!token&&authorization===`Bearer ${token}`);
  if(matches.length!==1)return Response.json({error:'unauthorized'},{status:401});
  const [collector,token]=matches[0];
  if([env.WALMART_COLLECTOR_TOKEN,env.MERCADOLIBRE_COLLECTOR_TOKEN,env.CATCH_INGEST_SECRET,env.RUN_TOKEN].includes(token))return Response.json({error:'unauthorized'},{status:401});
+ if(path.endsWith('/targets')){
+  if(collector!=='server')return Response.json({error:'unauthorized'},{status:401});
+  if(request.method!=='GET')return new Response('Method not allowed',{status:405});
+  const catalog=await scoutCatalog(env);
+  return Response.json({schemaVersion:1,version:catalog.version,generatedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+1800000).toISOString(),maxTargets:20,items:catalog.targets,excluded:catalog.excluded.slice(0,20),excludedCount:catalog.excluded.length},{headers:{'cache-control':'no-store'}});
+ }
  if(path.endsWith('/heartbeat')){if(request.method!=='POST')return new Response('Method not allowed',{status:405});return recordScoutHeartbeat(request,env,collector);}
+ const targets=await scoutTargets(env);
  if(path.endsWith('/status')&&request.method==='GET'){
    const rows=[];
-   for(const item of ITEMS){
+   for(const item of targets){
      const latest=await env.SPAWN_DB.prepare('SELECT evidence_json,observed_at FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{evidence_json:string;observed_at:string}>();
      const ageSeconds=latest?Math.max(0,Math.floor((Date.now()-Date.parse(latest.observed_at))/1000)):null;
      const observation=latest?JSON.parse(latest.evidence_json):null;
@@ -54,8 +62,8 @@ export async function handleAmazonBrowser(request:Request,env:Env,ctx?:Execution
  if(!path.endsWith('/observe')||request.method!=='POST')return new Response('Method not allowed',{status:405});
  const text=await request.text();if(text.length>4000)return new Response('Too large',{status:413});
  let raw;try{raw=JSON.parse(text);}catch{return Response.json({error:'invalid_json'},{status:400});}
- const record=validateAmazonBrowserObservation(raw);if(!record)return Response.json({error:'invalid_observation'},{status:400});
- const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(record.asin,ITEMS.find(item=>item.asin===record.asin)!.category).first();
+ const record=validateAmazonBrowserObservation(raw,Date.now(),targets);if(!record)return Response.json({error:'invalid_observation'},{status:400});
+ const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(record.asin,targets.find(item=>item.asin===record.asin)!.category).first();
  if(!published)return Response.json({error:'not_published'},{status:409});
  const evidence=JSON.stringify({...record,collector});
  await env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_observations(id,asin,observed_at,received_at,collector_state,buying_options_shown,evidence_json) VALUES(?,?,?,?,?,?,?)').bind(record.id,record.asin,record.observedAt,new Date().toISOString(),record.collectorState,record.buyingOptionsShown===null?null:Number(record.buyingOptionsShown),evidence).run();

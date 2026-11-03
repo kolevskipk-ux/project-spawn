@@ -3,6 +3,15 @@ import datetime,json,pathlib,subprocess,time,re,os,urllib.request,urllib.error,s
 HOST_ENDPOINT='https://spawn.aztlan-eng.com/internal/scout-host/heartbeat'
 HOT={'B0H77VYKSM','B0H77XNKKK','B0H78BB9TY','B0H783FY5Z'}
 TARGETS=HOT|{'B0HG3MQDWP','B0H7817G9M','B0HG3RVZLW','B0H784PD4X','B0H77VZBX4','B0H77W4411','B0H77XCW4M','B0H7818YHY','B0H784PJ49','B0H786LQ7Z','B0H786RZD9','B0H786SFFS'}
+def snapshot_targets(snapshot):
+ catalog=snapshot.get('collectorCatalog')
+ if catalog is None:return set(TARGETS),None
+ if not isinstance(catalog,dict) or not isinstance(catalog.get('items'),list) or not 0<=len(catalog['items'])<=20:return set(),None
+ ids=[i.get('asin') for i in catalog['items'] if isinstance(i,dict)]
+ version=catalog.get('version')
+ if len(ids)!=len(catalog['items']) or any(not isinstance(i,str) or not re.fullmatch(r'[A-Z0-9]{10}',i) for i in ids) or len(set(ids))!=len(ids):return set(),None
+ if version is not None and (not isinstance(version,str) or not re.fullmatch(r'[a-f0-9]{64}',version)):return set(),None
+ return set(ids),version
 def epoch(value):
  try:
   if isinstance(value,(int,float)):return value/1000
@@ -52,13 +61,13 @@ def readable(row):
  return row.get('state') in ['available','sold_out','buying_options_shown'] or row.get('state')=='unknown' and row.get('reason') in ['NO_VERIFIED_FEATURED_OFFER','OTHER_SELLER_FEATURED','PRICE_OR_SELLER_UNCONFIRMED','OFFER_UNCONFIRMED'] and bool(row.get('title'))
 
 def summarize(snapshot,now):
- result={'snapshotAt':iso(snapshot.get('exportedAt'),now),'lastAttemptAt':None,'lastReadAt':None,'localFresh':0,'acceptedFresh':0,'runtimeErrors':0,'blockedReads':0,'identityErrors':0,'intakeFailures':0,'manualPaused':None,'enabled':None,'stopReason':None}
+ result={'targetCount':len(snapshot_targets(snapshot)[0]),'catalogVersion':snapshot_targets(snapshot)[1],'snapshotAt':iso(snapshot.get('exportedAt'),now),'lastAttemptAt':None,'lastReadAt':None,'localFresh':0,'acceptedFresh':0,'runtimeErrors':0,'blockedReads':0,'identityErrors':0,'intakeFailures':0,'manualPaused':None,'enabled':None,'stopReason':None}
  if result['snapshotAt']:
   for k in ['manualPaused','enabled']:
    if isinstance(snapshot.get(k),bool):result[k]=snapshot[k]
   reason=snapshot.get('stopReason');result['stopReason']=reason if reason in [None,'CHALLENGE','READ_FAILURES','RUN_FAILED','RELOADED'] else 'OTHER'
  attempts=[];successes=[]
- for asin in TARGETS:
+ for asin in snapshot_targets(snapshot)[0]:
   rows=snapshot.get('history',{}).get(asin,{}).get('checks',[])
   local=[];accepted=[]
   for r in rows:

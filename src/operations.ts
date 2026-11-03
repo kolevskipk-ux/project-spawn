@@ -1,3 +1,4 @@
+import {scoutCoverageOperations} from './scout-coverage-operations';
 import {scoutDiagnosisPanel} from './scout-diagnostics';
 import {scoutControlPanel,scoutRestartOperations} from './scout-control';
 import {customerOperations} from './customer-operations';
@@ -108,6 +109,7 @@ export async function operationsRoute(request: Request, env: Env, operator: Oper
   if (path === '/') return new Response(null,{status:302,headers:{location:'/ops','cache-control':'no-store'}});
   if (path === '/approvals' && url.searchParams.get('view') !== 'queue') return approvedInventoryOperations(request,env,operator);
   if (!path.startsWith('/ops')) return null;
+  if(path==='/ops/scout/coverage')return scoutCoverageOperations(request,env,operator);
   if(path==='/ops/scout/restart')return scoutRestartOperations(request,env,operator);
   if (path==='/ops/browser-fallback')return paidBrowserOperations(request,env,operator);
   if (path === '/ops/trusted-stores') return trustedStoreOperations(request,env,operator);

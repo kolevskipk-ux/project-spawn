@@ -51,4 +51,14 @@ class AdditionalSessionTests(unittest.TestCase):
    self.assertEqual(host.desktop_state(),'active')
   args=command.call_args.args[0];self.assertIn('--property=Type',args);self.assertIn('--property=Remote',args);self.assertNotIn('--property=Type,Class,Active,Remote',args)
 
+
+
+class DynamicHostTests(unittest.TestCase):
+ def test_reports_enrolled_catalog_and_its_version(self):
+  ids=list(host.TARGETS)+['B0HG3JBNBN','B0HG47DGH4','B0GXC89N66']
+  result=host.summarize({'collectorCatalog':{'version':'b'*64,'items':[{'asin':i} for i in ids]}},200000)
+  self.assertEqual(result['targetCount'],19);self.assertEqual(result['catalogVersion'],'b'*64);self.assertEqual(result['acceptedFresh'],0)
+ def test_malformed_catalog_does_not_become_legacy_healthy_coverage(self):
+  result=host.summarize({'collectorCatalog':{'version':'b'*64,'items':[{'asin':{}}]}},200000)
+  self.assertEqual(result['targetCount'],0);self.assertEqual(result['localFresh'],0)
 if __name__=='__main__':unittest.main()

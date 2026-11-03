@@ -1,8 +1,8 @@
 # Reliable store pilot
 
-## Final status reviewed October 19 2026
+## Current status reviewed November 2, 2026
 
-**Expired.** The fixed window ended October 15 at 01:53:47.969 UTC (October 14,
+**Expired; no renewal activated.** The fixed window ended October 15 at 01:53:47.969 UTC (October 14,
 19:53 Mexico City). The Spawn pilot flag remains enabled, but the expiry gate
 prevents new claims. Catch remains stores-only; expiry does not restart its legacy
 Amazon/marketplace acquisition. Paid browser fallback is disabled. The dedicated
@@ -27,6 +27,35 @@ transferred under explicit authorization and the marketplace service is installe
 The old pending-approval/transfer statements in the rollout history below are
 historical. See [Scout current state](scout-server-state.md) and the coordinated
 [functionality map](../GARFIELD_FUNCTIONALITY.md) for current releases and scope.
+
+## Prepared next validation window
+
+Philip requested preparation of a 24-hour run at a 30-minute cadence. This is
+not yet an activated renewal. Retain the 75 enrolled records, hold all six Dino
+Cards targets, and allow at most the 69 remaining targets across five stores,
+subject to existing approval/suppression/item checks. Two retained Ziggytoys
+failures require observation; historical pilot success does not certify present
+store health. No new target is enrolled and no baseline is reset.
+
+The prepared release supports explicit 10/30-minute pilot cadence configuration;
+production remains on its expired October window until approved activation.
+Claims stay capped at 12 per minute and existing quiet hours apply. A 429 holds
+its whole store. Expiry stops new claims; already leased work can finish within
+its existing three-minute lease. No paid browser, AI discovery, catalog crawling
+or legacy Amazon/marketplace acquisition is enabled by this run.
+
+Expected sizing at 69 eligible products is 138 primary product checks per active
+hour, one third of the old ten-minute pilot. Redirects/Shopify evidence fallback,
+errors, leases and backoff affect actual HTTP counts. This is not a billing cap.
+Before activation, capture account usage, enrolled/held counts and timestamps;
+freeze an expiry no more than 24 hours ahead and do not automatically renew it.
+Review fresh coverage, error/429 rates, delivery and usage before any continuation.
+
+Read-only November 1–2 account analytics recorded 2,288,970 D1 rows read and
+175,110 written across workloads. Worker CPU totals and requests were also
+captured in the local preflight audit. These figures are not a store-only invoice
+or a guarantee of no cost; provider analytics can lag. Record a fresh baseline
+at the actual activation time.
 
 ## Historical rollout on October 13 and 14
 

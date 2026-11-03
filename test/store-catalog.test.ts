@@ -506,3 +506,22 @@ it('imports exact Shopify product JSON when page JSON-LD is absent and retains p
  expect(db.prepare('SELECT availability_state FROM inventory WHERE canonical_url=?').get(url)?.availability_state).toBe('preorder_placeholder');
  expect(db.prepare('SELECT COUNT(*) n FROM store_monitor_targets WHERE url=?').get(url)?.n).toBe(1);
 });
+
+it('supports a thirty-minute bounded pilot without changing stored cadence or baselines',async()=>{
+ const at=new Date().toISOString();
+ db.prepare("INSERT INTO store_acquisitions(id,origin,retailer,vendor_key,status,created_at) VALUES('pilot-30',?,'Cards','cards','APPROVED',?)").run(origin,at);
+ for(let i=0;i<50;i++){
+  db.prepare("INSERT INTO store_monitor_targets(id,store_id,url,title,category,routing_key,created_at,next_due_at) VALUES(?,'pilot-30',?,'Pilot Cards','delta_reign','delta-reign',?,?)").run('p30-'+i,origin+'/products/p30-'+i,at,at);
+  db.prepare('INSERT INTO store_monitor_pilot VALUES(?,?,?,?)').run('p30-'+i,at,'owner','bounded validation');
+ }
+ Object.assign(env,{STORE_MONITORING_ENABLED:'true',CATCH_INGEST_SECRET:'fixture',STORE_MONITOR_PILOT_ENABLED:'true',STORE_MONITOR_PILOT_CADENCE_MINUTES:'30',STORE_MONITOR_PILOT_UNTIL:new Date(Date.now()+86400000-1000).toISOString()});
+ const call=(path:string,body:unknown)=>handleStoreMonitoring(new Request('https://spawn.example/internal/garfield/store-monitor/'+path,{method:'POST',headers:{authorization:'Bearer fixture'},body:JSON.stringify(body)}),env);
+ const c=await (await call('claim',{limit:999}))!.json() as any;expect(c.targets).toHaveLength(12);expect(c.targets.every((t:any)=>t.cadence_minutes===30)).toBe(true);
+ const target=c.targets[0];const {validStoreTarget}=await import('../../catch-em-all/src/store-monitor.js');expect(validStoreTarget(target)).toBe(true);
+ await call('observe',{id:target.id,lease_id:c.lease_id,state:'sold_out',price_mxn:1000,evidence:'exact-product'});
+ const saved=db.prepare('SELECT * FROM store_monitor_targets WHERE id=?').get(target.id) as any;expect(Date.parse(saved.next_due_at)-Date.parse(saved.last_observed_at)).toBe(1800000);expect(saved.cadence_minutes).toBe(60);expect(saved.baseline).toBe(target.baseline);
+ await call('observe',{id:c.targets[1].id,lease_id:c.lease_id,state:'blocked',evidence:'access_blocked_http_429'});expect((await (await call('claim',{limit:12}))!.json() as any).targets).toHaveLength(0);
+ env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()-1).toISOString();expect(await (await call('claim',{}))!.json()).toMatchObject({enabled:false});
+ env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()+86400000+60000).toISOString();expect(await (await call('claim',{}))!.json()).toMatchObject({enabled:false});
+ env.STORE_MONITOR_PILOT_UNTIL=new Date(Date.now()+3600000).toISOString();env.STORE_MONITOR_PILOT_CADENCE_MINUTES='1';expect(await (await call('claim',{}))!.json()).toMatchObject({enabled:false});
+});
