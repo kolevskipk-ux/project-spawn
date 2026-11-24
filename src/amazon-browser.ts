@@ -1,4 +1,4 @@
-import {scoutCatalog,scoutTargets,type ScoutTarget} from './scout-target-catalog';
+import {SCOUT_TARGET_CAP,SCOUT_EXPANDED_TARGET_CAP,scoutCatalog,scoutTargets,type ScoutTarget} from './scout-target-catalog';
 import {recordScoutHeartbeat,readableAmazonObservation} from './scout-health';
 import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
@@ -42,8 +42,9 @@ export async function handleAmazonBrowser(request:Request,env:Env,ctx?:Execution
  if(path.endsWith('/targets')){
   if(collector!=='server')return Response.json({error:'unauthorized'},{status:401});
   if(request.method!=='GET')return new Response('Method not allowed',{status:405});
-  const catalog=await scoutCatalog(env);
-  return Response.json({schemaVersion:1,version:catalog.version,generatedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+1800000).toISOString(),maxTargets:20,items:catalog.targets,excluded:catalog.excluded.slice(0,20),excludedCount:catalog.excluded.length},{headers:{'cache-control':'no-store'}});
+  const expanded=new URL(request.url).searchParams.get('schema')==='2';
+  const catalog=await scoutCatalog(env,expanded);
+  return Response.json({schemaVersion:expanded?2:1,version:catalog.version,generatedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+1800000).toISOString(),maxTargets:expanded?SCOUT_EXPANDED_TARGET_CAP:SCOUT_TARGET_CAP,items:catalog.targets,excluded:catalog.excluded.slice(0,20),excludedCount:catalog.excluded.length},{headers:{'cache-control':'no-store'}});
  }
  if(path.endsWith('/heartbeat')){if(request.method!=='POST')return new Response('Method not allowed',{status:405});return recordScoutHeartbeat(request,env,collector);}
  const targets=await scoutTargets(env);

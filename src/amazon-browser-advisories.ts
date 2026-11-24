@@ -4,7 +4,7 @@ import {ITEMS} from './amazon-browser-targets';
 
 export async function claimAmazonBrowserAdvisories(env:Env,now=new Date(),asin?:string){
  const time=now.toISOString(),cutoff=new Date(now.getTime()-10*60000).toISOString(),cooldown=new Date(now.getTime()-60*60000).toISOString(),events=[];
- for(const item of (await scoutTargets(env)).filter(item=>!asin||item.asin===asin)){
+ for(const item of (await scoutTargets(env)).filter(item=>item.category!=='flowing_fists'&&(!asin||item.asin===asin))){
   const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(item.asin,item.category).first();
   if(!published)continue;
   const latest=await env.SPAWN_DB.prepare('SELECT id,observed_at,collector_state,evidence_json,buying_options_shown FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{id:string;observed_at:string;buying_options_shown:number|null;collector_state:string;evidence_json:string}>();

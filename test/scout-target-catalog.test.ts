@@ -28,9 +28,9 @@ describe('bounded published Scout catalog',()=>{
   for(const r of [...base(),...extras()])db.prepare('INSERT INTO amazon_watchlist VALUES(?,?,?,?,?,?,?)').run(r.asin,r.product_name,r.product_url,r.watch_category,r.language,r.approved_at,'PUBLISHED');
   const env:any={SCOUT_DYNAMIC_TARGETS_ENABLED:'true',SPAWN_DB:{prepare(sql:string){return {async all(){return {results:db.prepare(sql).all()};}};}}};
   try{
-   expect((await scoutCatalog(env)).targets).toHaveLength(19);const version=(await scoutCatalog(env)).version;expect(version).toMatch(/^[a-f0-9]{64}$/);
+   expect((await scoutCatalog(env)).targets).toHaveLength(27);expect((await scoutCatalog(env,false)).targets).toHaveLength(19);const version=(await scoutCatalog(env)).version;expect(version).toMatch(/^[a-f0-9]{64}$/);
    db.prepare('INSERT INTO inventory VALUES(?,?)').run('removed','https://www.amazon.com.mx/dp/B0HG47DGH4');db.prepare('INSERT INTO inventory_admin_reviews VALUES(?,?)').run('removed','2026-11-02');
-   expect((await scoutCatalog(env)).targets).toHaveLength(18);expect((await scoutCatalog(env)).version).not.toBe(version);
+   expect((await scoutCatalog(env)).targets).toHaveLength(26);expect((await scoutCatalog(env)).version).not.toBe(version);
    env.SCOUT_DYNAMIC_TARGETS_ENABLED='false';expect((await scoutCatalog(env)).targets).toHaveLength(16);expect((await scoutCatalog(env)).version).toBeNull();
   }finally{db.close();}
  });
