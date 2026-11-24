@@ -2,6 +2,17 @@ import type {Env} from './types';
 import {ITEMS} from './amazon-browser-targets';
 export const SCOUT_TARGET_CAP=20;
 export type ScoutTarget={asin:string;name:string;url:string;titlePattern:string;category:string;routingKey:string};
+const flowingFistsTargets: ScoutTarget[] = [
+ ['B0HS8RG5C9', 'Flowing Fists Elite Trainer Box', 'flowing fists.*elite trainer box'],
+ ['B0HS8R9NPW', 'Flowing Fists Booster Bundle', 'flowing fists.*booster bundle'],
+ ['B0HS8R3NH8', 'Flowing Fists Three-Booster Blister', 'flowing fists.*(?:three|3)[ -]*booster.*blister'],
+ ['B0HS8VTZ9P', 'Flowing Fists Build & Battle Box', 'flowing fists.*build.*battle'],
+ ['B0HS8M7T3F', 'Puños Fluidos Caja de Entrenador Élite', 'entrenador [eé]lite.*puños fluidos'],
+ ['B0HS8JTYQQ', 'Puños Fluidos Paquete de Sobres de Refuerzo', 'paquete.*sobres de refuerzo.*puños fluidos'],
+ ['B0HS8HXVRC', 'Puños Fluidos Blíster de 3 Sobres de Refuerzo', 'bl[ií]ster.*3 sobres.*puños fluidos'],
+ ['B0HS8PWKTF', 'Puños Fluidos Caja de Combina y Combate', 'combina y combate.*puños fluidos'],
+].map(([asin,name,titlePattern])=>({asin,name,titlePattern,url:'https://www.amazon.com.mx/dp/'+asin,category:'flowing_fists',routingKey:'flowing-fists'}));
+export const SCOUT_EXPANDED_TARGET_CAP=SCOUT_TARGET_CAP+flowingFistsTargets.length;
 export type PublishedTarget={asin:string;product_name:string;product_url:string;watch_category:string;language:string;approved_at:string};
 const routes:Record<string,string>={'30th_celebration':'pokemon-30th','delta_reign':'delta-reign','mtg_hobbit_collector_box':'magic-hobbit'};
 const reviewed:Record<string,string>={B0HG3JBNBN:'delta.*(?:three|3).*booster.*blister',B0HG47DGH4:'delta.*build.*battle',B0GXC89N66:'hobbit.*collector.*booster.*(?:box|display)'};
@@ -32,11 +43,12 @@ export function resolveScoutCatalog(rows:PublishedTarget[]){
  }
  return {targets,excluded};
 }
-export async function scoutCatalog(env:Env){
+export async function scoutCatalog(env:Env, includeFlowingFists=true){
  if(env.SCOUT_DYNAMIC_TARGETS_ENABLED!=='true')return {targets:ITEMS as ScoutTarget[],excluded:[],version:null as string|null};
  const rows=(await env.SPAWN_DB.prepare("SELECT asin,product_name,product_url,watch_category,language,approved_at FROM amazon_watchlist WHERE lifecycle_status='PUBLISHED' AND NOT EXISTS(SELECT 1 FROM inventory_admin_reviews r JOIN inventory i ON i.listing_key=r.listing_key WHERE i.canonical_url=amazon_watchlist.product_url AND r.removed_at IS NOT NULL) ORDER BY approved_at,asin LIMIT 201").all<PublishedTarget>()).results;
  if(rows.length>200)throw Error('Published catalog exceeds bounded review limit');
  const catalog=resolveScoutCatalog(rows);
+ if(includeFlowingFists)catalog.targets.push(...flowingFistsTargets);
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(catalog.targets)));
  return {...catalog,version:[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')};
 }
