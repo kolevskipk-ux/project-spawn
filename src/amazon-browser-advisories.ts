@@ -1,11 +1,11 @@
-import {scoutTargets} from './scout-target-catalog';
+import {flowingFistsAlertAsins,scoutTargets} from './scout-target-catalog';
 import type {Env} from './types';
 import {ITEMS} from './amazon-browser-targets';
 
 export async function claimAmazonBrowserAdvisories(env:Env,now=new Date(),asin?:string){
  const time=now.toISOString(),cutoff=new Date(now.getTime()-10*60000).toISOString(),cooldown=new Date(now.getTime()-60*60000).toISOString(),events=[];
- for(const item of (await scoutTargets(env)).filter(item=>item.category!=='flowing_fists'&&(!asin||item.asin===asin))){
-  const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(item.asin,item.category).first();
+ for(const item of (await scoutTargets(env)).filter(item=>(item.category!=='flowing_fists'||flowingFistsAlertAsins.has(item.asin))&&(!asin||item.asin===asin))){
+  const published=item.category==='flowing_fists'||await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(item.asin,item.category).first();
   if(!published)continue;
   const latest=await env.SPAWN_DB.prepare('SELECT id,observed_at,collector_state,evidence_json,buying_options_shown FROM amazon_browser_observations WHERE asin=? ORDER BY observed_at DESC,received_at DESC,id DESC LIMIT 1').bind(item.asin).first<{id:string;observed_at:string;buying_options_shown:number|null;collector_state:string;evidence_json:string}>();
   if(!latest||latest.observed_at<cutoff||latest.observed_at>time||latest.buying_options_shown===null)continue;
@@ -19,7 +19,7 @@ export async function claimAmazonBrowserAdvisories(env:Env,now=new Date(),asin?:
   // D1 batches are transactional. Queue creation and state advancement are one
   // operation, so overlapping polls and two collectors cannot create two episodes.
   await env.SPAWN_DB.batch([
-   ITEMS.some(base=>base.asin===item.asin)?env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_advisory_state(asin) VALUES(?)').bind(item.asin):env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_advisory_state(asin,last_signal,last_observed_at) VALUES(?,?,?)').bind(item.asin,signal,latest.observed_at),
+   (item.category==='flowing_fists'||ITEMS.some(base=>base.asin===item.asin))?env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_advisory_state(asin) VALUES(?)').bind(item.asin):env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_advisory_state(asin,last_signal,last_observed_at) VALUES(?,?,?)').bind(item.asin,signal,latest.observed_at),
    env.SPAWN_DB.prepare(`INSERT OR IGNORE INTO amazon_browser_advisories(id,asin,observation_id,observed_at,created_at,expires_at)
     SELECT ?,?,?,?,?,? FROM amazon_browser_advisory_state WHERE asin=? AND last_observed_at<? AND last_signal<? AND ?>0 AND (last_queued_at IS NULL OR last_queued_at<=? OR (?=2 AND NOT EXISTS(SELECT 1 FROM amazon_browser_advisories WHERE asin=? AND id LIKE 'amazon-featured:%' AND created_at>?)))`).bind(id,item.asin,latest.id,latest.observed_at,time,expires,item.asin,latest.observed_at,signal,signal,cooldown,signal,item.asin,cooldown),
    env.SPAWN_DB.prepare(`UPDATE amazon_browser_advisory_state SET last_signal=?,last_observed_at=?,last_queued_at=CASE WHEN EXISTS(SELECT 1 FROM amazon_browser_advisories WHERE id=?) THEN ? ELSE last_queued_at END WHERE asin=? AND last_observed_at<?`).bind(signal,latest.observed_at,id,time,item.asin,latest.observed_at),
@@ -48,7 +48,17 @@ export async function handleAmazonBrowserAdvisories(request:Request,env:Env):Pro
   let asin:string|undefined;
   const raw=await request.text();
   if(raw.length>100)return Response.json({error:'too_large'},{status:413});
-  if(raw){try{const body=JSON.parse(raw);if(typeof body.asin!=='string'||!(await scoutTargets(env)).some(i=>i.asin===body.asin))return Response.json({error:'invalid_target'},{status:400});asin=body.asin;}catch{return Response.json({error:'invalid_json'},{status:400});}}
+  if(raw){try{const body=JSON.parse(raw);
+   if(typeof body.testId==='string'&&/^[a-f0-9-]{36}$/.test(body.testId)){
+    const now=Date.now();
+    const events=(await scoutTargets(env)).filter(item=>flowingFistsAlertAsins.has(item.asin)).map(item=>({
+     id:'amazon-options:'+item.asin+':readiness-'+body.testId,asin:item.asin,claim_token:body.testId,
+     kind:'BUYING_OPTIONS_SHOWN',routing_key:item.routingKey,url:item.url,product_name:item.name,stock_verified:false,
+     observed_at:new Date(now).toISOString(),expires_at:new Date(now+600000).toISOString(),readiness_test:true,
+    }));
+    return Response.json({events,enabled:true});
+   }
+   if(typeof body.asin!=='string'||!(await scoutTargets(env)).some(i=>i.asin===body.asin))return Response.json({error:'invalid_target'},{status:400});asin=body.asin;}catch{return Response.json({error:'invalid_json'},{status:400});}}
   return Response.json({events:await claimAmazonBrowserAdvisories(env,new Date(),asin),enabled:true});
  }
  let body:any;try{const raw=await request.text();if(raw.length>1000)return new Response('Too large',{status:413});body=JSON.parse(raw);}catch{return Response.json({error:'invalid_json'},{status:400});}

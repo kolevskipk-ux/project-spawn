@@ -1,0 +1,7 @@
+[Unit]
+Description=Check Scout drop catalog and observation readiness
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/share/scout-firefox-test/check-scout-drop-readiness.py
+TimeoutStartSec=75

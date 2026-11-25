@@ -40,3 +40,5 @@ Rollback: clear the installed collector credential to return to local-only opera
 The schema-alignment test's old expectation that production revalidation is enabled was corrected to reflect the already-deployed September 19 pause. Production configuration itself is unchanged.
 
 If customer distribution is later requested, add a separately reviewed advisory event with the same unverified wording and its own freshness/deduplication rules. Do not route this signal through Catch's current BUYABLE NOW event.
+
+For new expansion rollouts and missed-drop investigations, use the [Amazon México drop readiness workflow](amazon-drop-readiness.md).

@@ -12,6 +12,7 @@ const flowingFistsTargets: ScoutTarget[] = [
  ['B0HS8HXVRC', 'Puños Fluidos Blíster de 3 Sobres de Refuerzo', 'bl[ií]ster.*3 sobres.*puños fluidos'],
  ['B0HS8PWKTF', 'Puños Fluidos Caja de Combina y Combate', 'combina y combate.*puños fluidos'],
 ].map(([asin,name,titlePattern])=>({asin,name,titlePattern,url:'https://www.amazon.com.mx/dp/'+asin,category:'flowing_fists',routingKey:'flowing-fists'}));
+export const flowingFistsAlertAsins = new Set(flowingFistsTargets.slice(0,4).map(target=>target.asin));
 export const SCOUT_EXPANDED_TARGET_CAP=SCOUT_TARGET_CAP+flowingFistsTargets.length;
 export type PublishedTarget={asin:string;product_name:string;product_url:string;watch_category:string;language:string;approved_at:string};
 const routes:Record<string,string>={'30th_celebration':'pokemon-30th','delta_reign':'delta-reign','mtg_hobbit_collector_box':'magic-hobbit'};
