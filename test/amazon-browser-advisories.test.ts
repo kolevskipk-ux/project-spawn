@@ -124,3 +124,26 @@ it('baselines a newly enrolled product without an initial advisory and alerts on
   f.observe(1,3);const events=await f.poll(3);expect(events).toHaveLength(1);expect(events[0].routing_key).toBe('delta-reign');
  }finally{f.db.close();}
 });
+
+it('persists English and Spanish Scout-only receipts and queues only the English offer',async()=>{
+ const f=fixture();
+ try{
+  const {handleAmazonBrowser}=await import('../src/amazon-browser');
+  f.env.AMAZON_SERVER_COLLECTOR_TOKEN='fixture-server';
+  f.env.SCOUT_DYNAMIC_TARGETS_ENABLED='true';
+  const prepare=f.env.SPAWN_DB.prepare;
+  f.env.SPAWN_DB.prepare=(sql:string)=>sql.startsWith('SELECT asin,product_name,product_url')?{async all(){return {results:[]};}}:prepare(sql);
+  const english='B0HS8R9NPW',spanish='B0HS8JTYQQ',now=new Date();
+  for(const [asin,title] of [[english,'Pokémon Flowing Fists Booster Bundle'],[spanish,'Pokémon Paquete de Sobres de Refuerzo de Megaevolución-Puños Fluidos']]){
+   const payload={schemaVersion:1,source:'amazon_edge',id:crypto.randomUUID(),asin,url:'https://www.amazon.com.mx/dp/'+asin,title,observedAt:now.toISOString(),state:'available',reason:'VERIFIED_FEATURED_OFFER',buyingOptionsShown:false,...featuredOffer};
+   const receipt=await handleAmazonBrowser(new Request('https://spawn.test/internal/amazon-browser/observe',{method:'POST',headers:{authorization:'Bearer fixture-server'},body:JSON.stringify(payload)}),f.env);
+   expect(receipt?.status).toBe(200);
+   expect(await receipt?.json()).toMatchObject({id:payload.id,inventoryUpdated:false});
+  }
+  expect(f.db.prepare('SELECT COUNT(*) n FROM amazon_browser_observations').get()?.n).toBe(2);
+  const [advisory]=await claimAmazonBrowserAdvisories(f.env,now);
+  expect(advisory).toMatchObject({asin:english,routing_key:'flowing-fists',kind:'FEATURED_OFFER_AVAILABLE'});
+  expect(f.db.prepare('SELECT COUNT(*) n FROM amazon_browser_advisories').get()?.n).toBe(1);
+  expect(f.db.prepare("SELECT COUNT(*) n FROM amazon_watchlist WHERE watch_category='flowing_fists'").get()?.n).toBe(0);
+ }finally{f.db.close();}
+});

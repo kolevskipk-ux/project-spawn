@@ -1,4 +1,4 @@
-import {SCOUT_TARGET_CAP,SCOUT_EXPANDED_TARGET_CAP,scoutCatalog,scoutTargets,type ScoutTarget} from './scout-target-catalog';
+import {SCOUT_TARGET_CAP,SCOUT_EXPANDED_TARGET_CAP,flowingFistsAlertAsins,scoutCatalog,scoutTargets,type ScoutTarget} from './scout-target-catalog';
 import {recordScoutHeartbeat,readableAmazonObservation} from './scout-health';
 import {wakeBrowserDelivery} from './amazon-browser-dispatch';
 import type {Env} from './types';
@@ -32,13 +32,21 @@ export function validateAmazonBrowserObservation(body:any,now=Date.now(),targets
 
 export async function handleAmazonBrowser(request:Request,env:Env,ctx?:ExecutionContext):Promise<Response|null>{
  const path=new URL(request.url).pathname;
- if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status','/internal/amazon-browser/heartbeat','/internal/amazon-browser/targets'].includes(path))return null;
+ if(!['/internal/amazon-browser/observe','/internal/amazon-browser/status','/internal/amazon-browser/heartbeat','/internal/amazon-browser/targets','/internal/amazon-browser/readiness-test'].includes(path))return null;
  const authorization=request.headers.get('authorization');
  const collectors=[['desktop',env.AMAZON_COLLECTOR_TOKEN],['laptop',env.AMAZON_LAPTOP_COLLECTOR_TOKEN],['server',env.AMAZON_SERVER_COLLECTOR_TOKEN]] as const;
  const matches=collectors.filter(([,token])=>!!token&&authorization===`Bearer ${token}`);
  if(matches.length!==1)return Response.json({error:'unauthorized'},{status:401});
  const [collector,token]=matches[0];
  if([env.WALMART_COLLECTOR_TOKEN,env.MERCADOLIBRE_COLLECTOR_TOKEN,env.CATCH_INGEST_SECRET,env.RUN_TOKEN].includes(token))return Response.json({error:'unauthorized'},{status:401});
+ if(path.endsWith('/readiness-test')){
+  if(collector!=='server')return Response.json({error:'unauthorized'},{status:401});
+  if(request.method!=='POST')return new Response('Method not allowed',{status:405});
+  const testId=new URL(request.url).searchParams.get('id');
+  if(!testId||!/^[a-f0-9-]{36}$/.test(testId))return Response.json({error:'invalid_test_id'},{status:400});
+  if(env.SCOUT_DYNAMIC_TARGETS_ENABLED!=='true')return Response.json({error:'catalog_disabled'},{status:409});
+  return await wakeBrowserDelivery(env,undefined,fetch,testId)??Response.json({error:'delivery_disabled'},{status:503});
+ }
  if(path.endsWith('/targets')){
   if(collector!=='server')return Response.json({error:'unauthorized'},{status:401});
   if(request.method!=='GET')return new Response('Method not allowed',{status:405});
@@ -64,13 +72,15 @@ export async function handleAmazonBrowser(request:Request,env:Env,ctx?:Execution
  const text=await request.text();if(text.length>4000)return new Response('Too large',{status:413});
  let raw;try{raw=JSON.parse(text);}catch{return Response.json({error:'invalid_json'},{status:400});}
  const record=validateAmazonBrowserObservation(raw,Date.now(),targets);if(!record)return Response.json({error:'invalid_observation'},{status:400});
- const published=await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(record.asin,targets.find(item=>item.asin===record.asin)!.category).first();
+ const target=targets.find(item=>item.asin===record.asin)!;
+ const scoutOnlyIntake=target.category==='flowing_fists';
+ const published=scoutOnlyIntake||await env.SPAWN_DB.prepare("SELECT asin FROM amazon_watchlist WHERE asin=? AND lifecycle_status='PUBLISHED' AND watch_category=?").bind(record.asin,targets.find(item=>item.asin===record.asin)!.category).first();
  if(!published)return Response.json({error:'not_published'},{status:409});
  const evidence=JSON.stringify({...record,collector});
  await env.SPAWN_DB.prepare('INSERT OR IGNORE INTO amazon_browser_observations(id,asin,observed_at,received_at,collector_state,buying_options_shown,evidence_json) VALUES(?,?,?,?,?,?,?)').bind(record.id,record.asin,record.observedAt,new Date().toISOString(),record.collectorState,record.buyingOptionsShown===null?null:Number(record.buyingOptionsShown),evidence).run();
  const receipt=await env.SPAWN_DB.prepare('SELECT evidence_json FROM amazon_browser_observations WHERE id=?').bind(record.id).first<{evidence_json:string}>();
  if(!receipt)return Response.json({error:'observation_not_persisted'},{status:500});
  if(receipt.evidence_json!==evidence)return Response.json({error:'observation_id_conflict'},{status:409});
- if(ctx&&['available','buying_options_shown','sold_out'].includes(record.collectorState))ctx.waitUntil(wakeBrowserDelivery(env,record.asin).catch(()=>console.error('Immediate browser delivery unavailable; scheduled fallback retained')));
+ if(ctx&&(!scoutOnlyIntake||flowingFistsAlertAsins.has(record.asin))&&['available','buying_options_shown','sold_out'].includes(record.collectorState))ctx.waitUntil(wakeBrowserDelivery(env,record.asin).catch(()=>console.error('Immediate browser delivery unavailable; scheduled fallback retained')));
  return Response.json({ok:true,id:record.id,availabilityState:'unknown',label:record.label,inventoryUpdated:false,customerAlertSent:false});
 }
